@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  cpp:
+    name: C++ / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build/ci
+          -DDP_BUILD_PYTHON_BINDINGS=OFF
+          -DDP_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build/ci --parallel
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure
+
+  python:
+    name: Python binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q

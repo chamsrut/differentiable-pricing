@@ -1,0 +1,42 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.10",
+    "pybind11>=2.13",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "differentiable-pricing"
+version = "0.1.0"
+description = "Classical C++ and neural derivative-pricing research"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+train = [
+    "numpy>=2.0",
+    "pyarrow>=17",
+    "torch>=2.4",
+]
+dev = [
+    "pytest>=8",
+    "ruff>=0.9",
+]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+wheel.packages = ["python/src/differentiable_pricing"]
+build-dir = "build/python/{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+addopts = "--strict-markers"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+

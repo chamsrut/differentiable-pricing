@@ -1,0 +1,33 @@
+[project]
+name = "differentiable-pricing"
+current_stage = "european-option"
+
+[numerics]
+floating_point = "float64"
+deterministic_seed = 20260726
+
+[european_option]
+model = "black-scholes"
+option_types = ["call", "put"]
+
+[american_option]
+model = "geometric-brownian-motion"
+reference_pricer = "crr-binomial"
+target = "european-price-plus-early-exercise-premium"
+
+[rates]
+currency = "GBP"
+initial_model = "hull-white-1f"
+extension_model = "g2pp"
+
+[surrogate]
+hidden_activation = "tanh"
+output = "scalar-price"
+cpp_reverse_mode_gradient = true
+
+[provisional_tolerances]
+python_cpp_price_absolute = 1.0e-10
+python_cpp_gradient_absolute = 1.0e-9
+bermudan_p99_price_error_bps = 0.5
+bermudan_p95_dv01_relative_error = 0.02
+

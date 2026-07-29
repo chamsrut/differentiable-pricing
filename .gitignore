@@ -1,0 +1,30 @@
+# Builds and native artifacts
+/build/
+*.so
+*.dylib
+*.dll
+*.o
+*.obj
+
+# Python
+/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Research artifacts: track schemas/configs, not generated bulk data
+/data/
+/artifacts/
+/runs/
+/checkpoints/
+*.parquet
+*.pt
+*.pth
+*.onnx
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
