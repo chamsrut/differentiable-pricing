@@ -42,6 +42,9 @@ full experimental contract is in
 - Python parity tests for the installed extension.
 - A deterministic, versioned European-option dataset generator whose only
   pricing oracle is the compiled C++ binding.
+- A deterministic dataset diagnostic tool: hash verification, per-split
+  distribution statistics, standardized-moneyness stratification, and rowwise
+  no-arbitrage bound checks.
 - Deterministic repository checks, CI, a Claude Code post-edit hook, and two
   read-only clean-context review agents.
 
@@ -157,6 +160,88 @@ low-volatility, deep-moneyness corner where the price underflows towards zero
 and delta saturates; the manifest's `label_diagnostics` block counts them per
 partition so downstream metrics can stratify rather than average them away.
 The boundary partition those rows really belong in is still to be built.
+
+### Diagnose a generated dataset
+
+Once a dataset exists, describe it deterministically:
+
+```bash
+python -m differentiable_pricing.data.diagnose \
+  --dataset data/european-option-v1 \
+  --output data/european-option-v1/diagnostics.json
+```
+
+The tool validates `manifest.json` and verifies the SHA-256 of *every* declared
+Parquet file **before** it opens any of them, then writes one versioned JSON
+report (`diagnostics_schema_version`) containing, per split:
+
+- row count, call/put counts, and finite/non-finite counts;
+- min, max, mean, standard deviation, and p01/p05/p50/p95/p99 for every input,
+  the price, and every Greek;
+- standardized-moneyness bands over
+  `absolute_z = |log_forward_moneyness| / (volatility * sqrt(maturity))`:
+  core (`<= 4`), tail (`4 < z <= 8`), extreme (`> 8`), with counts and
+  proportions;
+- near-zero-price and saturated-delta counts recomputed under the thresholds
+  **recorded in that dataset's manifest**, and compared with the counts the
+  manifest recorded;
+- rowwise European no-arbitrage bound checks, with violation counts and the
+  raw maximum violation magnitude;
+- observed per-column ranges against the sampling domain the manifest
+  declares;
+- duplicate sample identifiers, duplicate *economic states*, intersections of
+  both between splits, and manifest/Parquet row-count and schema agreement.
+
+The report has no timestamp and no run identifier, and every list is sorted, so
+two runs over identical input bytes produce a byte-identical file. As with the
+generator, float summaries are reproducible for a fixed toolchain; counts and
+digests are exact everywhere.
+
+Exit status is `0` when no findings were raised, `3` when the dataset is
+readable but something was reported (duplicate identifiers, cross-split
+identifier leakage, bound violations, non-finite values, disagreement with the
+manifest), and `2` when the dataset could not be trusted enough to describe at
+all (missing, undeclared, or hash-mismatched Parquet file, malformed manifest,
+wrong schema, unknown `option_type`, or a manifest row count that disagrees
+with the Parquet footer). `manifest.json` is not itself hashed, so that last
+check is the only guard against a manifest edited in isolation.
+
+**How to read the output**
+
+- These are **dataset diagnostics, not model-performance metrics.** Every
+  number describes the stored bytes. Nothing here is evidence that a surrogate
+  can price anything, and a clean report is a precondition for an experiment,
+  not a result of one.
+- **Extreme-`z` rows must be evaluated separately.** They price to within
+  float64 noise of intrinsic value, so they carry almost no gradient signal and
+  relative price error over them is meaningless. Stratify them out of headline
+  metrics and report them as their own slice; do not delete them and do not
+  average them away.
+- Bound violations are counted against a documented float64 tolerance of
+  `1e-12` relative to `max(discounted_spot, discounted_strike)`, about four
+  orders of magnitude above rounding noise. The reported maximum magnitudes are
+  raw, so remaining head room stays visible.
+- Two leakage checks are reported and they are not equivalent. Sample
+  identifiers are `<split>-<index>` by construction, so an identifier
+  intersection means a corrupted identifier column, not leakage. The
+  **state** check — exact float64 equality over `(option_type, spot, strike,
+  maturity, rate, dividend_yield, volatility)` — is the one the research
+  contract asks for. It finds duplicated states, not *near*-duplicate ones;
+  near-duplicate detection needs a declared quantization of the input space,
+  which this project has not fixed yet.
+- Statistics are pooled over a whole split, not conditioned on the moneyness
+  band. Before quoting a p95 or p99 of price, gamma, or vega as a property of
+  the tradable region, recompute it per band from the stored columns.
+- **Black--Scholes is analytic and will often be faster than the network.**
+  Stage 1 is a *correctness* experiment: it exists to expose normalization,
+  derivative, sampling, and implementation errors against closed-form truth. It
+  is not, and cannot be, a latency-win claim. A latency argument only becomes
+  meaningful for references that are genuinely expensive (trees, PDE, LSM), and
+  then only end-to-end, with feature transforms, serialization, batching, and
+  derivative cost all counted.
+
+The generated dataset and its diagnostics live under `data/`, which Git
+ignores.
 
 Black--Scholes provides exact labels at stage 1. Later, trees/PDE/Monte Carlo
 provide labels with convergence and standard-error diagnostics. Market data
