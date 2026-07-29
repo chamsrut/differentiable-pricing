@@ -1,0 +1,10 @@
+name: diff-pricing
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - "cmake>=3.20,<4"
+  - ninja
+  - pip

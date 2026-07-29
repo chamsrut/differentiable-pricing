@@ -58,9 +58,11 @@ def main() -> int:
             if shutil.which("ruff"):
                 return run(["ruff", "check", str(path)])
             return run([sys.executable, "-m", "py_compile", str(path)])
-        elif path.suffix in {".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx"}:
-            if shutil.which("clang-format"):
-                return run(["clang-format", "--dry-run", "--Werror", str(path)])
+        elif (
+            path.suffix in {".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx"}
+            and shutil.which("clang-format")
+        ):
+            return run(["clang-format", "--dry-run", "--Werror", str(path)])
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
         return fail(f"{path}: {error}")
 

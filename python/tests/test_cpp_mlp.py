@@ -1,7 +1,6 @@
 import math
 
 import pytest
-
 from differentiable_pricing import DenseLayer, SmoothMlp
 
 
