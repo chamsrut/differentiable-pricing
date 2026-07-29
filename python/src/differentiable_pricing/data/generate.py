@@ -259,27 +259,36 @@ def build_table(config: DatasetConfig, split: str) -> pa.Table:
     )
 
 
-def label_diagnostics(table: pa.Table) -> dict[str, int]:
-    """Count degenerate rows so the manifest exposes the low-information tail."""
+def label_diagnostics(
+    table: pa.Table,
+    thresholds: Mapping[str, float] = LABEL_DIAGNOSTICS_THRESHOLDS,
+) -> dict[str, int]:
+    """Count degenerate rows so the manifest exposes the low-information tail.
+
+    ``thresholds`` defaults to :data:`LABEL_DIAGNOSTICS_THRESHOLDS`, the values
+    generation records in the manifest. It is a parameter so that a consumer
+    reading an already-written dataset can recompute these counts under the
+    thresholds that dataset was published with, rather than under whatever the
+    installed generator currently declares.
+    """
     price = table.column("price").to_numpy()
     delta = np.abs(table.column("delta").to_numpy())
     dividend_yield = table.column("dividend_yield").to_numpy()
     maturity = table.column("maturity").to_numpy()
 
     delta_bound = np.exp(-dividend_yield * maturity)
-    tolerance = LABEL_DIAGNOSTICS_THRESHOLDS["saturated_delta"]
+    tolerance = thresholds["saturated_delta"]
     saturated = (delta <= tolerance) | (delta_bound - delta <= tolerance)
     return {
         "rows": table.num_rows,
         "zero_price_rows": int((price == 0.0).sum()),
-        "near_zero_price_rows": int(
-            (price <= LABEL_DIAGNOSTICS_THRESHOLDS["near_zero_price"]).sum()
-        ),
+        "near_zero_price_rows": int((price <= thresholds["near_zero_price"]).sum()),
         "saturated_delta_rows": int(saturated.sum()),
     }
 
 
-def _sha256_file(path: Path) -> str:
+def sha256_file(path: Path) -> str:
+    """Return the hex SHA-256 of ``path``, read in bounded chunks."""
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1 << 20), b""):
@@ -376,7 +385,7 @@ def generate_dataset(
                     "split": split,
                     "file": path.name,
                     "rows": table.num_rows,
-                    "sha256": _sha256_file(path),
+                    "sha256": sha256_file(path),
                     "diagnostics": label_diagnostics(table),
                 }
             )
