@@ -22,7 +22,12 @@ in Python merely to make a test pass.
 
 ## Commands
 
-Run the full local gate:
+Run the full local gate. It compiles Python and hook sources, validates the
+TOML and JSON configuration, runs Ruff and clang-format, builds and runs the
+C++ tests, and finishes with the full Python suite (`python3 -m pytest -q`).
+It therefore needs the editable install below; a missing pytest fails the gate
+rather than skipping it. `--quick` (used by the pre-commit hook) stops after
+the C++ tests and does not run the Python suite.
 
 ```bash
 ./scripts/check.sh
@@ -39,10 +44,13 @@ ctest --test-dir build/dev --output-on-failure
 Build and test the Python extension:
 
 ```bash
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[dev,data]'
 pytest -q
 ruff check .
 ```
+
+The `data` extra (NumPy and PyArrow) is required by the dataset tests, so the
+full gate needs it too.
 
 ## Numerical non-negotiables
 

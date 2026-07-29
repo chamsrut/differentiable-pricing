@@ -18,7 +18,7 @@ import json
 import tomllib
 from pathlib import Path
 
-for path in (Path("pyproject.toml"), Path("configs/base.toml")):
+for path in (Path("pyproject.toml"), *sorted(Path("configs").glob("*.toml"))):
     with path.open("rb") as stream:
         tomllib.load(stream)
 
@@ -50,3 +50,14 @@ cmake -S . -B build/check \
     -DDP_WARNINGS_AS_ERRORS=ON
 cmake --build build/check --parallel
 ctest --test-dir build/check --output-on-failure
+
+# The Python suite covers the pybind11 boundary and the dataset generator, so
+# the full gate must run it. It is deliberately not guarded by an availability
+# check: a missing pytest or a missing editable install is a failed gate, not a
+# silently skipped one.
+if ! python3 -c "import pytest" >/dev/null 2>&1; then
+    echo "error: pytest is not importable; install the package with" \
+        "python -m pip install -e '.[dev,data]'" >&2
+    exit 1
+fi
+python3 -m pytest -q

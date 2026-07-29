@@ -1,0 +1,54 @@
+# European-option dataset, version 1.
+#
+# Labels come from the compiled C++ analytic Black-Scholes oracle
+# (`dp::black_scholes`). Python never reimplements the pricing formula.
+#
+# WARNING: the sampling box below is a provisional synthetic *engineering*
+# range chosen to exercise the surrogate over a bounded, well-conditioned
+# domain. It is not a calibrated market distribution: draws are independent
+# and uniform, so joint structure that real markets exhibit (skew, term
+# structure, spot/volatility correlation, rate/dividend co-movement) is
+# absent. Do not read marginal frequencies here as market probabilities.
+
+schema_version = "european-option-dataset/1"
+generator_version = "1.0.0"
+
+[dataset]
+name = "european-option-v1"
+# Human-readable oracle identity; recorded in the manifest.
+oracle = "dp::black_scholes"
+# Single base seed. Each split derives an independent stream from it.
+base_seed = 20260729
+
+# Row counts per partition. The three partitions are drawn from separate
+# random streams, never by random-splitting one previously generated table.
+# `interpolation_test` is held out *inside* the training envelope; boundary,
+# extrapolation, and scenario partitions are deliberately out of scope here.
+[dataset.rows]
+train = 200000
+validation = 25000
+interpolation_test = 25000
+
+# Sampling bounds [low, high) for the primitive/transformed inputs; the upper
+# bound is attainable only through floating-point rounding.
+# Units: see the manifest's `units_and_conventions` block.
+#
+# Because strike = forward * exp(-log_forward_moneyness), Black-Scholes depends
+# on these draws only through z = log_forward_moneyness / (volatility *
+# sqrt(maturity)). Sampling the three factors independently therefore reaches
+# very large |z| in the short-maturity/low-volatility corner, where prices
+# underflow towards zero and delta saturates. The manifest's
+# `label_diagnostics` block counts those rows per partition.
+[domain]
+# Underlying spot price, currency units.
+spot = [50.0, 150.0]
+# log(forward / strike), dimensionless.
+log_forward_moneyness = [-0.4, 0.4]
+# Time to expiry in years; the lower bound is 7 calendar days on ACT/365F.
+maturity = [0.019178082191780823, 2.0]
+# Continuously compounded annualised risk-free rate, flat.
+rate = [-0.01, 0.08]
+# Continuously compounded annualised dividend yield, flat.
+dividend_yield = [0.0, 0.05]
+# Annualised lognormal Black-Scholes volatility, decimal (0.20 = 20%).
+volatility = [0.05, 0.8]
