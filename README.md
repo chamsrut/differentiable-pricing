@@ -40,6 +40,8 @@ full experimental contract is in
 - C++ unit tests for known values, put--call parity, analytic delta, invalid
   inputs, and the MLP reverse pass.
 - Python parity tests for the installed extension.
+- A deterministic, versioned European-option dataset generator whose only
+  pricing oracle is the compiled C++ binding.
 - Deterministic repository checks, CI, a Claude Code post-edit hook, and two
   read-only clean-context review agents.
 
@@ -94,13 +96,17 @@ The editable install compiles the C++ extension:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[dev,data]'
 pytest -q
 ruff check .
 ```
 
 On Windows PowerShell, activate with
 `.venv\Scripts\Activate.ps1`.
+
+`./scripts/check.sh` runs this same Python suite after the C++ tests, so it
+needs the editable install above. The `--quick` mode used by the pre-commit
+hook stops after the C++ tests.
 
 Training dependencies are separate because PyTorch is not needed to use the
 pricing library:
@@ -119,6 +125,38 @@ experiments. Pricing labels are synthetic:
 3. persist inputs, price, reference sensitivities, seed, pricer version, and
    numerical error estimate;
 4. split by parameter regions, not by shuffled duplicate rows.
+
+### Generate the stage-1 European-option dataset
+
+Dataset generation needs NumPy and PyArrow but not PyTorch:
+
+```bash
+python -m pip install -e '.[data,dev]'
+python -m differentiable_pricing.data.generate \
+  --config configs/european_option_dataset_v1.toml \
+  --output data/european-option-v1
+```
+
+This writes `train.parquet`, `validation.parquet`,
+`interpolation_test.parquet`, and a `manifest.json` recording the schema and
+generator versions, the base seed and stream derivation, the configuration
+SHA-256, the oracle identity, the units and conventions, row counts, and a
+SHA-256 per file. The manifest deliberately contains no wall-clock timestamp,
+so regenerating from the same configuration reproduces byte-identical output —
+for the toolchain the manifest records under `runtime`. NumPy does not
+guarantee its generator streams across versions and PyArrow stamps its version
+into the Parquet footer, so treat a different toolchain as a new dataset until
+the hashes are compared. Every label comes from the compiled C++ oracle; the
+partitions are drawn from independent streams rather than random-split from one
+table. Generated files are ignored by Git.
+
+The sampling box in the configuration is a provisional synthetic engineering
+range, not a calibrated market distribution. Because the three factors are
+drawn independently, a minority of rows land in the short-maturity,
+low-volatility, deep-moneyness corner where the price underflows towards zero
+and delta saturates; the manifest's `label_diagnostics` block counts them per
+partition so downstream metrics can stratify rather than average them away.
+The boundary partition those rows really belong in is still to be built.
 
 Black--Scholes provides exact labels at stage 1. Later, trees/PDE/Monte Carlo
 provide labels with convergence and standard-error diagnostics. Market data
@@ -186,10 +224,10 @@ both, and an independently initialized remote can create an avoidable merge.
 
 ## Immediate next milestone
 
-Build the stage-1 data generator and write rows to a versioned Parquet schema.
-Before training anything, define parameter bounds, sampling distributions,
-train/validation/test regions, and the price/Greek/latency acceptance gates.
-That keeps the neural network from becoming an impressive-looking answer to an
+The stage-1 generator now exists. Next: add the boundary, extrapolation, and
+scenario partitions the research contract requires, then define the
+price/Greek/latency acceptance gates before any training run. That keeps the
+neural network from becoming an impressive-looking answer to an
 underspecified question.
 
 ## License

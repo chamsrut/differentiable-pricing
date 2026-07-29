@@ -8,8 +8,11 @@ state its model or software assumption, add a regression test, and pass:
 ./scripts/check.sh
 ```
 
-For Python-binding tests, install the editable package with
-`python -m pip install -e '.[dev]'` and run `pytest -q`.
+The full gate ends with `python3 -m pytest -q`, so install the editable
+package first with `python -m pip install -e '.[dev,data]'`. A missing pytest
+or missing extension fails the gate instead of skipping the Python suite. The
+`--quick` mode used by the pre-commit hook stops after the C++ tests; run the
+full gate before opening a pull request.
 
 Pull requests should include:
 
