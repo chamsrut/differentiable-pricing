@@ -106,6 +106,15 @@ first large dataset, replace provisional values with tolerances connected to
 a use case. Passing average error alone is never sufficient: tail errors,
 shape constraints, cross-language parity, and derivative checks must pass.
 
+The first European fresh-seed replication is bound by
+`configs/european_neural_replication_protocol_v1.toml`. That protocol preserves
+the development sampler and selected model except for independently derived
+dataset and training seeds, pins every input file by SHA-256, permits validation
+for checkpoint selection, and permits one final evaluation on the fresh
+`interpolation_test`. It must be committed before replication data generation.
+If the final gate fails, record the failure and version a new protocol; do not
+tune against the consumed partition.
+
 ## Non-claims
 
 - A network derivative is not an exact Greek of the reference model.

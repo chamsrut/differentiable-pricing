@@ -49,6 +49,8 @@ jobs:
         run: pytest -q --ignore=python/tests/ml
       - name: Every test file is claimed by exactly one CI job
         run: python3 scripts/check_test_partition.py
+      - name: Replication protocol is internally consistent
+        run: python3 scripts/check_european_replication_protocol.py
 
   ml:
     name: Neural baseline / CPU

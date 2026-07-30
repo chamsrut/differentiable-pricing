@@ -1,0 +1,58 @@
+# Frozen fresh-seed replication of the selected forward-differential model.
+#
+# Relative to european_neural_forward_differential_v1.toml, only the experiment
+# identity and training seed change. Representation, architecture, objective,
+# optimizer, training budget, dtype, device, and evaluation bands are fixed.
+# The European bounds projection is applied after training by the replication
+# protocol and does not alter these learned weights.
+#
+# The training seed is the first four bytes of
+# SHA-256("european-neural-replication-v1/training"), interpreted as an unsigned
+# big-endian integer. The public derivation makes the choice reproducible and
+# prevents seed selection after observing results.
+
+schema_version = "european-neural-baseline-config/v1"
+experiment_name = "european-neural-forward-differential-replication-v1"
+representation = "forward_normalized_v1"
+features = [
+  "option_type",
+  "spot",
+  "strike",
+  "maturity",
+  "rate",
+  "dividend_yield",
+  "volatility",
+]
+dtype = "float64"
+device = "cpu"
+
+[model]
+hidden_dimensions = [64, 64, 64]
+activation = "tanh"
+output_dimension = 1
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+
+[objective]
+name = "price_and_first_derivatives_v1"
+price_weight = 1.0
+gradient_weight = 1.0
+
+[training]
+seed = 2240113204
+batch_size = 4096
+max_epochs = 300
+early_stopping_patience = 25
+early_stopping_min_delta = 0.00000001
+num_threads = 4
+
+[artifact]
+schema_version = "european-neural-artifact/v1"
+
+[evaluation]
+batch_size = 2048
+core_max_absolute_z = 4.0
+tail_max_absolute_z = 8.0

@@ -1,0 +1,32 @@
+# Fresh-seed replication of the European-option dataset.
+#
+# This configuration deliberately preserves the development study's generator,
+# oracle, row counts, sampling domain, and independent-uniform sampling policy.
+# Only the dataset identity and base seed change. Alternative sampling designs
+# are separate experiments and must not be mixed into this replication.
+#
+# The base seed is the first four bytes of
+# SHA-256("european-neural-replication-v1/dataset"), interpreted as an unsigned
+# big-endian integer. The public derivation makes the choice reproducible and
+# prevents seed selection after observing results.
+
+schema_version = "european-option-dataset/1"
+generator_version = "1.0.0"
+
+[dataset]
+name = "european-option-replication-v1"
+oracle = "dp::black_scholes"
+base_seed = 709748617
+
+[dataset.rows]
+train = 200000
+validation = 25000
+interpolation_test = 25000
+
+[domain]
+spot = [50.0, 150.0]
+log_forward_moneyness = [-0.4, 0.4]
+maturity = [0.019178082191780823, 2.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.05, 0.8]

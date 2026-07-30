@@ -1,0 +1,50 @@
+# Locked protocol for the first fresh-seed European neural-pricing replication.
+#
+# Commit and merge this file before generating the replication dataset or
+# training the replication model. The committed protocol is the timestamped
+# evidence that the design, seeds, gates, and final-evaluation policy preceded
+# the result. A result obtained from a dirty worktree is not accepted.
+
+schema_version = "european-neural-replication-protocol/v1"
+name = "european-neural-replication-v1"
+selected_development_experiment = "bounded_differential"
+output_constraint = "european_bounds_v1"
+
+[paths]
+development_results = "docs/results/european_validation_results_v1.json"
+development_dataset_config = "configs/european_option_dataset_v1.toml"
+development_training_config = "configs/european_neural_forward_differential_v1.toml"
+replication_dataset_config = "configs/european_option_dataset_replication_v1.toml"
+replication_training_config = "configs/european_neural_replication_v1.toml"
+acceptance_config = "configs/european_neural_acceptance_v1.toml"
+
+[sha256]
+development_results = "a374fb2fd6b66e3404f8dae593fbb4145745d69da2ab08a09bc1573ad33cb327"
+development_dataset_config = "0d2542b8c61492e818392829253bccc78c3652383b95732f40a85d49df06bfef"
+development_training_config = "e90a51f32e9e3ab10da7f68592342dfc12f71cb1805d60d5ae3434f2940b5b9a"
+replication_dataset_config = "58ff151798e47bdee18006620ad99d3b518784742077ac24c722ed99c574f109"
+replication_training_config = "637c20c3a41a56b1af6c29a17ca5f1ab3c43a5fcb7b5445aa7ab669c02719791"
+acceptance_config = "4133b8edd23723dfa22d389ad520febdfd4a9279cc4303dd181a555f7d3a3ff9"
+
+[seed_policy]
+algorithm = "sha256_first_u32_big_endian"
+dataset_label = "european-neural-replication-v1/dataset"
+dataset_seed = 709748617
+training_label = "european-neural-replication-v1/training"
+training_seed = 2240113204
+
+[execution]
+diagnose_dataset_before_training = true
+checkpoint_selection_partition = "validation"
+final_partition = "interpolation_test"
+maximum_final_evaluations = 1
+allow_tuning_after_final_evaluation = false
+failure_action = "record_failure_and_version_a_new_protocol"
+
+[outputs]
+dataset = "data/european-option-replication-v1"
+diagnostics = "data/european-option-replication-v1/diagnostics.json"
+unconstrained_artifact = "artifacts/european-neural-forward-differential-replication-v1"
+bounded_artifact = "artifacts/european-neural-forward-differential-replication-bounded-v1"
+validation_report = "artifacts/european-neural-forward-differential-replication-bounded-v1/validation-evaluation.json"
+final_report = "artifacts/european-neural-forward-differential-replication-bounded-v1/interpolation-test-evaluation.json"

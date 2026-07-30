@@ -24,12 +24,13 @@ in Python merely to make a test pass.
 
 Run the full local gate. It compiles Python, script, and hook sources, validates
 the TOML and JSON configuration, checks that the CI test partition is still a
-partition, verifies that checked-in experiment figures match their versioned
+partition, verifies the locked European replication protocol and its pinned
+file hashes, verifies that checked-in experiment figures match their versioned
 result snapshot, runs Ruff and clang-format, builds and runs the C++ tests, and
 finishes with the full Python suite (`python3 -m pytest -q`, both partitions).
 It therefore needs the editable install below; a missing pytest fails the gate
-rather than skipping it. `--quick` (used by the pre-commit hook) stops after the
-C++ tests and does not run the Python suite.
+rather than skipping it. `--quick` (used by the pre-commit hook) stops after
+the C++ tests and does not run the Python suite.
 
 ```bash
 ./scripts/check.sh

@@ -2,9 +2,10 @@
 # These were used during the initial development study, but their chronology is
 # not independently established by repository history: this file and the results
 # it judges arrive in the same change set, so nothing here proves the thresholds
-# preceded the numbers. The fresh-seed replication will bind its acceptance
-# configuration to a dedicated pre-results commit. See "What the controlled
-# experiments showed" in README.md.
+# preceded the numbers. The fresh-seed replication protocol binds this exact
+# file by SHA-256 and must be committed before any replication data is
+# generated. See configs/european_neural_replication_protocol_v1.toml and
+# "What the controlled experiments showed" in README.md.
 # These are model-selection criteria, not claims about market prices
 # or production suitability. A fresh-seed replication must pass the same gates.
 # If an interpolation test has already informed a model change, that split is

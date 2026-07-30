@@ -518,9 +518,9 @@ in `configs/european_neural_acceptance_v1.toml`. These versioned gates were used
 during the initial development study, but their chronology is not independently
 established by repository history: the configuration and the results arrive in
 the same change set, so nothing here proves the thresholds preceded the numbers
-they judge. The fresh-seed replication will bind its acceptance configuration to
-a dedicated pre-results commit, which is what would make the ordering checkable
-rather than merely asserted.
+they judge. The fresh-seed protocol now binds its acceptance configuration by
+SHA-256; merging that protocol before any replication execution makes the
+ordering checkable rather than merely asserted.
 
 | Experiment | Main controlled change | Price/spot RMSE | Delta RMSE | Gamma RMSE | Material bound violations | Gate result |
 |---|---|---:|---:|---:|---:|---|
@@ -581,6 +581,46 @@ python scripts/plot_european_validation_results.py
 python scripts/plot_european_validation_results.py --check
 ```
 
+## Frozen fresh-seed replication protocol
+
+`configs/european_neural_replication_protocol_v1.toml` locks the next
+experiment before any new labels or results exist. It binds the development
+result, original and replication dataset configurations, selected training
+configuration, and acceptance gates by SHA-256. It also declares the selected
+European-bounds projection, output locations, and the one-shot final-evaluation
+policy.
+
+The replication is intentionally not a sampling ablation. Relative to the
+development study:
+
+- the dataset identity and base seed change;
+- the training experiment identity and initialization seed change;
+- the generator, oracle, row counts, domain, sampler, representation,
+  architecture, objective, optimizer, training budget, evaluation bands,
+  acceptance gates, and output constraint remain identical.
+
+Both new seeds are the first unsigned 32 bits of SHA-256 over public labels
+recorded in the protocol. This makes the choices reproducible and prevents
+selecting a favorable seed after seeing a result. The protocol permits
+validation for checkpoint selection and one evaluation of the new
+`interpolation_test`. A failure must be recorded; any subsequent tuning
+requires a new protocol and a newly generated final partition.
+
+Validate the lock without generating data or importing PyTorch:
+
+```bash
+python scripts/check_european_replication_protocol.py
+```
+
+Do not execute the replication from an unmerged protocol branch or a dirty
+worktree. The protocol-only commit must precede dataset generation in
+repository history.
+
+Task 7B's execution runner, rather than this static validator, must also refuse
+pre-existing output directories and record the protocol and source commit,
+clean-worktree state, runtime and toolchain versions, artifact lineage, and
+evidence for the single final-partition evaluation.
+
 ## Evaluate prices and learned Greeks
 
 Evaluation requires the partition role to be explicit. Validation reports may
@@ -595,14 +635,15 @@ python -m differentiable_pricing.ml.evaluate \
 ```
 
 For a fresh replication whose test has not informed any model decision, run
-the locked final evaluation once:
+the locked final evaluation once, using the paths declared by the committed
+replication protocol:
 
 ```bash
 python -m differentiable_pricing.ml.evaluate \
-  --dataset data/european-option-v1 \
-  --artifact artifacts/european-neural-baseline-v1 \
+  --dataset data/european-option-replication-v1 \
+  --artifact artifacts/european-neural-forward-differential-replication-bounded-v1 \
   --partition interpolation_test \
-  --output artifacts/european-neural-baseline-v1/interpolation-test-evaluation.json
+  --output artifacts/european-neural-forward-differential-replication-bounded-v1/interpolation-test-evaluation.json
 ```
 
 The physical price reconstruction is inside the differentiable graph. Autograd
@@ -693,14 +734,13 @@ both, and an independently initialized remote can create an avoidable merge.
 
 ## Immediate next milestone
 
-Freeze the bounded forward-differential design: representation, architecture,
-objective weights, optimizer, seed policy, training budget, and projection
-must not be tuned further on this dataset. Generate a fresh-seed dataset,
-retrain from scratch, select the checkpoint using validation only, and evaluate
-the new interpolation test exactly once. Only after that replication should
-the project add boundary, extrapolation, and scenario partitions. C++ artifact
-import and latency measurement follow after the frozen replication establishes
-derivative fidelity.
+Merge the protocol-only change before generating replication data. Then execute
+the committed protocol without changing code or configuration: generate and
+diagnose the fresh-seed dataset, retrain from scratch, select the checkpoint
+using validation only, apply the frozen bounds projection, and evaluate the new
+interpolation test exactly once. Record pass or failure without tuning against
+that partition. The next substantive pricing stage after this integrity check
+is a converged C++ American-option reference engine.
 
 ## License
 
