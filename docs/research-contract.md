@@ -115,6 +115,13 @@ for checkpoint selection, and permits one final evaluation on the fresh
 If the final gate fails, record the failure and version a new protocol; do not
 tune against the consumed partition.
 
+Protocol v1 completed with one final-evaluation attempt and passed every
+frozen validation and final gate. Its immutable, digest-linked outcome is
+`docs/results/european_replication_results_v1.json`. The final partition is
+consumed permanently. The result supports synthetic in-envelope European
+interpolation only; it does not relax the non-claims below or authorize further
+tuning against that dataset.
+
 ## Non-claims
 
 - A network derivative is not an exact Greek of the reference model.

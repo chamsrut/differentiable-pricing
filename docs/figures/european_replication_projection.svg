@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="570" viewBox="0 0 1000 570" role="img">
+<title>European-bounds projection intervention</title>
+<style>text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }</style>
+<rect width="1000" height="570" rx="18" fill="#ffffff"/>
+<text x="36.0" y="42.0" font-size="25" font-weight="700" text-anchor="start" fill="#172033">European-bounds projection intervention</text>
+<text x="36.0" y="70.0" font-size="14" font-weight="400" text-anchor="start" fill="#536078">The projection removes lower-bound violations without changing the trained weight bytes.</text>
+<rect x="155.0" y="90" width="14" height="14" rx="3" fill="#dc2626"/>
+<text x="176.0" y="102.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">Unconstrained material violations</text>
+<rect x="435.0" y="90" width="14" height="14" rx="3" fill="#d97706"/>
+<text x="456.0" y="102.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">Rows projected to a bound</text>
+<rect x="715.0" y="90" width="14" height="14" rx="3" fill="#059669"/>
+<text x="736.0" y="102.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">Constrained material violations</text>
+<line x1="95.0" y1="450.0" x2="955.0" y2="450.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="455.0" font-size="12" font-weight="400" text-anchor="end" fill="#657189">0</text>
+<line x1="95.0" y1="394.2" x2="955.0" y2="394.2" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="399.2" font-size="12" font-weight="400" text-anchor="end" fill="#657189">300</text>
+<line x1="95.0" y1="338.3" x2="955.0" y2="338.3" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="343.3" font-size="12" font-weight="400" text-anchor="end" fill="#657189">600</text>
+<line x1="95.0" y1="282.5" x2="955.0" y2="282.5" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="287.5" font-size="12" font-weight="400" text-anchor="end" fill="#657189">900</text>
+<line x1="95.0" y1="226.7" x2="955.0" y2="226.7" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="231.7" font-size="12" font-weight="400" text-anchor="end" fill="#657189">1,200</text>
+<line x1="95.0" y1="170.8" x2="955.0" y2="170.8" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="175.8" font-size="12" font-weight="400" text-anchor="end" fill="#657189">1,500</text>
+<line x1="95.0" y1="115.0" x2="955.0" y2="115.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="83.0" y="120.0" font-size="12" font-weight="400" text-anchor="end" fill="#657189">1,800</text>
+<rect x="180.0" y="150.4" width="72.0" height="299.6" rx="7" fill="#dc2626"/>
+<text x="216.0" y="140.4" font-size="13" font-weight="700" text-anchor="middle" fill="#dc2626">1,610</text>
+<rect x="274.0" y="149.4" width="72.0" height="300.6" rx="7" fill="#d97706"/>
+<text x="310.0" y="139.4" font-size="13" font-weight="700" text-anchor="middle" fill="#d97706">1,615</text>
+<rect x="368.0" y="447.0" width="72.0" height="3.0" rx="7" fill="#059669"/>
+<text x="404.0" y="437.0" font-size="13" font-weight="700" text-anchor="middle" fill="#059669">0</text>
+<text x="310.0" y="485.0" font-size="14" font-weight="700" text-anchor="middle" fill="#172033">Validation</text>
+<text x="310.0" y="509.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">6.46% of rows projected</text>
+<rect x="610.0" y="155.2" width="72.0" height="294.8" rx="7" fill="#dc2626"/>
+<text x="646.0" y="145.2" font-size="13" font-weight="700" text-anchor="middle" fill="#dc2626">1,584</text>
+<rect x="704.0" y="154.8" width="72.0" height="295.2" rx="7" fill="#d97706"/>
+<text x="740.0" y="144.8" font-size="13" font-weight="700" text-anchor="middle" fill="#d97706">1,586</text>
+<rect x="798.0" y="447.0" width="72.0" height="3.0" rx="7" fill="#059669"/>
+<text x="834.0" y="437.0" font-size="13" font-weight="700" text-anchor="middle" fill="#059669">0</text>
+<text x="740.0" y="485.0" font-size="14" font-weight="700" text-anchor="middle" fill="#172033">Locked final</text>
+<text x="740.0" y="509.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">6.34% of rows projected</text>
+<text x="500.0" y="546.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">All activations were at the discounted European lower bound; upper-bound activations were zero.</text>
+</svg>

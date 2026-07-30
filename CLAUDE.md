@@ -25,12 +25,13 @@ in Python merely to make a test pass.
 Run the full local gate. It compiles Python, script, and hook sources, validates
 the TOML and JSON configuration, checks that the CI test partition is still a
 partition, verifies the locked European replication protocol and its pinned
-file hashes, verifies that checked-in experiment figures match their versioned
-result snapshot, runs Ruff and clang-format, builds and runs the C++ tests, and
-finishes with the full Python suite (`python3 -m pytest -q`, both partitions).
-It therefore needs the editable install below; a missing pytest fails the gate
-rather than skipping it. `--quick` (used by the pre-commit hook) stops after
-the C++ tests and does not run the Python suite.
+file hashes, validates both the development and completed-replication result
+snapshots, verifies that all checked-in figures match deterministic renders,
+runs Ruff and clang-format, builds and runs the C++ tests, and finishes with
+the full Python suite (`python3 -m pytest -q`, both partitions). It therefore
+needs the editable install below; a missing pytest fails the gate rather than
+skipping it. `--quick` (used by the pre-commit hook) stops after the C++ tests
+and does not run the Python suite.
 
 ```bash
 ./scripts/check.sh
@@ -39,7 +40,10 @@ the C++ tests and does not run the Python suite.
 The frozen European replication is executed only through
 `scripts/run_european_replication.py`. `run-to-validation` must be run from a
 clean, synchronized `main`; `final-evaluate` is a distinct, explicit, one-shot
-transition and is never invoked by tests or CI.
+transition and is never invoked by tests or CI. Protocol v1 is now terminal:
+its final partition was consumed exactly once and its immutable outcome lives
+in `docs/results/european_replication_results_v1.json`. Never rerun or tune
+against that partition.
 
 Build only the C++ core:
 

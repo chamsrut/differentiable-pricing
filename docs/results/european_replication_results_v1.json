@@ -1,0 +1,257 @@
+{
+  "acceptance": {
+    "checks": [
+      {
+        "final_value": 0.00018047285638899118,
+        "limit": 0.0005,
+        "name": "overall.price_over_spot_rmse",
+        "validation_value": 0.00017987765765691672
+      },
+      {
+        "final_value": 0.000424644651538143,
+        "limit": 0.002,
+        "name": "overall.price_over_spot_p99_absolute_error",
+        "validation_value": 0.0004289529944575035
+      },
+      {
+        "final_value": 0.002941946768007752,
+        "limit": 0.01,
+        "name": "overall.delta_rmse",
+        "validation_value": 0.002612902338103622
+      },
+      {
+        "final_value": 0.001936539216400872,
+        "limit": 0.002,
+        "name": "overall.gamma_rmse",
+        "validation_value": 0.0016786831369737165
+      },
+      {
+        "final_value": 0.2626886402095002,
+        "limit": 1.0,
+        "name": "overall.vega_rmse",
+        "validation_value": 0.2452040509459606
+      },
+      {
+        "final_value": 0.13113578637441942,
+        "limit": 1.5,
+        "name": "overall.theta_rmse",
+        "validation_value": 0.13586454684847046
+      },
+      {
+        "final_value": 0.2901455290455603,
+        "limit": 2.0,
+        "name": "overall.rho_rmse",
+        "validation_value": 0.28396022762447976
+      },
+      {
+        "final_value": 5.3243992752921975e-05,
+        "limit": 0.0015,
+        "name": "tail.price_over_spot_rmse",
+        "validation_value": 6.314817545569807e-05
+      },
+      {
+        "final_value": 0.0028166406082879934,
+        "limit": 0.03,
+        "name": "tail.delta_rmse",
+        "validation_value": 0.0030290997035940675
+      },
+      {
+        "final_value": 0.0020019355538575235,
+        "limit": 0.005,
+        "name": "tail.gamma_rmse",
+        "validation_value": 0.002075398034621601
+      },
+      {
+        "final_value": 0,
+        "limit": 0,
+        "name": "no_arbitrage.material_violations",
+        "validation_value": 0
+      }
+    ],
+    "config": "configs/european_neural_acceptance_v1.toml",
+    "config_sha256": "4133b8edd23723dfa22d389ad520febdfd4a9279cc4303dd181a555f7d3a3ff9",
+    "final_passed": true,
+    "validation_passed": true
+  },
+  "dataset": {
+    "base_seed": 709748617,
+    "config": "configs/european_option_dataset_replication_v1.toml",
+    "config_sha256": "58ff151798e47bdee18006620ad99d3b518784742077ac24c722ed99c574f109",
+    "diagnostics": {
+      "findings": 0,
+      "sha256": "bf3d690d1395b815f14ad61a0e8af6a406eeb27b65e730e55085c1ee3904a2de",
+      "status": "ok"
+    },
+    "manifest_sha256": "cee611684a654656efc24b7b0966cd4ef973843f12355a5c1147a153947c2675",
+    "name": "european-option-replication-v1",
+    "rows": {
+      "interpolation_test": 25000,
+      "train": 200000,
+      "validation": 25000
+    },
+    "splits": {
+      "interpolation_test": {
+        "bytes": 3392029,
+        "sha256": "c9ebebd1b0165e8a07448a8088c1ea87ab5b9bf7cb0fe1d8ef22fd6d538dbbb8"
+      },
+      "train": {
+        "bytes": 25447446,
+        "sha256": "e48a1a53f5bcccefb7450478a1373a73822c65f9eced6a2288a24db4c0ba1538"
+      },
+      "validation": {
+        "bytes": 3389877,
+        "sha256": "a54280104e39839cf270ce9ca7772b5dfd09eb13ceab9decb1441c53c82c52ce"
+      }
+    }
+  },
+  "evidence": {
+    "archive": {
+      "file": "european-replication-evidence-v1.tar.gz",
+      "sha256": "86859008443a41d86c310c45db9abf784cb3131a32d4a83dca13d9e4a68afb29",
+      "tracked": false
+    },
+    "execution_ledger": {
+      "path": "runs/european-neural-replication-v1/execution.json",
+      "sha256": "5c860bd200fbdf4c1e6f03714c432b22ed95581f2aa8385980f1dbfbb522a6e2"
+    },
+    "note": "The raw dataset, weights, reports, and execution ledger are deliberately gitignored. Their SHA-256 digests provide traceability to the reviewed external evidence bundle; they are not a cryptographic attestation of who executed it."
+  },
+  "execution": {
+    "completed_utc": "2026-07-30T18:23:28.929387+00:00",
+    "final_evaluation_attempts": 1,
+    "repository": {
+      "branch": "main",
+      "clean_worktree": true,
+      "protocol_commit": "5a966b7b02fa5efc599c6ece84e28cdec6798981",
+      "remote_main": "5c47081e265a4f1256b733d398079ca02f2f290e",
+      "source_commit": "5c47081e265a4f1256b733d398079ca02f2f290e"
+    },
+    "runtime": {
+      "compiled_pricing_extension_sha256": "14598648c349f3454cd4a5bd808beb5c00a9066b9200be9da9227d7b424bd843",
+      "numpy": "2.4.6",
+      "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+      "pyarrow": "25.0.0",
+      "python": "3.11.15",
+      "torch": "2.13.0+cpu"
+    },
+    "started_utc": "2026-07-30T18:02:04.892758+00:00",
+    "status": "replication_passed"
+  },
+  "interpretation": {
+    "claim": "A fresh-seed differential neural surrogate replicated its synthetic in-domain European-option pricing and Greek accuracy, passing all 11 precommitted validation and locked-final gates with zero material European-bound violations.",
+    "greek_evidence": {
+      "delta_and_vega": "Directly supervised through the transformed first-derivative targets u_x and u_v.",
+      "gamma": "Not in the objective; it requires second-order autograd, although first-derivative supervision plausibly regularizes it indirectly. That mechanism is an unablated explanation, not a demonstrated causal result.",
+      "rho_and_theta": "Algebraic reweightings of the learned u, u_x, and u_v under the forward-normalized representation, on the unconstrained branch. On rows where the European-bounds projection is active the reported derivatives follow the active discounted bound instead, and derivatives are not unique at the projection kinks. The evaluation metrics are computed from the constrained model that was actually shipped, so they already reflect whichever branch applied; the projection is a structural part of the model, not a reporting adjustment."
+    },
+    "limitations": [
+      "Synthetic Black-Scholes labels and in-envelope interpolation only; no market-price claim.",
+      "The locked-final gamma RMSE used 96.8% of its precommitted budget and is the least comfortable gate.",
+      "The European-bounds projection was active on 1586 of 25000 locked-final rows; the zero-violation result is structural rather than learned.",
+      "No boundary, extrapolation/OOD, latency, C++ inference, or production-readiness claim is made.",
+      "The external evidence bundle and its digests are traceability metadata, not an authenticated execution attestation."
+    ],
+    "locked_final_evaluation_consumed": true
+  },
+  "model": {
+    "architecture": {
+      "activation": "tanh",
+      "hidden_dimensions": [
+        64,
+        64,
+        64
+      ]
+    },
+    "bounded_artifact": {
+      "manifest_sha256": "3d957767a40c050731b2ac289b3f474e61b372a8e2f4c0931fef5d99c673fbae",
+      "path": "artifacts/european-neural-forward-differential-replication-bounded-v1",
+      "source_manifest_sha256": "054ca945de851b4e5b2a10455e93be44546770410bcf698e0051175fe8d19f51",
+      "weights_sha256": "42670774f736383e50818b6e6c1db9374a77988173e35423ffc34b3c4297ecb8"
+    },
+    "objective": "price_and_first_derivatives_v1",
+    "output_constraint": "european_bounds_v1",
+    "representation": "forward_normalized_v1",
+    "training": {
+      "best_epoch": 294,
+      "best_validation_normalized_price_mse": 1.840540656342384e-06,
+      "best_validation_objective": 3.0567124216012124e-05,
+      "completed_epochs": 300,
+      "seed": 2240113204
+    },
+    "training_config": "configs/european_neural_replication_v1.toml",
+    "training_config_sha256": "637c20c3a41a56b1af6c29a17ca5f1ab3c43a5fcb7b5445aa7ab669c02719791",
+    "unconstrained_artifact": {
+      "manifest_sha256": "054ca945de851b4e5b2a10455e93be44546770410bcf698e0051175fe8d19f51",
+      "path": "artifacts/european-neural-forward-differential-replication-v1",
+      "weights_sha256": "42670774f736383e50818b6e6c1db9374a77988173e35423ffc34b3c4297ecb8"
+    }
+  },
+  "protocol": {
+    "name": "european-neural-replication-v1",
+    "path": "configs/european_neural_replication_protocol_v1.toml",
+    "sha256": "1345a1ed9efb10863e6feecaf14dc7f10727523138b8dec6877e7a109326d83c"
+  },
+  "results": {
+    "locked_final": {
+      "metrics": {
+        "delta_rmse": 0.002941946768007752,
+        "gamma_rmse": 0.001936539216400872,
+        "price_over_spot_p99_absolute_error": 0.000424644651538143,
+        "price_over_spot_rmse": 0.00018047285638899118,
+        "price_rmse": 0.018868203836049518,
+        "rho_rmse": 0.2901455290455603,
+        "tail_delta_rmse": 0.0028166406082879934,
+        "tail_gamma_rmse": 0.0020019355538575235,
+        "tail_price_over_spot_rmse": 5.3243992752921975e-05,
+        "theta_rmse": 0.13113578637441942,
+        "vega_rmse": 0.2626886402095002
+      },
+      "no_arbitrage": {
+        "material_violations": 0,
+        "total_violations": 0
+      },
+      "partition": "interpolation_test",
+      "partition_role": "locked_final_evaluation",
+      "projection": {
+        "active_rows": 1586,
+        "lower_bound_activations": 1586,
+        "maximum_absolute_adjustment": 0.17293284987290328,
+        "unconstrained_material_violations": 1584,
+        "upper_bound_activations": 0
+      },
+      "report_sha256": "c7ea377b3be7ebd682a3a878d4a930d25ac9bc3be82002fe196ebc3616c1dda9",
+      "rows": 25000
+    },
+    "validation": {
+      "metrics": {
+        "delta_rmse": 0.002612902338103622,
+        "gamma_rmse": 0.0016786831369737165,
+        "price_over_spot_p99_absolute_error": 0.0004289529944575035,
+        "price_over_spot_rmse": 0.00017987765765691672,
+        "price_rmse": 0.018688545913749122,
+        "rho_rmse": 0.28396022762447976,
+        "tail_delta_rmse": 0.0030290997035940675,
+        "tail_gamma_rmse": 0.002075398034621601,
+        "tail_price_over_spot_rmse": 6.314817545569807e-05,
+        "theta_rmse": 0.13586454684847046,
+        "vega_rmse": 0.2452040509459606
+      },
+      "no_arbitrage": {
+        "material_violations": 0,
+        "total_violations": 0
+      },
+      "partition": "validation",
+      "partition_role": "model_selection",
+      "projection": {
+        "active_rows": 1615,
+        "lower_bound_activations": 1615,
+        "maximum_absolute_adjustment": 0.21589164310280506,
+        "unconstrained_material_violations": 1610,
+        "upper_bound_activations": 0
+      },
+      "report_sha256": "0afc6287c1712c624815be008067528fd28fcd4a30fd4d5540f1aa7b2ce988f4",
+      "rows": 25000
+    }
+  },
+  "schema_version": "european-neural-replication-result/v1"
+}
