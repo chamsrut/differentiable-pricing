@@ -44,6 +44,12 @@ seeds, and training examples.
 Reference-pricer numerical error must be materially smaller than the surrogate
 acceptance threshold. Otherwise the experiment measures label noise.
 
+The stage-2 scalar tree implementation and its current numerical limitations
+are specified in
+[american-crr-contract.md](american-crr-contract.md). Adjacent-step agreement
+is a convergence diagnostic, not a proof of accuracy; the label-generation
+protocol must measure convergence across the complete sampling domain.
+
 ## Data protocol
 
 Each generated row or partition records:

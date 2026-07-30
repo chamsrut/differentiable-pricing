@@ -7,12 +7,27 @@ project(
     LANGUAGES CXX
 )
 
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(
+        CMAKE_BUILD_TYPE
+        RelWithDebInfo
+        CACHE STRING "Choose Debug, Release, RelWithDebInfo, or MinSizeRel"
+        FORCE
+    )
+    set_property(
+        CACHE CMAKE_BUILD_TYPE
+        PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel
+    )
+endif()
+
 option(DP_BUILD_PYTHON_BINDINGS "Build the Python extension" ON)
 option(DP_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 add_library(
     dp_core
+    cpp/src/binomial_tree.cpp
     cpp/src/black_scholes.cpp
+    cpp/src/option.cpp
     cpp/src/smooth_mlp.cpp
 )
 add_library(dp::core ALIAS dp_core)
@@ -49,11 +64,21 @@ endif()
 add_executable(dp_pricer cpp/apps/pricer_cli.cpp)
 target_link_libraries(dp_pricer PRIVATE dp::core)
 
+add_executable(dp_american_pricer cpp/apps/american_pricer_cli.cpp)
+target_link_libraries(dp_american_pricer PRIVATE dp::core)
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(dp_cpp_tests cpp/tests/test_main.cpp)
     target_link_libraries(dp_cpp_tests PRIVATE dp::core)
     add_test(NAME dp_cpp_tests COMMAND dp_cpp_tests)
+    add_test(
+        NAME dp_american_cli_contract
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DPRICER=$<TARGET_FILE:dp_american_pricer>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_american_cli.cmake
+    )
 endif()
 
 if(DP_BUILD_PYTHON_BINDINGS)
