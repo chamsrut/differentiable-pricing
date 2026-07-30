@@ -1,0 +1,34 @@
+# Validation gates for calling a European-option neural surrogate credible.
+# These were used during the initial development study, but their chronology is
+# not independently established by repository history: this file and the results
+# it judges arrive in the same change set, so nothing here proves the thresholds
+# preceded the numbers. The fresh-seed replication will bind its acceptance
+# configuration to a dedicated pre-results commit. See "What the controlled
+# experiments showed" in README.md.
+# These are model-selection criteria, not claims about market prices
+# or production suitability. A fresh-seed replication must pass the same gates.
+# If an interpolation test has already informed a model change, that split is
+# consumed and cannot serve as the final partition for the replication.
+
+schema_version = "european-neural-acceptance/v1"
+name = "european-neural-acceptance-v1"
+selection_partition = "validation"
+final_partition = "interpolation_test"
+
+[overall]
+price_over_spot_rmse_max = 0.0005
+price_over_spot_p99_absolute_error_max = 0.002
+delta_rmse_max = 0.01
+gamma_rmse_max = 0.002
+vega_rmse_max = 1.0
+theta_rmse_max = 1.5
+rho_rmse_max = 2.0
+
+[tail]
+price_over_spot_rmse_max = 0.0015
+delta_rmse_max = 0.03
+gamma_rmse_max = 0.005
+
+[no_arbitrage]
+material_relative_tolerance = 0.000001
+material_violations_max = 0

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="540" viewBox="0 0 1000 540" role="img">
+<title>Material no-arbitrage violations</title>
+<style>text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }</style>
+<rect width="1000" height="540" rx="18" fill="#ffffff"/>
+<text x="36.0" y="42.0" font-size="25" font-weight="700" text-anchor="start" fill="#172033">Material no-arbitrage violations</text>
+<text x="36.0" y="70.0" font-size="14" font-weight="400" text-anchor="start" fill="#536078">Count above the fixed 1e-6 relative tolerance; the acceptance gate is zero.</text>
+<line x1="92.0" y1="430.0" x2="962.0" y2="430.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="78.0" y="435.0" font-size="12" font-weight="400" text-anchor="end" fill="#657189">0</text>
+<line x1="92.0" y1="364.4" x2="962.0" y2="364.4" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="78.0" y="369.4" font-size="12" font-weight="400" text-anchor="end" fill="#657189">500</text>
+<line x1="92.0" y1="298.8" x2="962.0" y2="298.8" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="78.0" y="303.8" font-size="12" font-weight="400" text-anchor="end" fill="#657189">1,000</text>
+<line x1="92.0" y1="233.2" x2="962.0" y2="233.2" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="78.0" y="238.2" font-size="12" font-weight="400" text-anchor="end" fill="#657189">1,500</text>
+<line x1="92.0" y1="167.6" x2="962.0" y2="167.6" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="78.0" y="172.6" font-size="12" font-weight="400" text-anchor="end" fill="#657189">2,000</text>
+<line x1="92.0" y1="102.0" x2="962.0" y2="102.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="78.0" y="107.0" font-size="12" font-weight="400" text-anchor="end" fill="#657189">2,500</text>
+<rect x="123.5" y="139.9" width="82.0" height="290.1" rx="7" fill="#64748b"/>
+<text x="164.5" y="129.9" font-size="13" font-weight="700" text-anchor="middle" fill="#64748b">2,211</text>
+<text x="164.5" y="459.0" font-size="12" font-weight="600" text-anchor="middle" fill="#172033">Raw baseline</text>
+<rect x="268.5" y="201.3" width="82.0" height="228.7" rx="7" fill="#64748b"/>
+<text x="309.5" y="191.3" font-size="13" font-weight="700" text-anchor="middle" fill="#64748b">1,743</text>
+<text x="309.5" y="459.0" font-size="12" font-weight="600" text-anchor="middle" fill="#172033">Longer</text>
+<rect x="413.5" y="247.2" width="82.0" height="182.8" rx="7" fill="#64748b"/>
+<text x="454.5" y="237.2" font-size="13" font-weight="700" text-anchor="middle" fill="#64748b">1,393</text>
+<text x="454.5" y="459.0" font-size="12" font-weight="600" text-anchor="middle" fill="#172033">Wider</text>
+<rect x="558.5" y="216.7" width="82.0" height="213.3" rx="7" fill="#7c3aed"/>
+<text x="599.5" y="206.7" font-size="13" font-weight="700" text-anchor="middle" fill="#7c3aed">1,626</text>
+<text x="599.5" y="459.0" font-size="12" font-weight="600" text-anchor="middle" fill="#172033">Forward</text>
+<rect x="703.5" y="420.2" width="82.0" height="9.8" rx="7" fill="#d97706"/>
+<text x="744.5" y="410.2" font-size="13" font-weight="700" text-anchor="middle" fill="#d97706">75</text>
+<text x="744.5" y="459.0" font-size="12" font-weight="600" text-anchor="middle" fill="#172033">Differential</text>
+<rect x="848.5" y="427.0" width="82.0" height="3.0" rx="7" fill="#059669"/>
+<text x="889.5" y="417.0" font-size="13" font-weight="700" text-anchor="middle" fill="#059669">0</text>
+<text x="889.5" y="459.0" font-size="12" font-weight="600" text-anchor="middle" fill="#172033">Bounded</text>
+<text x="500.0" y="516.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">The bounded artifact reuses the differential model's exact weight bytes.</text>
+</svg>

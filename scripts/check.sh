@@ -12,7 +12,7 @@ fi
 
 cd "${project_root}"
 
-python3 -m compileall -q python/src python/tests .claude/hooks
+python3 -m compileall -q python/src python/tests scripts .claude/hooks
 python3 - <<'PY'
 import json
 import tomllib
@@ -26,8 +26,11 @@ with Path(".claude/settings.json").open(encoding="utf-8") as stream:
     json.load(stream)
 PY
 
+python3 scripts/check_test_partition.py
+python3 scripts/plot_european_validation_results.py --check
+
 if command -v ruff >/dev/null 2>&1; then
-    ruff check python .claude/hooks
+    ruff check python scripts .claude/hooks
 fi
 
 if command -v clang-format >/dev/null 2>&1; then
@@ -55,9 +58,9 @@ ctest --test-dir build/check --output-on-failure
 # the full gate must run it. It is deliberately not guarded by an availability
 # check: a missing pytest or a missing editable install is a failed gate, not a
 # silently skipped one.
-if ! python3 -c "import pytest" >/dev/null 2>&1; then
-    echo "error: pytest is not importable; install the package with" \
-        "python -m pip install -e '.[dev,data]'" >&2
+if ! python3 -c "import numpy, pyarrow, pytest, torch" >/dev/null 2>&1; then
+    echo "error: full Python test dependencies are not importable; install with" \
+        "python -m pip install -e '.[dev,train]'" >&2
     exit 1
 fi
 python3 -m pytest -q

@@ -45,11 +45,24 @@ full experimental contract is in
 - A deterministic dataset diagnostic tool: hash verification, per-split
   distribution statistics, standardized-moneyness stratification, and rowwise
   no-arbitrage bound checks.
+- A deterministic CPU/float64 price-training baseline with train-only
+  normalization, validation early stopping, and versioned integrity-checked
+  artifacts.
+- A forward-normalized differential-training experiment that supervises price,
+  delta, and vega information while leaving gamma as an out-of-objective test.
+- A deterministic, piecewise-differentiable European-bounds projection that
+  can derive a new artifact from verified weights without retraining.
+- A separate untouched-test evaluator that differentiates physical price
+  through the saved transforms and reports price, delta, gamma, vega, theta,
+  and rho error by option type and standardized-moneyness band.
 - Deterministic repository checks, CI, a Claude Code post-edit hook, and two
   read-only clean-context review agents.
 
-The training pipeline is intentionally the next milestone, rather than
-placeholder code pretending experiments have already been run.
+No generated dataset or trained weight file is checked into the repository.
+A small, versioned validation snapshot and its deterministic plots document
+the model-selection path; the full generated reports remain the reproducible
+evidence. These development results are not presented as a final test-set or
+production-performance claim.
 
 ## Repository map
 
@@ -59,6 +72,8 @@ bindings/python/        pybind11 boundary
 python/                 Python package and tests
 configs/                Versioned experiment assumptions
 docs/                   Architecture and research contract
+docs/results/           Versioned, non-final experiment summaries
+docs/figures/           Deterministically rendered result plots
 .claude/                Claude Code hook and review agents
 .githooks/              Optional local Git hooks
 .github/workflows/      Continuous integration
@@ -99,7 +114,7 @@ The editable install compiles the C++ extension:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e '.[dev,data]'
+python -m pip install -e '.[dev,train]'
 pytest -q
 ruff check .
 ```
@@ -111,11 +126,11 @@ On Windows PowerShell, activate with
 needs the editable install above. The `--quick` mode used by the pre-commit
 hook stops after the C++ tests.
 
-Training dependencies are separate because PyTorch is not needed to use the
-pricing library:
+For generation and diagnostics without PyTorch, install the smaller data
+extra:
 
 ```bash
-python -m pip install -e '.[train,dev]'
+python -m pip install -e '.[data,dev]'
 ```
 
 ## Where the data comes from
@@ -249,6 +264,375 @@ becomes useful when calibrating realistic curves, surfaces, and parameter
 distributions; it is not needed to prove that the learning and differentiation
 machinery is correct.
 
+## Train the stage-1 neural baseline
+
+Training reads and verifies only `train.parquet` and `validation.parquet`.
+It does not hash or open `interpolation_test.parquet`; that split remains
+untouched until the separate evaluation command.
+
+```bash
+python -m differentiable_pricing.ml.train \
+  --dataset data/european-option-v1 \
+  --config configs/european_neural_baseline_v1.toml \
+  --output artifacts/european-neural-baseline-v1
+```
+
+The pinned baseline is CPU-only and float64. It encodes puts as `-1` and calls
+as `+1`, fits every feature mean/scale and the price mean/scale on the training
+partition only, and minimizes normalized price MSE. The architecture is only
+dense layers, `tanh` hidden activations, and one linear output, matching the
+existing C++ `SmoothMlp` contract. Reference Greek columns are never features
+or training targets.
+
+For physical features \(x_i\) and price \(V\), the baseline uses
+
+\[
+z_i=\frac{x_i-\mu_i}{s_i},\qquad
+y=\frac{V-\mu_V}{s_V},\qquad
+\mathcal{L}_{\mathrm{price}}=\operatorname{MSE}(f_\theta(z),y),
+\]
+
+with every \(\mu\) and \(s\) estimated from `train` only. The physical wrapper
+undoes the target transform inside the autograd graph.
+
+The artifact directory contains canonical metadata plus SHA-256-linked,
+non-pickled `weights.npz` arrays. Loading uses `allow_pickle=False`, verifies
+the digest, feature order, dtype, layer shapes, and finite values, then rebuilds
+the network. PyTorch `.pt` checkpoints are outside this contract and must only
+ever be loaded from a trusted source.
+
+The seed, deterministic-algorithm setting, thread count, and Python/NumPy/
+PyTorch/platform versions are recorded. Repeated training is tested for
+byte-identical weights and metadata in one fixed runtime; PyTorch does not
+promise identical floating-point results across releases, hardware, or thread
+configurations, so a changed runtime is a new experiment even with the same
+TOML seed.
+
+### Controlled capacity experiments
+
+The first baseline is deliberately frozen. Two additional configurations
+change one experimental factor at a time:
+
+| Configuration | Hidden layers | Maximum epochs | Question |
+|---|---:|---:|---|
+| `european_neural_baseline_v1.toml` | 64×64×64 | 100 | Initial price-only baseline |
+| `european_neural_long_v1.toml` | 64×64×64 | 300 | Was the baseline stopped too early? |
+| `european_neural_wide_v2.toml` | 128×128×128×128 | 300 | Does additional capacity improve the same objective? |
+
+The long and wide runs keep the seed, batch size, optimizer, learning rate,
+weight decay, dtype, device, and feature order fixed. Their validation reports
+are compared against the versioned gates in
+`configs/european_neural_acceptance_v1.toml`; the gates must not be relaxed
+after seeing a result. Repository history does not by itself establish that
+these v1 gates predate the results they judge — see the note above the results
+table.
+
+The original baseline's interpolation-test report has already informed further
+model work, so that split is consumed for this experiment series. Do not use it
+to choose between the long and wide candidates. After selecting on validation,
+generate a fresh-seed dataset, retrain the frozen winner, and evaluate that
+new dataset's interpolation test exactly once.
+
+Train the controlled candidates into separate artifact directories:
+
+```bash
+python -m differentiable_pricing.ml.train \
+  --dataset data/european-option-v1 \
+  --config configs/european_neural_long_v1.toml \
+  --output artifacts/european-neural-long-v1
+
+python -m differentiable_pricing.ml.train \
+  --dataset data/european-option-v1 \
+  --config configs/european_neural_wide_v2.toml \
+  --output artifacts/european-neural-wide-v2
+```
+
+### Forward-normalized representation experiment
+
+If capacity alone does not meet the fixed gates, the next controlled
+experiment changes the financial representation while returning to the
+3×64 long-control architecture. For spot \(S\), strike \(K\), maturity \(T\),
+rate \(r\), dividend yield \(q\), and volatility \(\sigma\), it computes
+
+\[
+F = S e^{(r-q)T}, \qquad
+x = \log(F/K), \qquad
+v = \sigma\sqrt{T}, \qquad
+A = S e^{-qT}.
+\]
+
+The network learns the dimensionless relationship
+
+\[
+\frac{V}{A} = f(\text{option type}, x, v),
+\]
+
+and the physical wrapper reconstructs \(V=A f\). This uses the exact
+homogeneity of the Black–Scholes price to reduce seven raw inputs to three
+economic coordinates. The transforms and reconstruction remain inside the
+PyTorch graph, so physical-unit Greeks still follow from autograd. This
+experiment remains price-only and does not guarantee no-arbitrage bounds.
+
+The model size, optimizer, seed, batch size, and training budget exactly match
+`european_neural_long_v1.toml`; only the representation changes:
+
+```bash
+python -m differentiable_pricing.ml.train \
+  --dataset data/european-option-v1 \
+  --config configs/european_neural_forward_normalized_v1.toml \
+  --output artifacts/european-neural-forward-normalized-v1
+
+python -m differentiable_pricing.ml.evaluate \
+  --dataset data/european-option-v1 \
+  --artifact artifacts/european-neural-forward-normalized-v1 \
+  --partition validation \
+  --output artifacts/european-neural-forward-normalized-v1/validation-evaluation.json
+```
+
+### Differential-training experiment
+
+Price accuracy does not imply derivative accuracy. The next controlled
+experiment keeps the forward-normalized representation, 3×64 network, seed,
+optimizer, and 300-epoch budget fixed, but adds first-derivative supervision.
+Writing \(u=V/A\), the existing analytic delta and vega labels determine the
+coordinate derivatives exactly:
+
+\[
+u_x=e^{qT}\Delta-u, \qquad
+u_v=\frac{\text{Vega}}{A\sqrt{T}}.
+\]
+
+These derivatives are converted to the standardized network coordinates using
+the feature and target scales fitted on the training split. With \(y\) denoting
+the standardized target and \(z_x,z_v\) the standardized coordinates, the
+configured loss is
+
+\[
+\operatorname{MSE}(\hat y,y)
++\frac{1}{2}\left[
+  \operatorname{MSE}(\partial_{z_x}\hat y,\partial_{z_x}y)
+  +\operatorname{MSE}(\partial_{z_v}\hat y,\partial_{z_v}y)
+\right].
+\]
+
+Training uses delta and vega labels only. The reported Greeks therefore carry
+different evidential weight, and it is worth being precise about which is
+which:
+
+| Greek | Relationship to the training objective |
+|---|---|
+| Price | Directly supervised by the price term. |
+| Delta, vega | Directly supervised, through the transformed first derivatives \(u_x\) and \(u_v\). |
+| Rho, theta | Not supervised, but algebraic reweightings of the same learned \((u,u_x,u_v)\). |
+| Gamma | Not in the objective; requires second-order autograd through \(u_{xx}\). |
+| European bounds | Not learned at all; imposed structurally by the projection below. |
+
+Delta and vega are supervised through the differential targets \(u_x\) and
+\(u_v\). Rho and theta are algebraic reweightings of the same learned
+\((u,u_x,u_v)\), so they primarily validate physical-unit reconstruction rather
+than independent derivative learning. Concretely, under the forward-normalized
+representation,
+
+\[
+\rho=\frac{\partial V}{\partial r}=A\,T\,u_x,
+\qquad
+\theta=-\frac{\partial V}{\partial T}
+ =q A u-A(r-q)u_x-\frac{A u_v v}{2T},
+\]
+
+so once \((u,u_x,u_v)\) are fixed at a point, rho and theta are determined
+there. Gamma is the only reported Greek requiring out-of-objective curvature
+\(u_{xx}\), although differential training can regularize it indirectly by
+constraining the first derivative between labelled points. At inference, every
+Greek is still computed from autograd rather than emitted as a separate network
+output.
+
+```bash
+python -m differentiable_pricing.ml.train \
+  --dataset data/european-option-v1 \
+  --config configs/european_neural_forward_differential_v1.toml \
+  --output artifacts/european-neural-forward-differential-v1
+
+python -m differentiable_pricing.ml.evaluate \
+  --dataset data/european-option-v1 \
+  --artifact artifacts/european-neural-forward-differential-v1 \
+  --partition validation \
+  --output artifacts/european-neural-forward-differential-v1/validation-evaluation.json
+```
+
+### European no-arbitrage bounds projection
+
+The differential model can still make small price-bound violations because
+its scalar output is unconstrained. This experiment changes only the output
+contract, not the training data, objective, architecture, or weights. For
+discounted spot \(A=S e^{-qT}\) and discounted strike \(B=K e^{-rT}\), the
+model computes the usual European interval
+
+\[
+\begin{aligned}
+L_\text{call}&=\max(A-B,0), & U_\text{call}&=A,\\
+L_\text{put}&=\max(B-A,0),  & U_\text{put}&=B,
+\end{aligned}
+\]
+
+then returns
+
+\[
+V_\text{bounded}=\min\!\left(U,\max(L,V_\text{network})\right).
+\]
+
+The Black--Scholes reference price is inside this interval, so interval
+projection cannot increase pointwise absolute price error. It is
+piecewise-differentiable: away from a clipping boundary, autograd returns
+either the learned-network Greeks or the active bound's physical derivatives.
+At the clipping boundary and the intrinsic-value kink, the derivative is not
+unique; the derived artifact and evaluation report state this limitation
+explicitly.
+
+Derive a bounded artifact from the already-trained differential model:
+
+```bash
+python -m differentiable_pricing.ml.constrain \
+  --artifact artifacts/european-neural-forward-differential-v1 \
+  --output artifacts/european-neural-forward-differential-bounded-v1
+
+python -m differentiable_pricing.ml.evaluate \
+  --dataset data/european-option-v1 \
+  --artifact artifacts/european-neural-forward-differential-bounded-v1 \
+  --partition validation \
+  --output artifacts/european-neural-forward-differential-bounded-v1/validation-evaluation.json
+```
+
+The derivation command verifies the source artifact, copies `weights.npz`
+byte-for-byte, records the source manifest and weight SHA-256 digests, and
+publishes the result atomically. It refuses to overwrite an existing
+directory or to stack the same constraint twice. This is not another training
+run: the source and derived artifacts must report the same weight digest.
+
+## What the controlled experiments showed
+
+The following values come from the same 25,000-row `validation` partition and
+therefore describe model selection, not a locked final evaluation. Each row
+changes one main factor relative to its control. The acceptance thresholds live
+in `configs/european_neural_acceptance_v1.toml`. These versioned gates were used
+during the initial development study, but their chronology is not independently
+established by repository history: the configuration and the results arrive in
+the same change set, so nothing here proves the thresholds preceded the numbers
+they judge. The fresh-seed replication will bind its acceptance configuration to
+a dedicated pre-results commit, which is what would make the ordering checkable
+rather than merely asserted.
+
+| Experiment | Main controlled change | Price/spot RMSE | Delta RMSE | Gamma RMSE | Material bound violations | Gate result |
+|---|---|---:|---:|---:|---:|---|
+| Raw baseline | 3×64, price-only, seven raw inputs | 0.003482 | 0.03577 | 0.006962 | 2,211 | Fail |
+| Longer | Same model, 100 → 300 epochs | 0.001898 | 0.02236 | 0.005432 | 1,743 | Fail |
+| Wider | Four 128-unit layers | 0.001515 | 0.02025 | 0.005368 | 1,393 | Fail |
+| Forward | 3×64 on \((\text{type},\log(F/K),\sigma\sqrt{T})\) | 0.0009008 | 0.01995 | 0.006551 | 1,626 | Fail |
+| Differential | Add analytic delta/vega supervision | 0.0002171 | 0.002536 | 0.001854 | 75 | Arbitrage only |
+| Bounded | Project unchanged differential weights onto \([L,U]\) | **0.0002168** | **0.002474** | **0.001504** | **0** | **Pass** |
+
+![Validation errors divided by their acceptance limits, on a logarithmic vertical axis](docs/figures/european_validation_error_progression.svg)
+
+![Material no-arbitrage violations across controlled experiments](docs/figures/european_validation_arbitrage_progression.svg)
+
+The progression exposed several useful distinctions:
+
+- **Optimization budget helped, but did not solve the problem.** Extending the
+  original network from 100 to 300 epochs roughly halved price error, while
+  price, slope, curvature, and arbitrage gates still failed.
+- **Capacity gave diminishing returns.** The wider model improved price and
+  delta modestly over the long control but remained far outside the fixed
+  gates.
+- **Financial coordinates mattered more than width for price.** Forward
+  normalization used Black--Scholes homogeneity to remove redundant scale and
+  delivered the strongest price-only improvement. Gamma became worse,
+  demonstrating that accurate prices do not imply accurate curvature.
+- **Differential supervision was the decisive learning change.** Supplying
+  analytic information about \(u_x\) and \(u_v\) reduced price, delta, vega,
+  theta, and rho errors several-fold to nearly an order of magnitude. Those
+  five are not five independent confirmations: price, delta, and vega are the
+  supervised quantities themselves, and rho and theta are algebraic
+  reweightings of the same learned \((u,u_x,u_v)\), so their improvement
+  chiefly confirms that physical-unit reconstruction is correct. Gamma—never a
+  target, and requiring out-of-objective curvature \(u_{xx}\)—also crossed its
+  gate, which is the one genuinely out-of-objective signal in this row, though
+  first-derivative supervision plausibly regularizes curvature indirectly.
+- **Structure removed the remaining failure without retraining.** Only 76 of
+  25,000 rows (`0.304%`) were projected, all onto the lower bound. The maximum
+  price adjustment was `0.102481`; the copied weights remained byte-identical.
+  Violations fell from 75 material cases to zero, while every headline error
+  metric improved slightly.
+
+The selected bounded model passes all validation gates in
+`configs/european_neural_acceptance_v1.toml`. That is a model-selection result
+on the `validation` partition, judged against gates whose chronology repository
+history does not independently establish; it is not a locked interpolation-test
+result. Gamma is the tightest headline gate at about 75% of its allowed RMSE, so
+the fresh replication must confirm curvature rather than treating this run as
+conclusive.
+
+The exact plotted inputs, weight digests, intervention counts, and non-claim
+status live in
+[`docs/results/european_validation_results_v1.json`](docs/results/european_validation_results_v1.json).
+Regenerate both SVGs without an additional plotting dependency:
+
+```bash
+python scripts/plot_european_validation_results.py
+python scripts/plot_european_validation_results.py --check
+```
+
+## Evaluate prices and learned Greeks
+
+Evaluation requires the partition role to be explicit. Validation reports may
+guide model selection and can be regenerated while comparing candidates:
+
+```bash
+python -m differentiable_pricing.ml.evaluate \
+  --dataset data/european-option-v1 \
+  --artifact artifacts/european-neural-baseline-v1 \
+  --partition validation \
+  --output artifacts/european-neural-baseline-v1/validation-evaluation.json
+```
+
+For a fresh replication whose test has not informed any model decision, run
+the locked final evaluation once:
+
+```bash
+python -m differentiable_pricing.ml.evaluate \
+  --dataset data/european-option-v1 \
+  --artifact artifacts/european-neural-baseline-v1 \
+  --partition interpolation_test \
+  --output artifacts/european-neural-baseline-v1/interpolation-test-evaluation.json
+```
+
+The physical price reconstruction is inside the differentiable graph. Autograd
+therefore includes both input and target scaling when it computes delta,
+gamma, vega, rho, and theta (`-d price / d maturity`). The deterministic JSON
+report links the exact dataset manifest, training configuration, artifact
+manifest, weight digests, output constraint, and constrained artifact's source
+artifact. It reports MAE, RMSE, p95, p99, and maximum absolute error overall,
+by call/put, and for core/tail/extreme standardized moneyness. For price it
+also reports error after division by spot; it does not divide by option price
+because near-zero prices make that ratio unstable.
+Learned-price European no-arbitrage violations are counted separately at both
+the float64 reporting tolerance and a material relative tolerance of `1e-6`.
+For a constrained artifact, the report also gives the number of lower/upper
+bound activations, maximum absolute price adjustment, and the unconstrained
+network's price and arbitrage metrics so the projection's intervention remains
+visible.
+The report labels validation as `model_selection` and interpolation test as
+`locked_final_evaluation`.
+
+This run proves or falsifies the plumbing, not the economic thesis:
+
+- a network derivative is exact for the learned function, not automatically a
+  Black--Scholes or market Greek;
+- the report covers synthetic in-envelope interpolation only;
+- no boundary, extrapolation/OOD, latency, or C++ deployment claim is made;
+- analytic Black--Scholes can easily be faster than this network. A speed
+  comparison becomes interesting only when the reference is genuinely
+  expensive and end-to-end costs are measured.
+
 ## Agent-assisted development
 
 `CLAUDE.md` is the checked-in operating contract. Claude Code can discover the
@@ -309,11 +693,14 @@ both, and an independently initialized remote can create an avoidable merge.
 
 ## Immediate next milestone
 
-The stage-1 generator now exists. Next: add the boundary, extrapolation, and
-scenario partitions the research contract requires, then define the
-price/Greek/latency acceptance gates before any training run. That keeps the
-neural network from becoming an impressive-looking answer to an
-underspecified question.
+Freeze the bounded forward-differential design: representation, architecture,
+objective weights, optimizer, seed policy, training budget, and projection
+must not be tuned further on this dataset. Generate a fresh-seed dataset,
+retrain from scratch, select the checkpoint using validation only, and evaluate
+the new interpolation test exactly once. Only after that replication should
+the project add boundary, extrapolation, and scenario partitions. C++ artifact
+import and latency measurement follow after the frozen replication establishes
+derivative fidelity.
 
 ## License
 
