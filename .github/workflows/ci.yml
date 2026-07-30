@@ -51,6 +51,10 @@ jobs:
         run: python3 scripts/check_test_partition.py
       - name: Replication protocol is internally consistent
         run: python3 scripts/check_european_replication_protocol.py
+      - name: Versioned result figures are current
+        run: |
+          python3 scripts/plot_european_validation_results.py --check
+          python3 scripts/plot_european_replication_results.py --check
 
   ml:
     name: Neural baseline / CPU

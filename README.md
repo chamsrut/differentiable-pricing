@@ -55,14 +55,21 @@ full experimental contract is in
 - A separate untouched-test evaluator that differentiates physical price
   through the saved transforms and reports price, delta, gamma, vega, theta,
   and rho error by option type and standardized-moneyness band.
+- A precommitted fresh-seed replication protocol and guarded execution runner
+  that consumed the locked final partition exactly once and passed all 11
+  frozen acceptance gates.
+- An immutable replication snapshot with full SHA-256 lineage and
+  deterministic, CI-checked SVG figures.
 - Deterministic repository checks, CI, a Claude Code post-edit hook, and two
   read-only clean-context review agents.
 
 No generated dataset or trained weight file is checked into the repository.
-A small, versioned validation snapshot and its deterministic plots document
-the model-selection path; the full generated reports remain the reproducible
-evidence. These development results are not presented as a final test-set or
-production-performance claim.
+Small, versioned snapshots and deterministic plots document both the
+model-selection path and the completed fresh-seed replication. The raw
+datasets, weights, reports, and execution ledger remain external evidence
+identified by SHA-256. The replication is a locked final result for synthetic
+in-envelope European options, not a market-pricing, OOD, latency, or production
+claim.
 
 ## Repository map
 
@@ -72,7 +79,7 @@ bindings/python/        pybind11 boundary
 python/                 Python package and tests
 configs/                Versioned experiment assumptions
 docs/                   Architecture and research contract
-docs/results/           Versioned, non-final experiment summaries
+docs/results/           Versioned development and replication summaries
 docs/figures/           Deterministically rendered result plots
 .claude/                Claude Code hook and review agents
 .githooks/              Optional local Git hooks
@@ -423,7 +430,7 @@ which:
 |---|---|
 | Price | Directly supervised by the price term. |
 | Delta, vega | Directly supervised, through the transformed first derivatives \(u_x\) and \(u_v\). |
-| Rho, theta | Not supervised, but algebraic reweightings of the same learned \((u,u_x,u_v)\). |
+| Rho, theta | Not supervised, but algebraic reweightings of the same learned \((u,u_x,u_v)\) on the unconstrained branch. |
 | Gamma | Not in the objective; requires second-order autograd through \(u_{xx}\). |
 | European bounds | Not learned at all; imposed structurally by the projection below. |
 
@@ -441,11 +448,17 @@ representation,
 \]
 
 so once \((u,u_x,u_v)\) are fixed at a point, rho and theta are determined
-there. Gamma is the only reported Greek requiring out-of-objective curvature
-\(u_{xx}\), although differential training can regularize it indirectly by
-constraining the first derivative between labelled points. At inference, every
-Greek is still computed from autograd rather than emitted as a separate network
-output.
+there. Those identities describe the unconstrained branch. Where the
+European-bounds projection below is active, the shipped model's price is the
+discounted bound rather than \(A\,u\), so the reported derivatives follow that
+bound instead, and no derivative is unique exactly at a projection kink. The
+evaluation metrics are computed from the constrained model that is actually
+shipped, so they already reflect whichever branch applied at each row; the
+projection is part of the mathematical model, not a reporting adjustment. Gamma
+is the only reported Greek requiring out-of-objective curvature \(u_{xx}\),
+although differential training can regularize it indirectly by constraining the
+first derivative between labelled points. At inference, every Greek is still
+computed from autograd rather than emitted as a separate network output.
 
 ```bash
 python -m differentiable_pricing.ml.train \
@@ -673,6 +686,88 @@ existing final report is never overwritten. Passing or failing the final gates
 is terminal for this protocol; the final split must not guide another model
 change.
 
+## Fresh-seed replication result
+
+The frozen protocol completed successfully on a new 250,000-row dataset and a
+new initialization seed. Training and checkpoint selection read only `train`
+and `validation`; the new `interpolation_test` was then evaluated once. The
+ledger records `final_evaluation_attempts = 1`, `status =
+replication_passed`, a clean `main` worktree, and source commit
+`5c47081e265a4f1256b733d398079ca02f2f290e`.
+
+The central result is not merely that a second training run converged. It is
+that a precommitted design reproduced its price and Greek accuracy on an
+independently generated final partition without changing the architecture,
+objective, domain, row counts, optimizer, training budget, evaluation bands,
+or gates.
+
+| Frozen check | Validation | Locked final | Limit | Final budget |
+|---|---:|---:|---:|---:|
+| Price / spot RMSE | 0.0001799 | **0.0001805** | 0.0005 | 36.1% |
+| Price / spot P99 absolute error | 0.0004290 | **0.0004246** | 0.002 | 21.2% |
+| Delta RMSE | 0.002613 | **0.002942** | 0.01 | 29.4% |
+| Gamma RMSE | 0.001679 | **0.001937** | 0.002 | 96.8% |
+| Vega RMSE | 0.2452 | **0.2627** | 1.0 | 26.3% |
+| Theta RMSE | 0.1359 | **0.1311** | 1.5 | 8.7% |
+| Rho RMSE | 0.2840 | **0.2901** | 2.0 | 14.5% |
+| Tail price / spot RMSE | 0.00006315 | **0.00005324** | 0.0015 | 3.5% |
+| Tail delta RMSE | 0.003029 | **0.002817** | 0.03 | 9.4% |
+| Tail gamma RMSE | 0.002075 | **0.002002** | 0.005 | 40.0% |
+| Material European-bound violations | 0 | **0** | 0 | Pass |
+
+![Validation and locked-final errors divided by their frozen acceptance limits](docs/figures/european_replication_gate_margins.svg)
+
+Gamma is the least comfortable result: its locked-final RMSE consumed `96.8%`
+of the frozen allowance. That is still a legitimate pass because the threshold
+was committed before the fresh dataset existed, but it is the first metric to
+stress in a future boundary or OOD study.
+
+The zero-violation result also needs the right interpretation. The trained
+network alone violated the discounted lower bound materially on 1,584 locked
+final rows. The deterministic European-bounds projection changed 1,586 prices
+(`6.34%` of the partition), all at the lower bound, and reduced material
+violations to zero. The bounded and unconstrained artifacts have the identical
+weight digest
+`42670774f736383e50818b6e6c1db9374a77988173e35423ffc34b3c4297ecb8`;
+the no-arbitrage guarantee is structural, not learned.
+
+![Rows affected by the European-bounds projection before and after enforcement](docs/figures/european_replication_projection.svg)
+
+This supports a deliberately narrow claim:
+
+> A fresh-seed differential neural surrogate replicated its synthetic
+> in-domain European-option pricing and Greek accuracy, passing all 11
+> precommitted validation and locked-final gates with zero material
+> European-bound violations.
+
+The Greek results do not provide six independent confirmations. Price is
+directly supervised; delta and vega are supervised through \(u_x\) and \(u_v\);
+rho and theta are algebraic reweightings of the learned \((u,u_x,u_v)\) on the
+unconstrained branch. On the 1,586 locked-final rows where the bounds
+projection is active, the reported derivatives follow the active discounted
+bound instead, and derivatives are not unique at the projection kinks; the
+metrics above already reflect whichever branch applied. Gamma is the only
+reported Greek outside the objective, although first-derivative supervision
+plausibly regularizes it indirectly — that remains an unablated explanation
+rather than a measured causal result.
+
+The immutable snapshot records the protocol and source commits, seeds,
+toolchain, dataset/report/artifact digests, byte-identical weight lineage,
+validation and final metrics, gate decisions, and projection intervention:
+[`docs/results/european_replication_results_v1.json`](docs/results/european_replication_results_v1.json).
+The raw evidence bundle is deliberately not tracked; its reviewed SHA-256 is
+`86859008443a41d86c310c45db9abf784cb3131a32d4a83dca13d9e4a68afb29`.
+These digests provide traceability, not an authenticated attestation of who ran
+the experiment.
+
+Regenerate or verify both replication figures without another plotting
+dependency:
+
+```bash
+python scripts/plot_european_replication_results.py
+python scripts/plot_european_replication_results.py --check
+```
+
 The physical price reconstruction is inside the differentiable graph. Autograd
 therefore includes both input and target scaling when it computes delta,
 gamma, vega, rho, and theta (`-d price / d maturity`). The deterministic JSON
@@ -761,13 +856,13 @@ both, and an independently initialized remote can create an avoidable merge.
 
 ## Immediate next milestone
 
-Merge the protocol-only change before generating replication data. Then execute
-the committed protocol without changing code or configuration: generate and
-diagnose the fresh-seed dataset, retrain from scratch, select the checkpoint
-using validation only, apply the frozen bounds projection, and evaluate the new
-interpolation test exactly once. Record pass or failure without tuning against
-that partition. The next substantive pricing stage after this integrity check
-is a converged C++ American-option reference engine.
+Stage 1 is complete at its stated synthetic in-domain scope. The next
+substantive pricing stage is a converged C++ American-option reference engine:
+start with a high-step Cox--Ross--Rubinstein tree, verify European convergence,
+American put inequalities, monotonicity, and stable exercise boundaries, then
+generate labels only after the numerical error budget is documented. Neural
+transfer learning and Longstaff--Schwartz are later comparisons, not part of
+the reference-engine task.
 
 ## License
 
