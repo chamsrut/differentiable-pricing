@@ -1,26 +1,11 @@
 #pragma once
 
-#include <string_view>
+#include "dp/option.hpp"
 
 namespace dp {
 
-enum class OptionType {
-    call,
-    put,
-};
-
-[[nodiscard]] OptionType parse_option_type(std::string_view value);
-
-struct BlackScholesInput {
-    double spot;
-    double strike;
-    double maturity;
-    double rate;
-    double dividend_yield;
-    double volatility;
-
-    void validate() const;
-};
+// Backward-compatible name for the shared constant-parameter vanilla input.
+using BlackScholesInput = VanillaOptionInput;
 
 struct BlackScholesResult {
     double price;
@@ -37,4 +22,3 @@ struct BlackScholesResult {
 );
 
 }  // namespace dp
-

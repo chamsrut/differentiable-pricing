@@ -33,6 +33,9 @@ full experimental contract is in
 
 - C++20 Black--Scholes call/put prices and analytic delta, gamma, vega, theta,
   and rho.
+- A deterministic C++20 Cox--Ross--Rubinstein tree for European and American
+  calls and puts, with adjacent-step convergence diagnostics and
+  early-exercise-region metadata.
 - A command-line pricer with machine-readable JSON output.
 - A scalar-output `tanh` MLP implemented in C++, including a manual
   reverse-mode pass for input derivatives.
@@ -107,11 +110,26 @@ cmake --build build/dev --parallel
 ctest --test-dir build/dev --output-on-failure
 ```
 
+Single-configuration generators default to `RelWithDebInfo`, because the CRR
+reference is quadratic in its step count. Use
+`-DCMAKE_BUILD_TYPE=Release` for a recorded performance experiment; latency
+claims must still include hardware and repeated-run metadata.
+
 Try the executable:
 
 ```bash
 ./build/dev/dp_pricer call 100 100 1 0.05 0 0.20
+./build/dev/dp_american_pricer american put 100 100 1 0.05 0 0.20 2048
 ```
+
+The American executable reports the raw \(N\)-step tree price, the
+\((N+1)\)-step price, their average, their absolute gap, and exercise-region
+diagnostics. Adjacent-step averaging reduces the visible even/odd
+strike-alignment oscillation, but the pair gap is **not** a certified error
+bound. A label-generation configuration must establish convergence over its
+entire declared domain before treating a step count as adequate. The numerical
+contract and formulas are in
+[docs/american-crr-contract.md](docs/american-crr-contract.md).
 
 ## Build the Python package
 
@@ -856,13 +874,19 @@ both, and an independently initialized remote can create an avoidable merge.
 
 ## Immediate next milestone
 
-Stage 1 is complete at its stated synthetic in-domain scope. The next
-substantive pricing stage is a converged C++ American-option reference engine:
-start with a high-step Cox--Ross--Rubinstein tree, verify European convergence,
-American put inequalities, monotonicity, and stable exercise boundaries, then
-generate labels only after the numerical error budget is documented. Neural
-transfer learning and Longstaff--Schwartz are later comparisons, not part of
-the reference-engine task.
+Stage 1 is complete at its stated synthetic in-domain scope, and the first
+scalar CRR American-option reference implementation now exists. The next
+milestone is to freeze an American-option numerical protocol: map convergence
+over the proposed domain, choose step counts from an explicit reference-error
+budget, add a Python batch boundary, and build exercise-aware train,
+validation, boundary, and locked-test partitions. Only then should the
+European-to-American transfer experiment begin.
+
+Longstaff--Schwartz remains a second, independently tested reference method.
+It will first be checked against converged CRR prices in the shared
+one-factor-GBM domain. Its value is not to replace a tree where the tree is
+already strong, but to support path-dependent or higher-dimensional problems
+where recombination no longer keeps the state space tractable.
 
 ## License
 

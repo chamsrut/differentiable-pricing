@@ -18,6 +18,7 @@ flowchart TD
 ### C++
 
 - reference pricing and analytic/numerical sensitivities;
+- deterministic early-exercise pricing through the scalar CRR reference tree;
 - deterministic validation of contract/model inputs;
 - low-overhead model inference;
 - reverse-mode derivatives of the deployed smooth network;
