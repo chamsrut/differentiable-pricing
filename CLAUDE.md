@@ -36,6 +36,11 @@ the C++ tests and does not run the Python suite.
 ./scripts/check.sh
 ```
 
+The frozen European replication is executed only through
+`scripts/run_european_replication.py`. `run-to-validation` must be run from a
+clean, synchronized `main`; `final-evaluate` is a distinct, explicit, one-shot
+transition and is never invoked by tests or CI.
+
 Build only the C++ core:
 
 ```bash

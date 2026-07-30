@@ -621,6 +621,30 @@ pre-existing output directories and record the protocol and source commit,
 clean-worktree state, runtime and toolchain versions, artifact lineage, and
 evidence for the single final-partition evaluation.
 
+After the runner itself is merged to `main`, post-merge CI is green, and the
+worktree is clean, execute every stage through validation:
+
+```bash
+python scripts/run_european_replication.py run-to-validation
+python scripts/run_european_replication.py status
+```
+
+This generates and diagnoses the fresh dataset, trains the frozen model,
+derives the European-bounded artifact, evaluates `validation`, and evaluates
+all frozen acceptance gates. It never performs model evaluation on
+`interpolation_test`. Existing dataset, artifact, report, or run-ledger paths
+cause a hard failure; the runner has no overwrite or resume flag.
+
+The audit ledger is written atomically to
+`runs/european-neural-replication-v1/execution.json`. It records the protocol
+and source commits, clean `main`/`origin/main` state, runtime versions, exact
+commands and outputs, artifact lineage, file digests, and validation-gate
+decisions. A failed stage remains recorded and requires the failure policy in
+the frozen protocol; deleting outputs and trying the same protocol again is
+not an accepted research result. The local ledger is traceability evidence,
+not an authenticated attestation; the terminal result and its digests must be
+reviewed and committed as a separate, immutable result snapshot.
+
 ## Evaluate prices and learned Greeks
 
 Evaluation requires the partition role to be explicit. Validation reports may
@@ -634,17 +658,20 @@ python -m differentiable_pricing.ml.evaluate \
   --output artifacts/european-neural-baseline-v1/validation-evaluation.json
 ```
 
-For a fresh replication whose test has not informed any model decision, run
-the locked final evaluation once, using the paths declared by the committed
-replication protocol:
+Only when the ledger says `ready_for_final`, inspect the validation report and
+then intentionally consume the locked final evaluation:
 
 ```bash
-python -m differentiable_pricing.ml.evaluate \
-  --dataset data/european-option-replication-v1 \
-  --artifact artifacts/european-neural-forward-differential-replication-bounded-v1 \
-  --partition interpolation_test \
-  --output artifacts/european-neural-forward-differential-replication-bounded-v1/interpolation-test-evaluation.json
+python scripts/run_european_replication.py final-evaluate \
+  --confirm-locked-final-evaluation
+python scripts/run_european_replication.py status
 ```
+
+The runner records the attempt before starting evaluation. A process
+interruption therefore still consumes the one permitted attempt, and an
+existing final report is never overwritten. Passing or failing the final gates
+is terminal for this protocol; the final split must not guide another model
+change.
 
 The physical price reconstruction is inside the differentiable graph. Autograd
 therefore includes both input and target scaling when it computes delta,
