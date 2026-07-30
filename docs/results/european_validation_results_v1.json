@@ -1,0 +1,226 @@
+{
+  "acceptance_config": "configs/european_neural_acceptance_v1.toml",
+  "dataset": "data/european-option-v1",
+  "dataset_manifest_sha256": "549a12169172044bb34eb62ad57a59311cfa4a6529d97ec00ee14a9ef7bc0ca0",
+  "experiments": [
+    {
+      "artifact": "artifacts/european-neural-baseline-v1",
+      "artifact_manifest_sha256": "c88dcb7a0f1e78a414fc13e42c27ae0219bebed0c1b679f7a7c399b913bc8161",
+      "best_epoch": 99,
+      "controlled_change": "Initial price-only network on seven raw physical inputs",
+      "hidden_dimensions": [
+        64,
+        64,
+        64
+      ],
+      "id": "raw_baseline",
+      "label": "Raw baseline",
+      "metrics": {
+        "delta_rmse": 0.03576917,
+        "gamma_rmse": 0.0069616385,
+        "price_over_spot_p99_absolute_error": 0.01236292,
+        "price_over_spot_rmse": 0.0034824042,
+        "price_rmse": 0.32374052669514525,
+        "rho_rmse": 6.3671153,
+        "tail_delta_rmse": 0.062866584,
+        "tail_gamma_rmse": 0.010398738,
+        "tail_price_over_spot_rmse": 0.0061405813,
+        "theta_rmse": 2.6671957,
+        "vega_rmse": 3.6853988
+      },
+      "no_arbitrage": {
+        "material_violations": 2211,
+        "maximum_relative_violation": 0.022667299
+      },
+      "objective": "price_only_v1",
+      "representation": "raw_physical_v1",
+      "weights_sha256": "4409d65621fe27d986c8f24560332a661477e3b976ad36fe4fef54d3c2296262"
+    },
+    {
+      "artifact": "artifacts/european-neural-long-v1",
+      "artifact_manifest_sha256": "29c38c78a38718e1d6d74b6cacc16a55b67dd03aad1b5d89678aca102ec847dc",
+      "best_epoch": 291,
+      "controlled_change": "Increase the same 3x64 model's training budget from 100 to 300 epochs",
+      "hidden_dimensions": [
+        64,
+        64,
+        64
+      ],
+      "id": "long_control",
+      "label": "Longer",
+      "metrics": {
+        "delta_rmse": 0.022364826,
+        "gamma_rmse": 0.0054317042,
+        "price_over_spot_p99_absolute_error": 0.0064448564,
+        "price_over_spot_rmse": 0.0018977931,
+        "price_rmse": 0.17594963957974202,
+        "rho_rmse": 3.8604724,
+        "tail_delta_rmse": 0.043304431,
+        "tail_gamma_rmse": 0.0080907437,
+        "tail_price_over_spot_rmse": 0.0028356593,
+        "theta_rmse": 2.0514993,
+        "vega_rmse": 2.2211905
+      },
+      "no_arbitrage": {
+        "material_violations": 1743,
+        "maximum_relative_violation": 0.014540169
+      },
+      "objective": "price_only_v1",
+      "representation": "raw_physical_v1",
+      "weights_sha256": "ccf8f3f2f9f99ee0d6289302601a1965b0d9b20fc6b21a1ba932cc64fb0783f4"
+    },
+    {
+      "artifact": "artifacts/european-neural-wide-v2",
+      "artifact_manifest_sha256": "18c145bf8cf2f8390fac79d09e8c91bf3ca6c7ef1e3c99e3233baec6ba38ef66",
+      "best_epoch": 186,
+      "controlled_change": "Increase capacity to four 128-unit layers under the 300-epoch budget",
+      "hidden_dimensions": [
+        128,
+        128,
+        128,
+        128
+      ],
+      "id": "wide_control",
+      "label": "Wider",
+      "metrics": {
+        "delta_rmse": 0.020251204,
+        "gamma_rmse": 0.0053683877,
+        "price_over_spot_p99_absolute_error": 0.0055266921,
+        "price_over_spot_rmse": 0.0015150453,
+        "price_rmse": 0.13733306368817064,
+        "rho_rmse": 3.6890393,
+        "tail_delta_rmse": 0.037059165,
+        "tail_gamma_rmse": 0.0075655364,
+        "tail_price_over_spot_rmse": 0.002363116,
+        "theta_rmse": 1.7357429,
+        "vega_rmse": 2.0120702
+      },
+      "no_arbitrage": {
+        "material_violations": 1393,
+        "maximum_relative_violation": 0.01840215
+      },
+      "objective": "price_only_v1",
+      "representation": "raw_physical_v1",
+      "weights_sha256": "f6969d0c90d7c7a9c1899c26947d4f1f4430c8d8fe315df5ff95597b8375127a"
+    },
+    {
+      "artifact": "artifacts/european-neural-forward-normalized-v1",
+      "artifact_manifest_sha256": "ace7da083398dd0510e5cfd166a270c65888bf62b67e7625ddf082fa4e8dd126",
+      "best_epoch": 187,
+      "controlled_change": "Replace seven raw inputs with option type, log-forward moneyness, and total volatility",
+      "hidden_dimensions": [
+        64,
+        64,
+        64
+      ],
+      "id": "forward_normalized",
+      "label": "Forward",
+      "metrics": {
+        "delta_rmse": 0.01995205,
+        "gamma_rmse": 0.0065506064,
+        "price_over_spot_p99_absolute_error": 0.003406427,
+        "price_over_spot_rmse": 0.00090079758,
+        "price_rmse": 0.09271692774332645,
+        "rho_rmse": 2.0060552,
+        "tail_delta_rmse": 0.038000433,
+        "tail_gamma_rmse": 0.010809886,
+        "tail_price_over_spot_rmse": 0.0018941675,
+        "theta_rmse": 0.8103119,
+        "vega_rmse": 1.6484099
+      },
+      "no_arbitrage": {
+        "material_violations": 1626,
+        "maximum_relative_violation": 0.0077154728
+      },
+      "objective": "price_only_v1",
+      "representation": "forward_normalized_v1",
+      "weights_sha256": "7c6723cf36c6f61a04b93352712b79162a37c882c8e2f239a13f648d22c0a31c"
+    },
+    {
+      "artifact": "artifacts/european-neural-forward-differential-v1",
+      "artifact_manifest_sha256": "995e00b11bebf0c2149a5ae3b863549a4deb87343a86dd041f89e3b56b45a75c",
+      "best_epoch": 294,
+      "controlled_change": "Add analytic delta and vega information through first-derivative supervision",
+      "hidden_dimensions": [
+        64,
+        64,
+        64
+      ],
+      "id": "differential",
+      "label": "Differential",
+      "metrics": {
+        "delta_rmse": 0.002536007715,
+        "gamma_rmse": 0.001853767375,
+        "price_over_spot_p99_absolute_error": 0.0006042908439,
+        "price_over_spot_rmse": 0.0002170777199,
+        "price_rmse": 0.02253450219,
+        "rho_rmse": 0.2390283555,
+        "tail_delta_rmse": 0.004269820869,
+        "tail_gamma_rmse": 0.002442697349,
+        "tail_price_over_spot_rmse": 0.0003138736746,
+        "theta_rmse": 0.1067424605,
+        "vega_rmse": 0.2070711126
+      },
+      "no_arbitrage": {
+        "material_violations": 75,
+        "maximum_relative_violation": 0.0008491879746,
+        "total_violations": 76
+      },
+      "objective": "price_and_first_derivatives_v1",
+      "representation": "forward_normalized_v1",
+      "weights_sha256": "49e09038b2683efb67e968155032bd252a273019ae99ce861960ab959653129d"
+    },
+    {
+      "artifact": "artifacts/european-neural-forward-differential-bounded-v1",
+      "artifact_manifest_sha256": "8263482ce3b3ec98b8b6a9f45941a7fa5a5926240c43c9358ecbbaa3059a88be",
+      "best_epoch": 294,
+      "controlled_change": "Apply discounted European bounds to the unchanged differential-model weights",
+      "hidden_dimensions": [
+        64,
+        64,
+        64
+      ],
+      "id": "bounded_differential",
+      "label": "Bounded",
+      "metrics": {
+        "delta_rmse": 0.002473936411,
+        "gamma_rmse": 0.001504417803,
+        "price_over_spot_p99_absolute_error": 0.00060289104,
+        "price_over_spot_rmse": 0.0002167501994,
+        "price_rmse": 0.02250156206,
+        "rho_rmse": 0.238991055,
+        "tail_delta_rmse": 0.00396525879,
+        "tail_gamma_rmse": 0.00242839822,
+        "tail_price_over_spot_rmse": 0.0003134823281,
+        "theta_rmse": 0.1021189731,
+        "vega_rmse": 0.2024791759
+      },
+      "no_arbitrage": {
+        "material_violations": 0,
+        "maximum_relative_violation": 0.0,
+        "total_violations": 0
+      },
+      "objective": "price_and_first_derivatives_v1",
+      "output_constraint": "european_bounds_v1",
+      "projection_diagnostics": {
+        "active_rows": 76,
+        "lower_bound_activations": 76,
+        "maximum_absolute_adjustment": 0.1024814583,
+        "upper_bound_activations": 0
+      },
+      "representation": "forward_normalized_v1",
+      "source_manifest_sha256": "995e00b11bebf0c2149a5ae3b863549a4deb87343a86dd041f89e3b56b45a75c",
+      "source_weights_sha256": "49e09038b2683efb67e968155032bd252a273019ae99ce861960ab959653129d",
+      "weights_sha256": "49e09038b2683efb67e968155032bd252a273019ae99ce861960ab959653129d"
+    }
+  ],
+  "interpretation": {
+    "final_claim": false,
+    "interpolation_test_status": "consumed_by_earlier_model_development",
+    "next_step": "Freeze the bounded differential design and repeat on a fresh-seed dataset before one locked interpolation-test evaluation.",
+    "purpose": "Development/model-selection evidence on one synthetic in-envelope validation partition."
+  },
+  "partition": "validation",
+  "rows": 25000,
+  "schema_version": "european-validation-study/v1"
+}

@@ -44,6 +44,8 @@ The export format must be framework-neutral and versioned. It should contain:
 
 - ordered feature names and units;
 - feature and target transforms;
+- any output constraint, its differentiability contract, and source-artifact
+  lineage when it is derived without retraining;
 - layer dimensions, activation, row-major weights, and biases;
 - training code/data identifiers;
 - supported domain;

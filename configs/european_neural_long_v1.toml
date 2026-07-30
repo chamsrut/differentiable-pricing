@@ -1,0 +1,42 @@
+# Controlled optimization-budget experiment. This differs from the baseline
+# only in the maximum epoch and early-stopping budgets.
+
+schema_version = "european-neural-baseline-config/v1"
+experiment_name = "european-neural-long-v1"
+features = [
+  "option_type",
+  "spot",
+  "strike",
+  "maturity",
+  "rate",
+  "dividend_yield",
+  "volatility",
+]
+dtype = "float64"
+device = "cpu"
+
+[model]
+hidden_dimensions = [64, 64, 64]
+activation = "tanh"
+output_dimension = 1
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+
+[training]
+seed = 20260730
+batch_size = 4096
+max_epochs = 300
+early_stopping_patience = 25
+early_stopping_min_delta = 0.00000001
+num_threads = 4
+
+[artifact]
+schema_version = "european-neural-artifact/v1"
+
+[evaluation]
+batch_size = 2048
+core_max_absolute_z = 4.0
+tail_max_absolute_z = 8.0

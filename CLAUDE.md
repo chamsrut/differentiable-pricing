@@ -22,12 +22,14 @@ in Python merely to make a test pass.
 
 ## Commands
 
-Run the full local gate. It compiles Python and hook sources, validates the
-TOML and JSON configuration, runs Ruff and clang-format, builds and runs the
-C++ tests, and finishes with the full Python suite (`python3 -m pytest -q`).
+Run the full local gate. It compiles Python, script, and hook sources, validates
+the TOML and JSON configuration, checks that the CI test partition is still a
+partition, verifies that checked-in experiment figures match their versioned
+result snapshot, runs Ruff and clang-format, builds and runs the C++ tests, and
+finishes with the full Python suite (`python3 -m pytest -q`, both partitions).
 It therefore needs the editable install below; a missing pytest fails the gate
-rather than skipping it. `--quick` (used by the pre-commit hook) stops after
-the C++ tests and does not run the Python suite.
+rather than skipping it. `--quick` (used by the pre-commit hook) stops after the
+C++ tests and does not run the Python suite.
 
 ```bash
 ./scripts/check.sh
@@ -41,16 +43,32 @@ cmake --build build/dev --parallel
 ctest --test-dir build/dev --output-on-failure
 ```
 
-Build and test the Python extension:
+Build and run the full Python suite:
 
 ```bash
-python -m pip install -e '.[dev,data]'
+python -m pip install -e '.[dev,train]'
 pytest -q
 ruff check .
 ```
 
-The `data` extra (NumPy and PyArrow) is required by the dataset tests, so the
-full gate needs it too.
+The `train` extra includes the `data` dependencies plus PyTorch. It is required
+by every test under `python/tests/ml/`, so the full local gate needs it.
+
+The suite is split by directory, and CI mirrors that split exactly:
+
+- `python/tests/` (excluding `ml/`) must import only the `data` extra. The
+  lightweight CI job installs `.[dev,data]` and runs
+  `pytest -q --ignore=python/tests/ml`.
+- `python/tests/ml/` holds every PyTorch-dependent test. The CPU-only CI job
+  installs `.[dev,train]` and runs `pytest -q python/tests/ml`.
+
+The two commands partition the suite, so every test file is exercised by
+exactly one job. `scripts/check_test_partition.py` enforces this statically —
+it fails if a module outside `python/tests/ml/` imports `torch` or
+`differentiable_pricing.ml`, which would otherwise break collection in the
+lightweight job. It runs both in the local gate and in CI. Put new
+PyTorch-dependent tests under `python/tests/ml/`; no marker registration is
+needed, and no enumerated file list has to be kept in sync.
 
 ## Numerical non-negotiables
 
@@ -68,6 +86,20 @@ full gate needs it too.
 - For LSM, fit the stopping rule on paths independent of final valuation paths.
 - Prevent train/test leakage across duplicated states, paths, curve scenarios,
   strikes, expiries, and exercise schedules.
+- Use `validation` for architecture and hyperparameter selection. Require
+  `interpolation_test` to be named explicitly and do not tune against it.
+- Once any test result informs a model change, mark that test as consumed and
+  require a fresh-seed replication for the final performance estimate.
+- Change one controlled factor per experiment where practical, and keep
+  predeclared acceptance gates fixed after results are observed.
+- Keep financial feature transforms and physical-unit reconstruction inside
+  the differentiable model used by both evaluation and artifact loading.
+- Derive differential labels analytically in the declared model coordinates;
+  do not use finite differences as training labels.
+- Treat output constraints as versioned parts of the mathematical model.
+  Record the exact projection and source-weight lineage in the artifact.
+- For piecewise-differentiable constraints, test Greeks away from kinks and
+  state where derivatives are not unique.
 - Report tails and worst regions, not only mean error.
 - Benchmark end-to-end latency at fixed batch sizes, including serialization
   and feature transforms.

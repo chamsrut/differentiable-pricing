@@ -41,4 +41,32 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test
-        run: pytest -q
+        # PyTorch is deliberately absent from this lightweight job, so every
+        # test that imports it lives under python/tests/ml/ and is excluded
+        # here by directory. Nothing is silently skipped: the `ml` job below
+        # runs that whole directory, and the coverage check in the same job
+        # asserts the two sets partition python/tests.
+        run: pytest -q --ignore=python/tests/ml
+      - name: Every test file is claimed by exactly one CI job
+        run: python3 scripts/check_test_partition.py
+
+  ml:
+    name: Neural baseline / CPU
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: >
+          python -m pip install
+          --index-url https://download.pytorch.org/whl/cpu
+          'torch>=2.4,<3'
+      - name: Install project
+        run: python -m pip install -e '.[dev,train]'
+      - name: Test neural baseline
+        # The whole directory, not an enumerated file list, so a new ML test
+        # module is covered by construction.
+        run: pytest -q python/tests/ml
