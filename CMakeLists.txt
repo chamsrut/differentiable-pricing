@@ -23,6 +23,8 @@ endif()
 option(DP_BUILD_PYTHON_BINDINGS "Build the Python extension" ON)
 option(DP_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
+find_package(Threads REQUIRED)
+
 add_library(
     dp_core
     cpp/src/binomial_tree.cpp
@@ -32,6 +34,7 @@ add_library(
 )
 add_library(dp::core ALIAS dp_core)
 set_target_properties(dp_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(dp_core PUBLIC Threads::Threads)
 
 target_compile_features(dp_core PUBLIC cxx_std_20)
 target_include_directories(
@@ -83,9 +86,46 @@ endif()
 
 if(DP_BUILD_PYTHON_BINDINGS)
     find_package(pybind11 CONFIG REQUIRED)
+    set_property(
+        DIRECTORY
+        APPEND
+        PROPERTY CMAKE_CONFIGURE_DEPENDS
+            bindings/python/module.cpp
+            cpp/include/dp/binomial_tree.hpp
+            cpp/include/dp/black_scholes.hpp
+            cpp/include/dp/option.hpp
+            cpp/src/binomial_tree.cpp
+            cpp/src/black_scholes.cpp
+            cpp/src/option.cpp
+    )
+    file(SHA256 bindings/python/module.cpp DP_BINDING_SOURCE_SHA256)
+    file(SHA256 cpp/include/dp/binomial_tree.hpp DP_CRR_HEADER_SHA256)
+    file(SHA256 cpp/include/dp/black_scholes.hpp DP_BLACK_SCHOLES_HEADER_SHA256)
+    file(SHA256 cpp/include/dp/option.hpp DP_OPTION_HEADER_SHA256)
+    file(SHA256 cpp/src/binomial_tree.cpp DP_CRR_SOURCE_SHA256)
+    file(SHA256 cpp/src/black_scholes.cpp DP_BLACK_SCHOLES_SOURCE_SHA256)
+    file(SHA256 cpp/src/option.cpp DP_OPTION_SOURCE_SHA256)
+    string(
+        CONCAT
+        DP_CRR_IDENTITY_INPUT
+        "${DP_BINDING_SOURCE_SHA256}:${DP_CRR_HEADER_SHA256}:"
+        "${DP_BLACK_SCHOLES_HEADER_SHA256}:${DP_OPTION_HEADER_SHA256}:"
+        "${DP_CRR_SOURCE_SHA256}:${DP_BLACK_SCHOLES_SOURCE_SHA256}:"
+        "${DP_OPTION_SOURCE_SHA256}"
+    )
+    string(SHA256 DP_CRR_IMPLEMENTATION_SHA256 "${DP_CRR_IDENTITY_INPUT}")
     pybind11_add_module(_core MODULE bindings/python/module.cpp)
     target_link_libraries(_core PRIVATE dp::core)
     target_compile_features(_core PRIVATE cxx_std_20)
+    target_compile_definitions(
+        _core
+        PRIVATE
+            DP_BUILD_CONFIGURATION="$<CONFIG>"
+            DP_CXX_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+            DP_CRR_HEADER_SHA256="${DP_CRR_HEADER_SHA256}"
+            DP_CRR_IMPLEMENTATION_SHA256="${DP_CRR_IMPLEMENTATION_SHA256}"
+            DP_CRR_SOURCE_SHA256="${DP_CRR_SOURCE_SHA256}"
+    )
     install(TARGETS _core LIBRARY DESTINATION differentiable_pricing)
 endif()
 

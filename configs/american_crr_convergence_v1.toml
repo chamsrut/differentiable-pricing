@@ -1,0 +1,159 @@
+# Exploratory numerical study, not a final label-generation acceptance gate.
+# The 8,192/8,193 adjacent average is a high-step internal CRR reference, not
+# independent truth. The study must be interpreted together with its analytic
+# European controls and later LSM cross-checks.
+
+schema_version = "american-crr-convergence/1"
+
+[study]
+name = "american-crr-convergence-v1"
+engine = "dp::crr_binomial/v1"
+exercise_style = "american"
+step_ladder = [64, 128, 256, 512, 1024, 2048, 4096]
+reference_steps = 8192
+diagnostic_step_ladder = [256, 512, 1024, 2048]
+batch_threads = 4
+
+[[cases]]
+name = "standard_atm_put"
+option_type = "put"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.20
+exercise_expectation = "material"
+
+[[cases]]
+name = "deep_itm_put"
+option_type = "put"
+spot = 70.0
+strike = 100.0
+maturity = 1.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.25
+
+[[cases]]
+name = "deep_otm_put"
+option_type = "put"
+spot = 130.0
+strike = 100.0
+maturity = 1.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.25
+
+[[cases]]
+name = "short_maturity_put"
+option_type = "put"
+spot = 100.0
+strike = 100.0
+maturity = 0.05
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.20
+
+[[cases]]
+name = "long_maturity_put"
+option_type = "put"
+spot = 100.0
+strike = 100.0
+maturity = 3.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.25
+
+[[cases]]
+name = "low_volatility_put"
+option_type = "put"
+spot = 90.0
+strike = 100.0
+maturity = 1.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.08
+
+[[cases]]
+name = "high_volatility_put"
+option_type = "put"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.80
+
+[[cases]]
+name = "negative_rate_put"
+option_type = "put"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = -0.01
+dividend_yield = 0.0
+volatility = 0.20
+
+[[cases]]
+name = "negative_rate_call"
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = -0.01
+dividend_yield = 0.0
+volatility = 0.20
+exercise_expectation = "material"
+
+[[cases]]
+name = "high_rate_put"
+option_type = "put"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = 0.12
+dividend_yield = 0.0
+volatility = 0.20
+exercise_expectation = "material"
+
+[[cases]]
+name = "non_dividend_call_control"
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = 0.05
+dividend_yield = 0.0
+volatility = 0.20
+exercise_expectation = "none"
+
+[[cases]]
+name = "moderate_dividend_call"
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = 0.01
+dividend_yield = 0.03
+volatility = 0.25
+exercise_expectation = "material"
+
+[[cases]]
+name = "high_dividend_call"
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 1.0
+rate = 0.01
+dividend_yield = 0.10
+volatility = 0.25
+exercise_expectation = "material"
+
+[feasibility]
+# Probability feasibility is independent of spot, strike, and option type.
+maturities = [0.01, 0.05, 0.25, 1.0, 3.0]
+rates = [-0.02, 0.0, 0.05, 0.15]
+dividend_yields = [0.0, 0.02, 0.10]
+volatilities = [0.05, 0.10, 0.20, 0.50, 0.80]
+step_candidates = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]

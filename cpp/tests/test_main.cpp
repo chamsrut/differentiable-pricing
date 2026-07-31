@@ -39,6 +39,19 @@ void expect_invalid_argument(const std::function<void()>& action, const std::str
     expect_true(threw, message);
 }
 
+void expect_invalid_argument_contains(const std::function<void()>& action,
+                                      const std::string& expected_text,
+                                      const std::string& message) {
+    try {
+        action();
+    } catch (const std::invalid_argument& error) {
+        expect_true(std::string(error.what()).find(expected_text) != std::string::npos,
+                    message + ": unexpected message=" + error.what());
+        return;
+    }
+    throw std::runtime_error(message + ": no invalid_argument was thrown");
+}
+
 void expect_overflow_error(const std::function<void()>& action, const std::string& message) {
     bool threw = false;
     try {
@@ -164,6 +177,18 @@ void test_dividend_call_can_have_exercise_premium() {
                 "dividend-paying American call did not report an exercise region");
 }
 
+void test_negative_rate_call_can_have_exercise_premium() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, -0.01, 0.0, 0.2};
+    const auto european =
+        dp::crr_binomial(dp::OptionType::call, dp::ExerciseStyle::european, input, 2048U);
+    const auto american =
+        dp::crr_binomial(dp::OptionType::call, dp::ExerciseStyle::american, input, 2048U);
+    expect_true(american.price > european.price + 0.01,
+                "negative-rate American call did not have a material exercise premium");
+    expect_true(american.early_exercise_nodes > 0U,
+                "negative-rate American call did not report an exercise region");
+}
+
 void test_american_prices_respect_bounds_and_monotonicity() {
     const dp::BlackScholesInput low_spot{
         90.0, 100.0, 1.25, 0.04, 0.02, 0.3,
@@ -203,6 +228,148 @@ void test_american_crr_step_convergence() {
                                  .average_price;
     expect_true(std::abs(fine - reference) < std::abs(coarse - reference),
                 "American CRR refinement did not improve price stability");
+}
+
+void test_crr_price_only_matches_diagnostic_engine() {
+    const std::vector<dp::CrrPriceRequest> requests{
+        {
+            dp::OptionType::put,
+            dp::ExerciseStyle::american,
+            {100.0, 100.0, 1.0, 0.05, 0.0, 0.2},
+            257U,
+        },
+        {
+            dp::OptionType::call,
+            dp::ExerciseStyle::american,
+            {90.0, 100.0, 0.25, 0.01, 0.08, 0.35},
+            384U,
+        },
+        {
+            dp::OptionType::call,
+            dp::ExerciseStyle::european,
+            {120.0, 100.0, 2.0, -0.01, 0.02, 0.5},
+            513U,
+        },
+    };
+
+    for (const dp::CrrPriceRequest& request : requests) {
+        const dp::CrrResult diagnostic =
+            dp::crr_binomial(request.option_type, request.exercise_style, request.input,
+                             request.steps);
+        const dp::CrrPriceOnlyResult price_only = dp::crr_price_only(request);
+        expect_true(price_only.price == diagnostic.price,
+                    "price-only CRR changed the scalar price recursion");
+        expect_true(price_only.steps == diagnostic.steps,
+                    "price-only CRR changed the reported step count");
+        expect_true(price_only.risk_neutral_probability ==
+                        diagnostic.risk_neutral_probability,
+                    "price-only CRR changed the lattice probability");
+    }
+}
+
+void test_crr_batch_is_ordered_and_thread_deterministic() {
+    const std::vector<dp::CrrPriceRequest> requests{
+        {
+            dp::OptionType::put,
+            dp::ExerciseStyle::american,
+            {70.0, 100.0, 0.1, 0.03, 0.0, 0.15},
+            127U,
+        },
+        {
+            dp::OptionType::call,
+            dp::ExerciseStyle::american,
+            {90.0, 100.0, 0.5, 0.01, 0.08, 0.35},
+            256U,
+        },
+        {
+            dp::OptionType::put,
+            dp::ExerciseStyle::american,
+            {100.0, 100.0, 1.0, 0.05, 0.0, 0.2},
+            513U,
+        },
+        {
+            dp::OptionType::call,
+            dp::ExerciseStyle::european,
+            {130.0, 100.0, 2.0, -0.01, 0.02, 0.5},
+            384U,
+        },
+        {
+            dp::OptionType::put,
+            dp::ExerciseStyle::american,
+            {110.0, 100.0, 3.0, 0.08, 0.01, 0.6},
+            193U,
+        },
+    };
+
+    const auto serial = dp::crr_price_batch(requests, 1U);
+    const auto parallel = dp::crr_price_batch(requests, 4U);
+    expect_true(serial.size() == requests.size() && parallel.size() == requests.size(),
+                "CRR batch changed the number of rows");
+
+    for (std::size_t index = 0U; index < requests.size(); ++index) {
+        const auto scalar = dp::crr_price_only(requests[index]);
+        expect_true(serial[index].price == scalar.price &&
+                        parallel[index].price == scalar.price,
+                    "CRR batch changed a scalar result or output order");
+        expect_true(serial[index].steps == requests[index].steps &&
+                        parallel[index].steps == requests[index].steps,
+                    "CRR batch changed a request step count or output order");
+        expect_true(serial[index].risk_neutral_probability ==
+                            scalar.risk_neutral_probability &&
+                        parallel[index].risk_neutral_probability ==
+                            scalar.risk_neutral_probability,
+                    "CRR batch changed a lattice probability");
+    }
+}
+
+void test_crr_batch_error_contract() {
+    const dp::CrrPriceRequest valid{
+        dp::OptionType::put,
+        dp::ExerciseStyle::american,
+        {100.0, 100.0, 1.0, 0.05, 0.0, 0.2},
+        64U,
+    };
+    expect_true(dp::crr_price_batch({}, 1U).empty(), "empty CRR batch was not empty");
+    expect_invalid_argument(
+        [&valid]() {
+            static_cast<void>(
+                dp::crr_price_batch(std::span<const dp::CrrPriceRequest>(&valid, 1U), 0U));
+        },
+        "zero CRR batch threads were not rejected");
+    expect_invalid_argument(
+        [&valid]() {
+            static_cast<void>(dp::crr_price_batch(
+                std::span<const dp::CrrPriceRequest>(&valid, 1U),
+                dp::maximum_crr_batch_threads + 1U));
+        },
+        "excessive CRR batch threads were not rejected");
+
+    auto invalid = valid;
+    invalid.steps = 0U;
+    const std::vector<dp::CrrPriceRequest> requests{valid, invalid, valid};
+    expect_invalid_argument_contains(
+        [&requests]() { static_cast<void>(dp::crr_price_batch(requests, 2U)); },
+        "index 1", "CRR batch did not identify the first invalid row");
+
+    auto invalid_option = valid;
+    invalid_option.option_type = static_cast<dp::OptionType>(999);
+    expect_invalid_argument_contains(
+        [&invalid_option]() { static_cast<void>(dp::crr_price_only(invalid_option)); },
+        "option type", "price-only CRR accepted an invalid option enum");
+    expect_invalid_argument_contains(
+        [&valid]() {
+            static_cast<void>(
+                dp::crr_binomial(static_cast<dp::OptionType>(999), valid.exercise_style,
+                                 valid.input, valid.steps));
+        },
+        "option type", "diagnostic CRR accepted an invalid option enum");
+
+    auto invalid_style = valid;
+    invalid_style.exercise_style = static_cast<dp::ExerciseStyle>(999);
+    const std::vector<dp::CrrPriceRequest> invalid_batch{valid, invalid_style};
+    expect_invalid_argument_contains(
+        [&invalid_batch]() { static_cast<void>(dp::crr_price_batch(invalid_batch, 2U)); },
+        "index 1", "CRR batch accepted an invalid exercise-style enum");
 }
 
 void test_invalid_crr_requests_are_rejected() {
@@ -315,8 +482,13 @@ int main() {
         {"exercise diagnostic indifference",
          test_exercise_diagnostics_ignore_numerical_indifference},
         {"dividend call exercise premium", test_dividend_call_can_have_exercise_premium},
+        {"negative-rate call exercise premium",
+         test_negative_rate_call_can_have_exercise_premium},
         {"American bounds and monotonicity", test_american_prices_respect_bounds_and_monotonicity},
         {"American CRR step convergence", test_american_crr_step_convergence},
+        {"CRR price-only parity", test_crr_price_only_matches_diagnostic_engine},
+        {"CRR batch determinism", test_crr_batch_is_ordered_and_thread_deterministic},
+        {"CRR batch error contract", test_crr_batch_error_contract},
         {"invalid CRR requests", test_invalid_crr_requests_are_rejected},
         {"MLP reverse gradient", test_mlp_reverse_gradient_against_central_difference},
         {"invalid input", test_invalid_input_is_rejected},

@@ -61,6 +61,20 @@ pytest -q
 ruff check .
 ```
 
+Run the exploratory American CRR convergence study only when numerical
+evidence is requested; it is intentionally not part of CI because its
+8,192/8,193-step reference grid is expensive:
+
+```bash
+python -m differentiable_pricing.american.convergence \
+  --config configs/american_crr_convergence_v1.toml \
+  --output artifacts/american-crr-convergence-v1.json
+```
+
+Machine-specific CRR benchmarks belong under ignored `artifacts/` and must
+record compiler/build, affinity, thread count, warm-up, repetitions, and batch
+size. They are evidence, not portable pass/fail gates.
+
 The `train` extra includes the `data` dependencies plus PyTorch. It is required
 by every test under `python/tests/ml/`, so the full local gate needs it.
 
