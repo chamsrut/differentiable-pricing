@@ -49,6 +49,10 @@ are specified in
 [american-crr-contract.md](american-crr-contract.md). Adjacent-step agreement
 is a convergence diagnostic, not a proof of accuracy; the label-generation
 protocol must measure convergence across the complete sampling domain.
+The exploratory stage-2 convergence configuration uses named stress cases, an
+internal high-step CRR reference, analytic European controls, and a separate
+probability-feasibility grid. It does not select the production label step
+count by itself.
 
 ## Data protocol
 

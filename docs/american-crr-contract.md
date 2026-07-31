@@ -74,12 +74,34 @@ layer: the greatest exercised spot for a put and the smallest exercised spot
 for a call. The CLI reports how many such layers exist rather than emitting
 the full vector.
 
-## Complexity and determinism
+## Complexity, batching, and determinism
 
 The tree uses \(O(N^2)\) arithmetic and rolling \(O(N)\) memory rather than
 storing the \(O(N^2)\) lattice. European pricing allocates no exercise-boundary
 or backward spot-state vector. Given the same floating-point toolchain and
 inputs, it is deterministic and uses no random numbers.
+
+The price-only API runs the identical node recursion without retaining the
+exercise boundary. The batch API validates every request serially before
+starting workers, preserves input order, and assigns independent contracts to
+up to the requested number of worker threads. The effective count is
+\(W=\min(\text{requested threads},B)\) for a non-empty batch of \(B\) rows.
+Every worker reuses private rolling value and spot buffers, so total storage is
+\(O(B+WN_{\max})\) rather than \(O(BN_{\max})\). A worker processes each tree
+serially: changing the worker count does not alter the floating-point operation
+order within a price, and serial and parallel results are required to be
+bit-identical.
+
+Batch parallelism reduces wall-clock time but not total work:
+
+\[
+\text{work}=O\left(\sum_{i=1}^{B}N_i^2\right).
+\]
+
+Parallelizing the nodes inside one tree is deliberately deferred. The
+in-place recursion would need double buffering and a synchronization barrier
+at every time layer. That can be revisited only if profiling shows single-point
+latency, rather than batch throughput, is the relevant bottleneck.
 
 The scalar `crr_binomial` API rejects more than 16,384 steps. The adjacent-step
 API—and therefore the CLI—accepts at most 16,383 because it also computes
@@ -103,12 +125,25 @@ g_N=\lvert V_N-V_{N+1}\rvert.
 
 CRR prices can oscillate with step parity because the strike moves relative to
 the terminal lattice. The adjacent average often reduces that visible
-oscillation. Neither \(g_N\) nor \(g_N/2\) is a certified truncation-error
-bound. Production of learning labels requires a separately versioned
-convergence study over the full parameter domain, including exercise-frontier
-and short-maturity cases. It must also map the minimum feasible step count
-under the strict \(0<p<1\) rule. A batch generator must fail or flag an
-unsupported state explicitly; it must never silently drop rejected rows.
+oscillation. For an American option, \(N\) versus \(N+1\) also changes the
+exercise-time mesh and discrete frontier, so \(g_N\) is an
+adjacent-refinement discrepancy rather than a pure parity diagnostic. Neither
+\(g_N\) nor \(g_N/2\) is a certified truncation-error bound. The exploratory
+study in
+`configs/american_crr_convergence_v1.toml` covers named exercise regimes and
+uses an 8,192/8,193 adjacent average as an internal high-step reference. It
+also prices the corresponding European contracts against analytic
+Black--Scholes values, checks both signs of rates for no-dividend calls,
+samples exercise boundaries across multiple refinements, and maps the minimum
+feasible *tested candidate* step count over a separate grid in
+\((T,r,q,\sigma)\). The report explicitly does not treat the same-engine
+high-step value as independent truth.
+
+Production of learning labels still requires a separately versioned sampling
+and acceptance protocol over the complete proposed data domain, including
+exercise-frontier and short-maturity cases. A batch generator must fail or
+flag an unsupported state explicitly; it must never silently drop rejected
+rows.
 
 ## Permanent validation properties
 
@@ -122,6 +157,9 @@ The deterministic C++ suite checks:
 - spot monotonicity;
 - suppression of spurious exercise diagnostics at zero-rate indifference;
 - improved price stability under step refinement;
+- exact parity among the diagnostic, price-only, serial-batch, and
+  parallel-batch paths;
+- deterministic batch ordering and indexed failure of invalid rows;
 - rejection of zero/excessive step counts and invalid risk-neutral
   probabilities.
 
@@ -153,7 +191,10 @@ prices.
 ## Current non-claims
 
 - No American Greek is exposed yet.
-- No batch API or Python binding is exposed yet.
+- The batch boundary is price-only; American Greeks are not exposed.
+- The checked-in convergence configuration is exploratory and does not yet
+  authorize a label step count.
+- Runtime measurements are machine-specific evidence and are not CI gates.
 - No American training dataset or neural result exists yet.
 - Continuous exercise is approximated by exercise at every lattice time
   layer and requires step convergence.

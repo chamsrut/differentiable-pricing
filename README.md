@@ -36,6 +36,9 @@ full experimental contract is in
 - A deterministic C++20 Cox--Ross--Rubinstein tree for European and American
   calls and puts, with adjacent-step convergence diagnostics and
   early-exercise-region metadata.
+- A price-only CRR batch boundary with deterministic ordering, indexed
+  preflight failures, explicit worker counts, reusable per-worker \(O(N)\)
+  memory, and bit-identical serial/parallel prices.
 - A command-line pricer with machine-readable JSON output.
 - A scalar-output `tanh` MLP implemented in C++, including a manual
   reverse-mode pass for input derivatives.
@@ -125,11 +128,73 @@ Try the executable:
 The American executable reports the raw \(N\)-step tree price, the
 \((N+1)\)-step price, their average, their absolute gap, and exercise-region
 diagnostics. Adjacent-step averaging reduces the visible even/odd
-strike-alignment oscillation, but the pair gap is **not** a certified error
-bound. A label-generation configuration must establish convergence over its
-entire declared domain before treating a step count as adequate. The numerical
-contract and formulas are in
+strike-alignment oscillation. For an American tree, however, the adjacent
+discrepancy also includes time-mesh and exercise-frontier changes; it is
+**not** a pure parity measure or certified error bound. A label-generation
+configuration must establish convergence over its entire declared domain
+before treating a step count as adequate. The numerical contract and formulas
+are in
 [docs/american-crr-contract.md](docs/american-crr-contract.md).
+
+### Run the American CRR convergence study
+
+Reinstall the editable package after changing the C++ binding, then run the
+versioned exploratory study:
+
+```bash
+python -m pip install -e '.[dev,train]'
+python -m differentiable_pricing.american.convergence \
+  --config configs/american_crr_convergence_v1.toml \
+  --output artifacts/american-crr-convergence-v1.json
+```
+
+The report contains:
+
+- American adjacent-step prices over a declared step ladder;
+- absolute differences from the internal 8,192/8,193-step CRR average;
+- exercise-region snapshots over a separate diagnostic step ladder, including
+  boundary samples at declared physical-time fractions;
+- European-tree comparisons with analytic Black--Scholes prices;
+- explicit positive-rate no-dividend-call and negative-rate-call exercise
+  controls;
+- the strict \(0<p<1\) minimum-feasible-candidate-step distribution over a
+  separate \((T,r,q,\sigma)\) grid;
+- compiler, build configuration, and a composite hash of every C++/binding
+  source file that affects the recorded CRR and analytic-control results;
+- no wall-clock fields, so numerical diagnostics are not mixed with
+  machine-specific performance evidence.
+
+The high-step CRR average is a refinement reference from the same algorithm,
+not exact or independent truth. It will be cross-checked against LSM later,
+and its observed errors must inform a separately versioned label policy rather
+than silently becoming one.
+
+### Benchmark the scalar and parallel batch paths
+
+```bash
+python scripts/benchmark_american_crr.py \
+  --config configs/american_crr_convergence_v1.toml \
+  --steps 1024 \
+  --batch-sizes 1,16,64 \
+  --thread-counts 1,2,4 \
+  --warmups 1 \
+  --repetitions 5 \
+  --output artifacts/american-crr-benchmark-local.json
+```
+
+The benchmark records every repetition, CPU affinity, platform, C++ compiler,
+build configuration, batch size, requested thread count, and effective worker
+count. Scalar and batch modes are cyclically rotated within repetitions to
+reduce fixed-order thermal bias. Every configuration must return exactly
+identical prices. Timings are deliberately not checked into source control or
+used as CI gates: a later neural comparison must use the same hardware,
+affinity, batch size, accuracy target, and effective core budget.
+
+The recombining tree remains \(O(N^2)\) in arithmetic because it visits
+\(N(N+1)/2\) nodes. Batch workers reduce elapsed time and reuse allocations;
+they do not change the total work. The relevant reference baseline is
+therefore the smallest convergence-supported \(N\), built in `Release`, rather
+than an arbitrary large tree.
 
 ## Build the Python package
 
@@ -874,11 +939,11 @@ both, and an independently initialized remote can create an avoidable merge.
 
 ## Immediate next milestone
 
-Stage 1 is complete at its stated synthetic in-domain scope, and the first
-scalar CRR American-option reference implementation now exists. The next
-milestone is to freeze an American-option numerical protocol: map convergence
-over the proposed domain, choose step counts from an explicit reference-error
-budget, add a Python batch boundary, and build exercise-aware train,
+Stage 1 is complete at its stated synthetic in-domain scope. The American CRR
+engine now has diagnostic and price-only paths, a deterministic parallel batch
+boundary, and a versioned exploratory convergence protocol. The next action is
+to run and review that protocol, then freeze a label step policy tied to an
+explicit reference-error budget before building exercise-aware train,
 validation, boundary, and locked-test partitions. Only then should the
 European-to-American transfer experiment begin.
 
