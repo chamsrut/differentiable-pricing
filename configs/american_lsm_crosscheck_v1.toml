@@ -1,0 +1,87 @@
+# Exploratory independent-method cross-check, not a market calibration and not
+# a final American-neural acceptance gate. The LSM value is a Monte Carlo
+# estimate of a learned Bermudan stopping policy; the high-step CRR value is an
+# internal constant-parameter-model reference, not observed market truth.
+
+schema_version = "american-lsm-crosscheck/1"
+
+[study]
+name = "american-lsm-crosscheck-v1"
+engine = "dp::least_squares_monte_carlo/v1"
+case_source = "configs/american_crr_convergence_v1.toml"
+case_source_sha256 = "b9407cdda6600216452d19a27f3d240bf292c54fd6e72fe791af443f0688cd2f"
+case_names = [
+  "standard_atm_put",
+  "deep_itm_put",
+  "deep_otm_put",
+  "short_maturity_put",
+  "high_volatility_put",
+  "negative_rate_put",
+  "negative_rate_call",
+  "non_dividend_call_control",
+  "high_dividend_call",
+]
+crr_reference_steps = 8192
+crr_batch_threads = 4
+base_seed = 20260801
+maximum_training_memory_bytes = 536870912
+
+# One-factor-at-a-time experiments around reference-v1. The path-high run is
+# the primary cross-check. Polynomial degree is intentionally capped at three:
+# richer bases need much faster path-count growth and a separate protocol.
+
+[[experiments]]
+name = "paths-low-v1"
+role = "path_convergence"
+exercise_steps = 64
+training_paths = 16384
+valuation_paths = 32768
+polynomial_degree = 2
+
+[[experiments]]
+name = "steps-low-v1"
+role = "exercise_grid_convergence"
+exercise_steps = 32
+training_paths = 32768
+valuation_paths = 65536
+polynomial_degree = 2
+
+[[experiments]]
+name = "reference-v1"
+role = "reference"
+exercise_steps = 64
+training_paths = 32768
+valuation_paths = 65536
+polynomial_degree = 2
+
+[[experiments]]
+name = "steps-high-v1"
+role = "exercise_grid_convergence"
+exercise_steps = 128
+training_paths = 32768
+valuation_paths = 65536
+polynomial_degree = 2
+
+[[experiments]]
+name = "degree-one-v1"
+role = "basis_sensitivity"
+exercise_steps = 64
+training_paths = 32768
+valuation_paths = 65536
+polynomial_degree = 1
+
+[[experiments]]
+name = "degree-three-v1"
+role = "basis_sensitivity"
+exercise_steps = 64
+training_paths = 32768
+valuation_paths = 65536
+polynomial_degree = 3
+
+[[experiments]]
+name = "paths-high-primary-v1"
+role = "primary"
+exercise_steps = 64
+training_paths = 65536
+valuation_paths = 131072
+polynomial_degree = 2

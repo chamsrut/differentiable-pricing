@@ -39,6 +39,11 @@ full experimental contract is in
 - A price-only CRR batch boundary with deterministic ordering, indexed
   preflight failures, explicit worker counts, reusable per-worker \(O(N)\)
   memory, and bit-identical serial/parallel prices.
+- A deterministic C++20 Longstaff--Schwartz cross-check with separate
+  policy-training and valuation paths, antithetic pair-aware uncertainty,
+  analytic European control variates, stable continuation regression, an
+  explicit training-memory guard, and total price-domain overflow rejection
+  in place of silent non-finite results.
 - A command-line pricer with machine-readable JSON output.
 - A scalar-output `tanh` MLP implemented in C++, including a manual
   reverse-mode pass for input derivatives.
@@ -165,9 +170,9 @@ The report contains:
   machine-specific performance evidence.
 
 The high-step CRR average is a refinement reference from the same algorithm,
-not exact or independent truth. It will be cross-checked against LSM later,
-and its observed errors must inform a separately versioned label policy rather
-than silently becoming one.
+not exact or independent truth. The independent LSM protocol below
+cross-checks it, and both methods' observed errors must inform a separately
+versioned label policy rather than silently becoming one.
 
 ### Benchmark the scalar and parallel batch paths
 
@@ -195,6 +200,74 @@ The recombining tree remains \(O(N^2)\) in arithmetic because it visits
 they do not change the total work. The relevant reference baseline is
 therefore the smallest convergence-supported \(N\), built in `Release`, rather
 than an arbitrary large tree.
+
+### Run the independent LSM cross-check
+
+The LSM engine learns a stopping policy on one antithetic path stream and
+evaluates that frozen policy on a second stream. It treats each antithetic pair
+average as one independent sample, reports raw and European-control-variate
+standard errors and a 95% interval, and rejects a training request before
+allocation when its estimated bulk working set exceeds the configured limit.
+The full formulas, bias decomposition, RNG contract, regression method, and
+memory accounting are in
+[docs/american-lsm-contract.md](docs/american-lsm-contract.md).
+
+After rebuilding the binding, run the versioned cross-check:
+
+```bash
+python -m pip install -e '.[dev,train]'
+python -m differentiable_pricing.american.lsm_crosscheck \
+  --config configs/american_lsm_crosscheck_v1.toml \
+  --output artifacts/american-lsm-crosscheck-v1.json
+```
+
+The configuration reuses nine SHA-256-pinned named CRR regimes and varies path
+count, exercise-grid density, and polynomial degree one factor at a time. The
+primary experiment uses 64 exercise intervals, 65,536 policy-training paths,
+131,072 valuation paths, and a quadratic continuation basis. Those settings
+are exploratory until the generated report is reviewed.
+
+The LSM interval quantifies valuation noise for a **fixed learned policy**. It
+does not include policy-fitting error or the gap between discrete Bermudan and
+continuous American exercise. The 8,192/8,193 CRR adjacent average is likewise
+an internal constant-parameter-model reference, not a market quote. Agreement
+between them is useful evidence that two very different numerical methods are
+not making a large silent error; it is not evidence that GBM describes live
+option prices.
+
+#### Reading the report without misreading it
+
+The interval is **valuation-only** and has no nominal coverage rate against the
+CRR reference, the same-grid optimal value, or the continuous American value.
+`crr_reference_inside_stochastic_valuation_interval_cases` is **not** a
+calibration statistic and is not an acceptance gate. Policy-fitting error and
+the discrete-exercise gap are systematic and do not shrink with valuation
+paths, while sampling error shrinks at \(n^{-1/2}\); adding paths therefore
+narrows the interval around a fixed bias, and the count is expected to fall
+towards zero. A low count is evidence that noise has been driven below the
+bias, not evidence of a failure. Each experiment summary carries these caveats
+inline, so they travel with the numbers.
+
+Cases whose valuation estimator has exactly zero variance --- immediate
+exercise at time zero, or structural suppression where the control variate
+reproduces the payoff exactly --- have a single-point interval that cannot
+contain a finite-step tree value however close the agreement. They are counted
+and reported separately, with their tree differences given as differences
+rather than converted into successes by an invented tolerance.
+
+Four observed results are expected behaviour, documented in
+[docs/american-lsm-contract.md](docs/american-lsm-contract.md), and should not
+be tuned away: LSM sitting below CRR (a fixed policy on a coarse grid is a
+lower bound); degree one being clearly inadequate; degree three not improving
+on degree two at these path counts; and a denser exercise grid making results
+worse when policy-training paths are held fixed.
+
+The engine also rejects rather than corrupts. The shared vanilla-input
+validator admits every finite rate, dividend yield and volatility, and a finite
+log spot does not imply a representable spot, so every derived price-domain
+quantity is validated where it is produced. For any admitted input the engine
+either returns fully finite results or raises; it never returns a NaN price or
+a silently corrupted standard error.
 
 ## Build the Python package
 
@@ -941,17 +1014,17 @@ both, and an independently initialized remote can create an avoidable merge.
 
 Stage 1 is complete at its stated synthetic in-domain scope. The American CRR
 engine now has diagnostic and price-only paths, a deterministic parallel batch
-boundary, and a versioned exploratory convergence protocol. The next action is
-to run and review that protocol, then freeze a label step policy tied to an
-explicit reference-error budget before building exercise-aware train,
-validation, boundary, and locked-test partitions. Only then should the
+boundary, and a versioned exploratory convergence study. The independent LSM
+engine and its path/step/basis cross-check protocol are now implemented. The
+next action is to run and review that cross-check, then freeze a label policy
+tied to an explicit reference-error budget before building exercise-aware
+train, validation, boundary, and locked-test partitions. Only then should the
 European-to-American transfer experiment begin.
 
-Longstaff--Schwartz remains a second, independently tested reference method.
-It will first be checked against converged CRR prices in the shared
-one-factor-GBM domain. Its value is not to replace a tree where the tree is
-already strong, but to support path-dependent or higher-dimensional problems
-where recombination no longer keeps the state space tractable.
+LSM does not replace the tree in this one-dimensional problem. Its purpose
+here is independent validation and preparation for path-dependent or
+higher-dimensional products where recombination no longer keeps the state
+space tractable.
 
 ## License
 
