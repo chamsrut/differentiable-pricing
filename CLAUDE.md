@@ -71,6 +71,16 @@ python -m differentiable_pricing.american.convergence \
   --output artifacts/american-crr-convergence-v1.json
 ```
 
+Run the independent LSM path/step/basis cross-check only when numerical
+evidence is requested; its production-sized path experiments are likewise not
+part of CI:
+
+```bash
+python -m differentiable_pricing.american.lsm_crosscheck \
+  --config configs/american_lsm_crosscheck_v1.toml \
+  --output artifacts/american-lsm-crosscheck-v1.json
+```
+
 Machine-specific CRR benchmarks belong under ignored `artifacts/` and must
 record compiler/build, affinity, thread count, warm-up, repetitions, and batch
 size. They are evidence, not portable pass/fail gates.

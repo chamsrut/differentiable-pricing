@@ -21,6 +21,8 @@ flowchart TD
 - deterministic early-exercise pricing through the scalar CRR reference tree;
 - parallel pricing across independent CRR contracts, with a private rolling
   \(O(N)\) workspace per worker and serial arithmetic inside each tree;
+- deterministic LSM policy fitting on antithetic training paths and
+  pair-aware valuation on a disjoint streaming path set;
 - deterministic validation of contract/model inputs;
 - low-overhead model inference;
 - reverse-mode derivatives of the deployed smooth network;
@@ -38,9 +40,11 @@ flowchart TD
 
 pybind11 exposes C++ functionality to Python. Keep the boundary in primitive
 numeric types and contiguous arrays. Avoid Python callbacks in hot pricing
-loops. The CRR boundary currently accepts typed column vectors and returns
-price, step count, and lattice probability. A future training-data boundary
-may move to `N x D` float64 arrays when selected input derivatives exist.
+loops. The CRR boundary accepts typed column vectors and returns price, step
+count, and lattice probability. The scalar LSM boundary returns the raw and
+control-variate estimates, pair-aware uncertainty, exercise counts, memory
+accounting, and regression diagnostics. A future training-data boundary may
+move to `N x D` float64 arrays when selected input derivatives exist.
 
 ## Model artifact contract
 

@@ -29,6 +29,7 @@ add_library(
     dp_core
     cpp/src/binomial_tree.cpp
     cpp/src/black_scholes.cpp
+    cpp/src/least_squares_monte_carlo.cpp
     cpp/src/option.cpp
     cpp/src/smooth_mlp.cpp
 )
@@ -90,21 +91,61 @@ if(DP_BUILD_PYTHON_BINDINGS)
         DIRECTORY
         APPEND
         PROPERTY CMAKE_CONFIGURE_DEPENDS
-            bindings/python/module.cpp
-            cpp/include/dp/binomial_tree.hpp
-            cpp/include/dp/black_scholes.hpp
-            cpp/include/dp/option.hpp
-            cpp/src/binomial_tree.cpp
-            cpp/src/black_scholes.cpp
-            cpp/src/option.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/module.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/binomial_tree.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/black_scholes.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/least_squares_monte_carlo.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/option.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/binomial_tree.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/black_scholes.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/least_squares_monte_carlo.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/option.cpp
     )
-    file(SHA256 bindings/python/module.cpp DP_BINDING_SOURCE_SHA256)
-    file(SHA256 cpp/include/dp/binomial_tree.hpp DP_CRR_HEADER_SHA256)
-    file(SHA256 cpp/include/dp/black_scholes.hpp DP_BLACK_SCHOLES_HEADER_SHA256)
-    file(SHA256 cpp/include/dp/option.hpp DP_OPTION_HEADER_SHA256)
-    file(SHA256 cpp/src/binomial_tree.cpp DP_CRR_SOURCE_SHA256)
-    file(SHA256 cpp/src/black_scholes.cpp DP_BLACK_SCHOLES_SOURCE_SHA256)
-    file(SHA256 cpp/src/option.cpp DP_OPTION_SOURCE_SHA256)
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/module.cpp
+        DP_BINDING_SOURCE_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/binomial_tree.hpp
+        DP_CRR_HEADER_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/black_scholes.hpp
+        DP_BLACK_SCHOLES_HEADER_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/least_squares_monte_carlo.hpp
+        DP_LSM_HEADER_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/option.hpp
+        DP_OPTION_HEADER_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/binomial_tree.cpp
+        DP_CRR_SOURCE_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/black_scholes.cpp
+        DP_BLACK_SCHOLES_SOURCE_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/least_squares_monte_carlo.cpp
+        DP_LSM_SOURCE_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/option.cpp
+        DP_OPTION_SOURCE_SHA256
+    )
     string(
         CONCAT
         DP_CRR_IDENTITY_INPUT
@@ -114,6 +155,15 @@ if(DP_BUILD_PYTHON_BINDINGS)
         "${DP_OPTION_SOURCE_SHA256}"
     )
     string(SHA256 DP_CRR_IMPLEMENTATION_SHA256 "${DP_CRR_IDENTITY_INPUT}")
+    string(
+        CONCAT
+        DP_LSM_IDENTITY_INPUT
+        "${DP_BINDING_SOURCE_SHA256}:${DP_LSM_HEADER_SHA256}:"
+        "${DP_BLACK_SCHOLES_HEADER_SHA256}:${DP_OPTION_HEADER_SHA256}:"
+        "${DP_LSM_SOURCE_SHA256}:${DP_BLACK_SCHOLES_SOURCE_SHA256}:"
+        "${DP_OPTION_SOURCE_SHA256}"
+    )
+    string(SHA256 DP_LSM_IMPLEMENTATION_SHA256 "${DP_LSM_IDENTITY_INPUT}")
     pybind11_add_module(_core MODULE bindings/python/module.cpp)
     target_link_libraries(_core PRIVATE dp::core)
     target_compile_features(_core PRIVATE cxx_std_20)
@@ -125,6 +175,9 @@ if(DP_BUILD_PYTHON_BINDINGS)
             DP_CRR_HEADER_SHA256="${DP_CRR_HEADER_SHA256}"
             DP_CRR_IMPLEMENTATION_SHA256="${DP_CRR_IMPLEMENTATION_SHA256}"
             DP_CRR_SOURCE_SHA256="${DP_CRR_SOURCE_SHA256}"
+            DP_LSM_HEADER_SHA256="${DP_LSM_HEADER_SHA256}"
+            DP_LSM_IMPLEMENTATION_SHA256="${DP_LSM_IMPLEMENTATION_SHA256}"
+            DP_LSM_SOURCE_SHA256="${DP_LSM_SOURCE_SHA256}"
     )
     install(TARGETS _core LIBRARY DESTINATION differentiable_pricing)
 endif()

@@ -54,6 +54,14 @@ internal high-step CRR reference, analytic European controls, and a separate
 probability-feasibility grid. It does not select the production label step
 count by itself.
 
+The independent stage-2 LSM contract is specified in
+[american-lsm-contract.md](american-lsm-contract.md). It freezes a policy on
+one antithetic path stream and values it on another, reports pair-aware Monte
+Carlo uncertainty, and varies path count, exercise-grid density, and basis
+degree one factor at a time. Its confidence interval covers valuation sampling
+error only; policy suboptimality and Bermudan exercise-grid bias remain
+separate numerical effects.
+
 ## Data protocol
 
 Each generated row or partition records:

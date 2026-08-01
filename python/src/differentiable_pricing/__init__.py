@@ -8,6 +8,8 @@ from ._core import (
     crr_lattice_parameters,
     crr_price,
     crr_price_batch,
+    lsm_price,
+    lsm_training_memory_bytes,
 )
 from .stages import ResearchStage
 
@@ -20,6 +22,8 @@ __all__ = [
     "crr_lattice_parameters",
     "crr_price",
     "crr_price_batch",
+    "lsm_price",
+    "lsm_training_memory_bytes",
 ]
 
 __version__ = "0.1.0"

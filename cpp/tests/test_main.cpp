@@ -11,6 +11,7 @@
 
 #include "dp/binomial_tree.hpp"
 #include "dp/black_scholes.hpp"
+#include "dp/least_squares_monte_carlo.hpp"
 #include "dp/smooth_mlp.hpp"
 
 namespace {
@@ -424,6 +425,431 @@ void test_invalid_crr_requests_are_rejected() {
         "underflowed terminal lattice was not rejected");
 }
 
+[[nodiscard]] dp::LsmConfig small_lsm_config() {
+    return {
+        32U,
+        4'096U,
+        8'192U,
+        2U,
+        0x123456789abcdef0ULL,
+        0x0fedcba987654321ULL,
+        8U * 1'024U * 1'024U,
+    };
+}
+
+void test_lsm_is_deterministic_and_pair_aware() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmConfig config = small_lsm_config();
+    const dp::LsmResult first =
+        dp::least_squares_monte_carlo(dp::OptionType::put, input, config);
+    const dp::LsmResult second =
+        dp::least_squares_monte_carlo(dp::OptionType::put, input, config);
+    expect_true(first.price == second.price &&
+                    first.standard_error == second.standard_error &&
+                    first.raw_price == second.raw_price,
+                "LSM repeated run was not bit deterministic");
+    expect_true(first.independent_valuation_pairs == config.valuation_paths / 2U,
+                "LSM did not use antithetic pair averages as independent samples");
+    expect_true(first.estimated_training_working_set_bytes ==
+                    dp::lsm_training_memory_bytes(config),
+                "LSM reported the wrong training working-set estimate");
+    expect_true(first.regressions.size() == config.exercise_steps - 1U,
+                "LSM did not report every fitted exercise step");
+    expect_true(first.confidence_interval_lower <= first.price &&
+                    first.price <= first.confidence_interval_upper &&
+                    first.standard_error > 0.0,
+                "LSM confidence interval is invalid");
+}
+
+void test_lsm_no_dividend_call_control_is_exact() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::call, input, small_lsm_config()
+        );
+    const double analytic = dp::black_scholes(dp::OptionType::call, input).price;
+    expect_near(result.price, analytic, 1.0e-12,
+                "LSM European control did not recover a no-dividend call");
+    expect_near(result.standard_error, 0.0, 1.0e-14,
+                "LSM no-dividend call retained adjusted sampling error");
+    expect_true(result.valuation_early_exercise_paths == 0U,
+                "LSM no-dividend call exercised early");
+}
+
+void test_lsm_negative_rate_put_control_is_exact() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, -0.01, 0.0, 0.2};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::put, input, small_lsm_config()
+        );
+    const double analytic = dp::black_scholes(dp::OptionType::put, input).price;
+    expect_near(result.price, analytic, 1.0e-12,
+                "LSM European control did not recover a negative-rate put");
+    expect_near(result.standard_error, 0.0, 1.0e-14,
+                "LSM negative-rate put retained adjusted sampling error");
+    expect_true(result.valuation_early_exercise_paths == 0U,
+                "LSM negative-rate put exercised early");
+}
+
+void test_lsm_american_put_cross_checks_crr() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    dp::LsmConfig config = small_lsm_config();
+    config.exercise_steps = 64U;
+    config.training_paths = 16'384U;
+    config.valuation_paths = 32'768U;
+    config.maximum_training_memory_bytes = 16U * 1'024U * 1'024U;
+    const dp::LsmResult lsm =
+        dp::least_squares_monte_carlo(dp::OptionType::put, input, config);
+    const double crr =
+        dp::crr_adjacent_step_estimate(
+            dp::OptionType::put, dp::ExerciseStyle::american, input, 2048U
+        )
+            .average_price;
+    expect_true(lsm.price <= crr + 4.0 * lsm.standard_error + 0.02,
+                "LSM put materially exceeded the high-step CRR cross-check");
+    expect_true(crr - lsm.price < 0.15,
+                "LSM put was too far below the high-step CRR cross-check");
+    expect_true(lsm.valuation_early_exercise_paths > 0U,
+                "LSM American put never exercised early");
+}
+
+void test_lsm_can_choose_immediate_exercise() {
+    const dp::BlackScholesInput input{50.0, 100.0, 1.0, 0.20, 0.0, 0.05};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::put, input, small_lsm_config()
+        );
+    expect_true(result.exercise_at_zero, "LSM did not choose immediate exercise");
+    expect_near(result.price, 50.0, 0.0, "LSM immediate-exercise value");
+    expect_near(result.standard_error, 0.0, 0.0,
+                "LSM immediate exercise retained Monte Carlo error");
+
+    // Immediate exercise is deterministic. Both the raw and adjusted variances
+    // are zero, so the variance-reduction ratio is the undefined form 0/0 and
+    // must be flagged inapplicable rather than carrying a placeholder that a
+    // downstream minimum could mistake for a measurement.
+    expect_true(!result.variance_reduction_applicable,
+                "LSM marked an undefined 0/0 variance reduction as applicable");
+    expect_near(result.variance_reduction_ratio, 0.0, 0.0,
+                "LSM immediate exercise reported a variance-reduction value");
+
+    // No valuation simulation runs on this branch, so no European Monte Carlo
+    // observation exists. The analytic price must still be reported.
+    expect_true(!result.european_monte_carlo_sampled,
+                "LSM claimed a European Monte Carlo sample without simulating");
+    expect_near(result.european_monte_carlo_price, 0.0, 0.0,
+                "LSM reported an unsampled European Monte Carlo price");
+    expect_near(result.european_standard_error, 0.0, 0.0,
+                "LSM reported an unsampled European standard error");
+    const double analytic =
+        dp::black_scholes(dp::OptionType::put, input).price;
+    expect_near(result.european_analytic_price, analytic, 1.0e-12,
+                "LSM dropped the analytic European price on immediate exercise");
+    expect_true(result.european_analytic_price != result.european_monte_carlo_price,
+                "LSM presented the analytic price as a Monte Carlo observation");
+}
+
+void test_lsm_marks_stochastic_variance_reduction_applicable() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::put, input, small_lsm_config()
+        );
+    expect_true(!result.exercise_at_zero, "LSM exercised a fair put immediately");
+    expect_true(result.variance_reduction_applicable,
+                "LSM marked a genuinely stochastic case inapplicable");
+    expect_true(result.european_monte_carlo_sampled,
+                "LSM did not record a sampled European Monte Carlo estimate");
+    expect_true(result.standard_error > 0.0,
+                "LSM reported no valuation sampling error");
+    expect_true(result.variance_reduction_ratio > 0.0,
+                "LSM reported a non-positive applicable variance reduction");
+
+    // Structural suppression makes the adjusted estimator exact while the raw
+    // estimator still varies. That is a measurement of complete variance
+    // removal, so it stays applicable and infinite.
+    const dp::BlackScholesInput suppressed{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmResult exact =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::call, suppressed, small_lsm_config()
+        );
+    expect_true(exact.raw_standard_error > 0.0,
+                "structural suppression left no raw sampling variation");
+    expect_true(exact.variance_reduction_applicable,
+                "LSM marked a complete variance removal inapplicable");
+    expect_true(std::isinf(exact.variance_reduction_ratio),
+                "LSM did not report complete variance removal as infinite");
+}
+
+// A contract so far out of the money that every valuation pair pays exactly
+// zero leaves nothing to reduce: raw and adjusted variances are both zero, so
+// the ratio is the same undefined 0/0 as immediate exercise and must not be
+// reported as complete variance removal.
+void test_lsm_deterministic_raw_estimator_has_no_variance_reduction() {
+    const dp::BlackScholesInput input{100.0, 1.0e-6, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::put, input, small_lsm_config()
+        );
+    expect_true(!result.exercise_at_zero,
+                "deep out-of-the-money put exercised immediately");
+    expect_near(result.raw_standard_error, 0.0, 0.0,
+                "deep out-of-the-money put retained raw sampling variation");
+    expect_near(result.standard_error, 0.0, 0.0,
+                "deep out-of-the-money put retained adjusted sampling error");
+    expect_true(!result.variance_reduction_applicable,
+                "LSM reported an undefined 0/0 ratio as applicable");
+    expect_true(!std::isinf(result.variance_reduction_ratio),
+                "LSM claimed variance removal where there was no variance");
+}
+
+// The shared vanilla validator admits every finite rate, dividend yield and
+// volatility. A finite log spot does not imply a representable spot, so each of
+// these once returned a silent NaN or a corrupted statistic.
+void test_lsm_rejects_non_finite_price_domain_quantities() {
+    const dp::LsmConfig config = small_lsm_config();
+
+    // exp(log_spot) overflows while the log spot itself stays finite, and the
+    // matching discount factor underflows to zero: the product was inf * 0.
+    expect_overflow_error(
+        [&config]() {
+            static_cast<void>(dp::least_squares_monte_carlo(
+                dp::OptionType::call,
+                dp::BlackScholesInput{100.0, 100.0, 1.0, 750.0, 0.0, 0.2},
+                config));
+        },
+        "LSM accepted a rate that overflows the simulated spot");
+
+    // A large negative dividend yield drives the same linear-spot overflow
+    // through the drift term instead of the rate.
+    expect_overflow_error(
+        [&config]() {
+            static_cast<void>(dp::least_squares_monte_carlo(
+                dp::OptionType::call,
+                dp::BlackScholesInput{100.0, 100.0, 1.0, 0.05, -1000.0, 0.2},
+                config));
+        },
+        "LSM accepted a dividend yield that overflows the simulated spot");
+
+    // A finite but extreme volatility makes the drift itself non-finite.
+    expect_overflow_error(
+        [&config]() {
+            static_cast<void>(dp::least_squares_monte_carlo(
+                dp::OptionType::put,
+                dp::BlackScholesInput{100.0, 100.0, 1.0, 0.05, 0.0, 1.0e160},
+                config));
+        },
+        "LSM accepted a volatility that makes the drift non-finite");
+
+    // A large negative rate overflows the discount factor rather than the spot.
+    expect_overflow_error(
+        [&config]() {
+            static_cast<void>(dp::least_squares_monte_carlo(
+                dp::OptionType::put,
+                dp::BlackScholesInput{100.0, 100.0, 1.0, -750.0, 0.0, 0.2},
+                config));
+        },
+        "LSM accepted a rate that overflows the discount factor");
+}
+
+// Extreme but representable inputs must still produce a completely finite
+// result rather than a silently corrupted one.
+void test_lsm_extreme_but_representable_inputs_stay_finite() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, -50.0, 0.2};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::call, input, small_lsm_config()
+        );
+    expect_true(std::isfinite(result.price) && result.price > 0.0,
+                "LSM produced a non-finite price for a representable input");
+    expect_true(std::isfinite(result.standard_error) &&
+                    result.standard_error >= 0.0,
+                "LSM produced a non-finite standard error");
+    expect_true(std::isfinite(result.confidence_interval_lower) &&
+                    std::isfinite(result.confidence_interval_upper),
+                "LSM produced a non-finite confidence interval");
+    expect_true(std::isfinite(result.raw_price) &&
+                    std::isfinite(result.european_analytic_price),
+                "LSM produced a non-finite reported component");
+}
+
+// A deep out-of-the-money contract has no in-the-money training paths at any
+// exercise date, so every regression takes the zero-observation fallback.
+void test_lsm_reports_zero_observation_constant_fallback() {
+    const dp::BlackScholesInput input{100.0, 40.0, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::put, input, small_lsm_config()
+        );
+    expect_true(result.regressions.size() == small_lsm_config().exercise_steps - 1U,
+                "LSM did not report one diagnostic per interior exercise date");
+    std::size_t fallbacks = 0U;
+    for (const dp::LsmRegressionDiagnostic& row : result.regressions) {
+        expect_true(row.in_the_money_paths == 0U,
+                    "deep out-of-the-money put had in-the-money training paths");
+        expect_true(row.used_constant_fallback,
+                    "LSM did not fall back without any observation");
+        expect_true(row.regression_rank == 0U,
+                    "zero-observation fallback reported a non-zero rank");
+        expect_true(row.coefficients.size() == 1U,
+                    "constant fallback did not collapse to one coefficient");
+        // The mean of an empty response set is exactly zero.
+        expect_near(row.coefficients[0], 0.0, 0.0,
+                    "zero-observation fallback coefficient was not zero");
+        expect_near(row.minimum_relative_r_diagonal, 0.0, 0.0,
+                    "fallback reported a fitted conditioning diagnostic");
+        ++fallbacks;
+    }
+    expect_true(fallbacks > 0U, "no regression fallback was exercised");
+}
+
+// A strike just inside the simulated range leaves a handful of in-the-money
+// paths at late dates: fewer observations than basis columns, which is the
+// rank-deficient fallback branch rather than the empty-sample branch.
+void test_lsm_reports_rank_deficient_constant_fallback() {
+    const dp::BlackScholesInput input{100.0, 60.0, 1.0, 0.05, 0.0, 0.2};
+    const dp::LsmConfig config = small_lsm_config();
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(dp::OptionType::put, input, config);
+    const double time_step =
+        input.maturity / static_cast<double>(config.exercise_steps);
+    std::size_t observed_fallbacks = 0U;
+    for (const dp::LsmRegressionDiagnostic& row : result.regressions) {
+        if (row.in_the_money_paths == 0U || !row.used_constant_fallback) {
+            continue;
+        }
+        ++observed_fallbacks;
+        expect_true(row.in_the_money_paths < config.polynomial_degree + 1U,
+                    "a full-rank sample took the constant fallback");
+        expect_true(row.regression_rank == 1U,
+                    "observed constant fallback did not report unit rank");
+        expect_true(row.coefficients.size() == 1U,
+                    "constant fallback did not collapse to one coefficient");
+        expect_true(std::isfinite(row.coefficients[0]),
+                    "constant fallback coefficient was not finite");
+        // The coefficient is the mean discounted continuation response. Every
+        // response is a put payoff, bounded by the strike, discounted over at
+        // least one exercise interval, so an undiscounted or mis-indexed cash
+        // flow would breach this bound.
+        const double maximum_discounted_response =
+            input.strike * std::exp(-input.rate * time_step);
+        expect_true(row.coefficients[0] >= 0.0 &&
+                        row.coefficients[0] <= maximum_discounted_response,
+                    "constant fallback coefficient was not a mean discounted "
+                    "response");
+    }
+    expect_true(observed_fallbacks > 0U,
+                "no rank-deficient regression fallback was exercised");
+
+    // A fitted, non-degenerate regression must report a strictly positive
+    // relative diagonal; only fallbacks report zero.
+    std::size_t fitted = 0U;
+    for (const dp::LsmRegressionDiagnostic& row : result.regressions) {
+        if (row.used_constant_fallback) {
+            continue;
+        }
+        ++fitted;
+        expect_true(row.minimum_relative_r_diagonal > 0.0 &&
+                        row.minimum_relative_r_diagonal <= 1.0,
+                    "fitted regression reported an invalid relative diagonal");
+        expect_true(row.regression_rank == config.polynomial_degree + 1U,
+                    "fitted regression did not report full rank");
+    }
+    expect_true(fitted > 0U, "no regression was fitted at full rank");
+}
+
+// The early-exercise premium is a far stronger regression signal than the price
+// level: the large European component cancels on both sides, so a discount-time
+// or stopping-index error shows up first order instead of being buried under
+// diffusion noise.
+void test_lsm_american_put_premium_matches_crr_premium() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    dp::LsmConfig config = small_lsm_config();
+    config.exercise_steps = 64U;
+    config.training_paths = 16'384U;
+    config.valuation_paths = 32'768U;
+    config.maximum_training_memory_bytes = 16U * 1'024U * 1'024U;
+    const dp::LsmResult lsm =
+        dp::least_squares_monte_carlo(dp::OptionType::put, input, config);
+    const double american =
+        dp::crr_adjacent_step_estimate(
+            dp::OptionType::put, dp::ExerciseStyle::american, input, 2048U
+        )
+            .average_price;
+    const double european =
+        dp::crr_adjacent_step_estimate(
+            dp::OptionType::put, dp::ExerciseStyle::european, input, 2048U
+        )
+            .average_price;
+    const double lsm_premium = lsm.price - lsm.european_analytic_price;
+    const double crr_premium = american - european;
+
+    expect_true(lsm_premium > 0.0,
+                "LSM American put showed no early-exercise premium");
+    // A learned policy on a coarser grid cannot materially exceed the
+    // near-continuous reference premium.
+    expect_true(lsm_premium <= crr_premium + 4.0 * lsm.standard_error,
+                "LSM early-exercise premium materially exceeded CRR");
+    // For this configuration the observed gap is 0.0619 with a standard error
+    // of 0.0207, so the bound keeps about 1.6x headroom. Cross-platform libm
+    // differences act at the ULP level on a mean over 16,384 pairs, orders of
+    // magnitude below the remaining 0.038 margin, while a mis-discounted or
+    // mis-indexed exercise cash flow moves the premium far more than that.
+    expect_true(crr_premium - lsm_premium < 0.10,
+                "LSM early-exercise premium fell far below CRR");
+}
+
+// The suppression proof for puts requires r <= 0 and q >= 0. Check the strict
+// interior of that region, not only the r < 0, q = 0 boundary.
+void test_lsm_negative_rate_positive_dividend_put_control_is_exact() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, -0.02, 0.03, 0.25};
+    const dp::LsmResult result =
+        dp::least_squares_monte_carlo(
+            dp::OptionType::put, input, small_lsm_config()
+        );
+    const double analytic = dp::black_scholes(dp::OptionType::put, input).price;
+    expect_near(result.price, analytic, 1.0e-12,
+                "LSM did not suppress early exercise for r<0 and q>0");
+    expect_near(result.standard_error, 0.0, 1.0e-14,
+                "LSM retained sampling error under structural suppression");
+    expect_true(result.valuation_early_exercise_paths == 0U,
+                "LSM exercised early where continuation strictly dominates");
+}
+
+void test_invalid_lsm_requests_are_rejected() {
+    const dp::BlackScholesInput input{100.0, 100.0, 1.0, 0.05, 0.0, 0.2};
+    dp::LsmConfig config = small_lsm_config();
+    config.training_seed = config.valuation_seed;
+    expect_invalid_argument_contains(
+        [&input, &config]() {
+            static_cast<void>(
+                dp::least_squares_monte_carlo(dp::OptionType::put, input, config)
+            );
+        },
+        "seeds", "LSM accepted identical training and valuation seeds");
+
+    config = small_lsm_config();
+    config.training_paths = 4'098U;
+    config.maximum_training_memory_bytes = 1U;
+    expect_invalid_argument_contains(
+        [&input, &config]() {
+            static_cast<void>(
+                dp::least_squares_monte_carlo(dp::OptionType::put, input, config)
+            );
+        },
+        "exceeding", "LSM ignored its training-memory guard");
+
+    config = small_lsm_config();
+    config.polynomial_degree = 4U;
+    expect_invalid_argument_contains(
+        [&input, &config]() {
+            static_cast<void>(
+                dp::least_squares_monte_carlo(dp::OptionType::put, input, config)
+            );
+        },
+        "degree", "LSM accepted an unsupported basis degree");
+}
+
 void test_mlp_reverse_gradient_against_central_difference() {
     dp::SmoothMlp model({
         dp::DenseLayer{
@@ -490,6 +916,30 @@ int main() {
         {"CRR batch determinism", test_crr_batch_is_ordered_and_thread_deterministic},
         {"CRR batch error contract", test_crr_batch_error_contract},
         {"invalid CRR requests", test_invalid_crr_requests_are_rejected},
+        {"LSM deterministic pair-aware estimate",
+         test_lsm_is_deterministic_and_pair_aware},
+        {"LSM no-dividend call control", test_lsm_no_dividend_call_control_is_exact},
+        {"LSM negative-rate put control",
+         test_lsm_negative_rate_put_control_is_exact},
+        {"LSM negative-rate positive-dividend put control",
+         test_lsm_negative_rate_positive_dividend_put_control_is_exact},
+        {"LSM American put CRR cross-check", test_lsm_american_put_cross_checks_crr},
+        {"LSM American put premium cross-check",
+         test_lsm_american_put_premium_matches_crr_premium},
+        {"LSM immediate exercise", test_lsm_can_choose_immediate_exercise},
+        {"LSM stochastic variance reduction applicability",
+         test_lsm_marks_stochastic_variance_reduction_applicable},
+        {"LSM deterministic raw estimator variance reduction",
+         test_lsm_deterministic_raw_estimator_has_no_variance_reduction},
+        {"LSM non-finite price-domain rejection",
+         test_lsm_rejects_non_finite_price_domain_quantities},
+        {"LSM extreme representable inputs stay finite",
+         test_lsm_extreme_but_representable_inputs_stay_finite},
+        {"LSM zero-observation constant fallback",
+         test_lsm_reports_zero_observation_constant_fallback},
+        {"LSM rank-deficient constant fallback",
+         test_lsm_reports_rank_deficient_constant_fallback},
+        {"invalid LSM requests", test_invalid_lsm_requests_are_rejected},
         {"MLP reverse gradient", test_mlp_reverse_gradient_against_central_difference},
         {"invalid input", test_invalid_input_is_rejected},
     };

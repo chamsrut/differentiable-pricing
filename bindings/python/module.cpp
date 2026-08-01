@@ -1,10 +1,12 @@
 #include "dp/binomial_tree.hpp"
 #include "dp/black_scholes.hpp"
+#include "dp/least_squares_monte_carlo.hpp"
 #include "dp/smooth_mlp.hpp"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -34,8 +36,17 @@ PYBIND11_MODULE(_core, module) {
     module.attr("__crr_header_sha256__") = DP_CRR_HEADER_SHA256;
     module.attr("__crr_implementation_sha256__") = DP_CRR_IMPLEMENTATION_SHA256;
     module.attr("__crr_source_sha256__") = DP_CRR_SOURCE_SHA256;
+    module.attr("__lsm_header_sha256__") = DP_LSM_HEADER_SHA256;
+    module.attr("__lsm_implementation_sha256__") = DP_LSM_IMPLEMENTATION_SHA256;
+    module.attr("__lsm_source_sha256__") = DP_LSM_SOURCE_SHA256;
     module.attr("maximum_crr_steps") = dp::maximum_crr_steps;
     module.attr("maximum_crr_batch_threads") = dp::maximum_crr_batch_threads;
+    module.attr("maximum_lsm_exercise_steps") = dp::maximum_lsm_exercise_steps;
+    module.attr("maximum_lsm_polynomial_degree") =
+        dp::maximum_lsm_polynomial_degree;
+    module.attr("maximum_lsm_paths") = dp::maximum_lsm_paths;
+    module.attr("maximum_lsm_training_memory_bytes") =
+        dp::maximum_lsm_training_memory_bytes;
 
     module.def(
         "black_scholes",
@@ -267,6 +278,150 @@ PYBIND11_MODULE(_core, module) {
         py::arg("steps"),
         py::arg("thread_count") = 1U,
         "Price independent CRR requests in deterministic input order."
+    );
+
+    module.def(
+        "lsm_training_memory_bytes",
+        [](const std::size_t exercise_steps,
+           const std::size_t training_paths,
+           const std::size_t valuation_paths,
+           const std::size_t polynomial_degree,
+           const std::uint64_t training_seed,
+           const std::uint64_t valuation_seed,
+           const std::size_t maximum_training_memory_bytes) {
+            return dp::lsm_training_memory_bytes({
+                exercise_steps,
+                training_paths,
+                valuation_paths,
+                polynomial_degree,
+                training_seed,
+                valuation_seed,
+                maximum_training_memory_bytes,
+            });
+        },
+        py::arg("exercise_steps"),
+        py::arg("training_paths"),
+        py::arg("valuation_paths"),
+        py::arg("polynomial_degree"),
+        py::arg("training_seed"),
+        py::arg("valuation_seed"),
+        py::arg("maximum_training_memory_bytes"),
+        "Return the estimated LSM policy-training bulk working set in bytes."
+    );
+
+    module.def(
+        "lsm_price",
+        [](const std::string& option_type,
+           const double spot,
+           const double strike,
+           const double maturity,
+           const double rate,
+           const double dividend_yield,
+           const double volatility,
+           const std::size_t exercise_steps,
+           const std::size_t training_paths,
+           const std::size_t valuation_paths,
+           const std::size_t polynomial_degree,
+           const std::uint64_t training_seed,
+           const std::uint64_t valuation_seed,
+           const std::size_t maximum_training_memory_bytes) {
+            const dp::OptionType parsed_option_type =
+                dp::parse_option_type(option_type);
+            const dp::VanillaOptionInput input{
+                spot,
+                strike,
+                maturity,
+                rate,
+                dividend_yield,
+                volatility,
+            };
+            const dp::LsmConfig config{
+                exercise_steps,
+                training_paths,
+                valuation_paths,
+                polynomial_degree,
+                training_seed,
+                valuation_seed,
+                maximum_training_memory_bytes,
+            };
+            const dp::LsmResult result = [&]() {
+                py::gil_scoped_release release;
+                return dp::least_squares_monte_carlo(
+                    parsed_option_type, input, config
+                );
+            }();
+
+            py::list regressions;
+            for (const dp::LsmRegressionDiagnostic& diagnostic :
+                 result.regressions) {
+                py::dict row;
+                row["exercise_step"] = diagnostic.exercise_step;
+                row["in_the_money_paths"] = diagnostic.in_the_money_paths;
+                row["regression_rank"] = diagnostic.regression_rank;
+                row["used_constant_fallback"] =
+                    diagnostic.used_constant_fallback;
+                row["state_mean"] = diagnostic.state_mean;
+                row["state_scale"] = diagnostic.state_scale;
+                row["minimum_relative_r_diagonal"] =
+                    diagnostic.minimum_relative_r_diagonal;
+                row["coefficients"] = diagnostic.coefficients;
+                regressions.append(std::move(row));
+            }
+
+            py::dict output;
+            output["price"] = result.price;
+            output["standard_error"] = result.standard_error;
+            output["confidence_level"] = dp::lsm_confidence_level;
+            output["confidence_interval_lower"] =
+                result.confidence_interval_lower;
+            output["confidence_interval_upper"] =
+                result.confidence_interval_upper;
+            output["raw_price"] = result.raw_price;
+            output["raw_standard_error"] = result.raw_standard_error;
+            output["european_monte_carlo_sampled"] =
+                result.european_monte_carlo_sampled;
+            output["european_monte_carlo_price"] =
+                result.european_monte_carlo_price;
+            output["european_analytic_price"] =
+                result.european_analytic_price;
+            output["european_standard_error"] =
+                result.european_standard_error;
+            output["control_variate_coefficient"] =
+                result.control_variate_coefficient;
+            output["variance_reduction_applicable"] =
+                result.variance_reduction_applicable;
+            output["variance_reduction_ratio"] =
+                result.variance_reduction_ratio;
+            output["training_continuation_value_at_zero"] =
+                result.training_continuation_value_at_zero;
+            output["exercise_at_zero"] = result.exercise_at_zero;
+            output["exercise_steps"] = result.exercise_steps;
+            output["training_paths"] = result.training_paths;
+            output["valuation_paths"] = result.valuation_paths;
+            output["independent_valuation_pairs"] =
+                result.independent_valuation_pairs;
+            output["estimated_training_working_set_bytes"] =
+                result.estimated_training_working_set_bytes;
+            output["valuation_early_exercise_paths"] =
+                result.valuation_early_exercise_paths;
+            output["regressions"] = std::move(regressions);
+            return output;
+        },
+        py::arg("option_type"),
+        py::arg("spot"),
+        py::arg("strike"),
+        py::arg("maturity"),
+        py::arg("rate"),
+        py::arg("dividend_yield"),
+        py::arg("volatility"),
+        py::arg("exercise_steps"),
+        py::arg("training_paths"),
+        py::arg("valuation_paths"),
+        py::arg("polynomial_degree"),
+        py::arg("training_seed"),
+        py::arg("valuation_seed"),
+        py::arg("maximum_training_memory_bytes"),
+        "Train and independently value a deterministic LSM stopping policy."
     );
 
     py::class_<dp::DenseLayer>(module, "DenseLayer")
