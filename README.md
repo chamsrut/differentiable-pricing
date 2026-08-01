@@ -413,10 +413,10 @@ and vega labels fix the coordinate derivatives $u_x,u_v$ exactly; converted to
 the standardized coordinates $z_x,z_v$, the configured loss is
 
 $$
-\operatorname{MSE}(\hat y,y)
+\mathrm{MSE}(\hat y,y)
 +\frac{1}{2}\left[
-  \operatorname{MSE}(\partial_{z_x}\hat y,\partial_{z_x}y)
-  +\operatorname{MSE}(\partial_{z_v}\hat y,\partial_{z_v}y)
+  \mathrm{MSE}(\partial_{z_x}\hat y,\partial_{z_x}y)
+  +\mathrm{MSE}(\partial_{z_v}\hat y,\partial_{z_v}y)
 \right].
 $$
 

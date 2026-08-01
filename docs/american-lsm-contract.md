@@ -119,7 +119,7 @@ one independent observation. Consequently,
 $$
 n_{\mathrm{eff}}=\frac{P_{\mathrm{valuation}}}{2},
 \qquad
-\operatorname{SE}(\bar Z)
+\mathrm{SE}(\bar Z)
 =\sqrt{\frac{s_Z^2}{n_{\mathrm{eff}}}}.
 $$
 
@@ -128,7 +128,7 @@ members of a pair are correlated. The reported 95% interval is the
 large-sample normal approximation
 
 $$
-\bar Z\ \pm\ 1.959963984540054\,\operatorname{SE}(\bar Z).
+\bar Z\ \pm\ 1.959963984540054\,\mathrm{SE}(\bar Z).
 $$
 
 ## European control variate
@@ -142,11 +142,11 @@ valuation stream:
 
 $$
 \widehat\beta_{\mathrm{train}}
-=\frac{\widehat{\operatorname{Cov}}_{\mathrm{train}}(X,Y)}
-       {\widehat{\operatorname{Var}}_{\mathrm{train}}(Y)},
+=\frac{\widehat{\mathrm{Cov}}_{\mathrm{train}}(X,Y)}
+{\widehat{\mathrm{Var}}_{\mathrm{train}}(Y)},
 \qquad
 Z=X-\widehat\beta_{\mathrm{train}}
-       \left(Y-V_{\mathrm{BS}}\right).
+\left(Y-V_{\mathrm{BS}}\right).
 $$
 
 Although the same training paths also fit the policy, no coefficient is
@@ -158,7 +158,7 @@ and analytic prices, and the realized out-of-sample variance-reduction ratio.
 ### Applicability of the reported ratio
 
 The variance-reduction ratio is
-$\widehat{\operatorname{Var}}(X)/\widehat{\operatorname{Var}}(Z)$.
+$\widehat{\mathrm{Var}}(X)/\widehat{\mathrm{Var}}(Z)$.
 Two degenerate cases must not be read the same way, so applicability is
 reported explicitly:
 
