@@ -21,6 +21,25 @@ PyTorch-dependent tests under `python/tests/ml/`;
 `scripts/check_test_partition.py` fails the gate if a test outside that
 directory reaches `torch` or `differentiable_pricing.ml`.
 
+Expensive study reports stay ignored under `artifacts/`. What gets committed is
+a compact result snapshot under `docs/results/` plus deterministic figures under
+`docs/figures/`. Never commit a raw report. To refresh the American LSM
+cross-check evidence after a reviewed rerun:
+
+```bash
+python scripts/freeze_american_lsm_results.py \
+  --report artifacts/american-lsm-crosscheck-review-fixed-v1.json \
+  --output docs/results/american_lsm_crosscheck_results_v1.json --update
+python scripts/plot_american_lsm_results.py
+```
+
+The gate and CI then enforce both with checked-in files only:
+
+```bash
+python scripts/freeze_american_lsm_results.py --check
+python scripts/plot_american_lsm_results.py --check
+```
+
 Pull requests should include:
 
 - the problem and numerical assumptions;

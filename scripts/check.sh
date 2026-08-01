@@ -30,6 +30,9 @@ python3 scripts/check_test_partition.py
 python3 scripts/check_european_replication_protocol.py
 python3 scripts/plot_european_validation_results.py --check
 python3 scripts/plot_european_replication_results.py --check
+# Both checks use only checked-in files, so they pass with artifacts/ absent.
+python3 scripts/freeze_american_lsm_results.py --check
+python3 scripts/plot_american_lsm_results.py --check
 
 if command -v ruff >/dev/null 2>&1; then
     ruff check python scripts .claude/hooks

@@ -269,6 +269,148 @@ quantity is validated where it is produced. For any admitted input the engine
 either returns fully finite results or raises; it never returns a NaN price or
 a silently corrupted standard error.
 
+## American cross-check numerical results
+
+The reviewed cross-check evidence is frozen in
+[docs/results/american_lsm_crosscheck_results_v1.json](docs/results/american_lsm_crosscheck_results_v1.json).
+The raw report stays ignored under `artifacts/`; the snapshot is a compact,
+strictly versioned extraction of it, generated programmatically rather than
+transcribed. Regenerate and validate it with:
+
+```bash
+python scripts/freeze_american_lsm_results.py \
+  --report artifacts/american-lsm-crosscheck-review-fixed-v1.json \
+  --output docs/results/american_lsm_crosscheck_results_v1.json --update
+python scripts/freeze_american_lsm_results.py --check
+python scripts/plot_american_lsm_results.py --check
+```
+
+`--check` needs only checked-in files: it validates the snapshot internally and
+reconciles its configuration and C++ provenance digests against the current
+repository sources, so CI enforces it without the ignored artifact.
+
+### Frozen experiment table
+
+Seven experiments over nine SHA-256-pinned CRR regimes, 63 case rows. `CRR−LSM`
+is in price units against the 8,192/8,193-step CRR adjacent average.
+
+| Experiment | Role | Steps | Degree | Train paths | Valuation paths | Mean CRR−LSM | Max abs gap | Mean valuation-only SE | Stochastic cases | In-interval | Deterministic cases | Min applicable VR ratio |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `paths-low-v1` | path convergence | 64 | 2 | 16,384 | 32,768 | 0.02513 | 0.13529 | 0.02508 | 6 | 4 | 3 | 1.0096 |
+| `steps-low-v1` | exercise grid convergence | 32 | 2 | 32,768 | 65,536 | 0.02808 | 0.12666 | 0.01781 | 6 | 3 | 3 | 1.0001 |
+| `reference-v1` | reference | 64 | 2 | 32,768 | 65,536 | 0.02713 | 0.07977 | 0.01799 | 6 | 2 | 3 | 1.0033 |
+| `steps-high-v1` | exercise grid convergence | 128 | 2 | 32,768 | 65,536 | 0.03298 | 0.14736 | 0.01784 | 6 | 2 | 3 | 1.0120 |
+| `degree-one-v1` | basis sensitivity | 64 | 1 | 32,768 | 65,536 | 0.60422 | 2.43419 | 0.01828 | 6 | 1 | 3 | 1.0345 |
+| `degree-three-v1` | basis sensitivity | 64 | 3 | 32,768 | 65,536 | 0.02828 | 0.11119 | 0.01778 | 6 | 3 | 3 | 1.0047 |
+| `paths-high-primary-v1` | primary | 64 | 2 | 65,536 | 131,072 | 0.02380 | 0.07394 | 0.01263 | 6 | 0 | 3 | 1.0088 |
+
+![Experiment comparison](docs/figures/american_lsm_experiment_comparison.svg)
+
+### Primary result and how to read it
+
+The primary experiment is `paths-high-primary-v1`: 64 exercise intervals,
+degree-two basis, 65,536 policy-training paths, 131,072 independent valuation
+paths. Its mean gap to the CRR reference is **0.02380** price units and its
+largest single-case gap is **0.07394**, on option values between 1.4 and 30.
+
+LSM sits below the finer-grid CRR reference in every stochastic case. That is
+the **expected ordering**, not a defect: LSM evaluates a *fixed learned
+Bermudan stopping policy* on a discrete exercise grid, and for a fixed policy
+the expectation is no greater than the same-grid optimal stopping value.
+
+Three sources of difference must be kept apart, and only the first is measured
+by the reported interval:
+
+* **Valuation noise** — sampling error of the valuation stream around an
+  already-frozen policy. This is what `Valuation-only SE` reports. It shrinks
+  as \(n^{-1/2}\); across the path ladder it falls 0.02508 → 0.01799 → 0.01263,
+  ratios of 1.3946 and 1.4244 against the \(\sqrt{2}\approx1.4142\) per
+  doubling that implies, deviations of −1.4% and +0.7%. (Those ratios use full
+  snapshot precision; recomputing them from the five-decimal table above gives
+  1.394 and 1.424.)
+* **Policy-fitting bias** — the learned stopping rule is not the optimal rule
+  for its own grid. Systematic; does not shrink with valuation paths.
+* **Exercise-grid bias** — a 64-date Bermudan is not a continuously
+  exercisable American. Systematic; does not shrink with valuation paths.
+
+The reported interval covers **only** the first. It therefore has no nominal
+coverage rate against the CRR reference, and the `In-interval` column is a
+diagnostic, **not an acceptance gate**. It falls 4 → 2 → 0 along the path
+ladder precisely because added paths narrow the interval around a fixed bias.
+A low count means noise has been driven below the bias.
+
+| Case | Type | S | K | T | r | q | σ | LSM | CRR ref | CRR−LSM | Valuation-only SE | z | Early ex. | CV coef | VR ratio | Fallbacks |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `standard_atm_put` | put | 100 | 100 | 1 | 0.05 | 0 | 0.2 | 6.044896 | 6.090415 | +0.04552 | 0.01039 | 4.38 | 0.3675 | 0.3542 | 1.3967 | 0 |
+| `deep_itm_put` | put | 70 | 100 | 1 | 0.05 | 0 | 0.25 | 30.000000 | 30.000000 | +4.26e-13 | 0 (zero-width) | zero-width | 1.0000 | 0.0000 | n/a | 0 |
+| `deep_otm_put` | put | 130 | 100 | 1 | 0.05 | 0 | 0.25 | 1.446386 | 1.457718 | +0.01133 | 0.00574 | 1.97 | 0.0739 | 0.7712 | 3.7646 | 4 |
+| `short_maturity_put` | put | 100 | 100 | 0.05 | 0.05 | 0 | 0.2 | 1.670262 | 1.676875 | +0.00661 | 0.00261 | 2.54 | 0.3028 | 0.4745 | 1.8285 | 0 |
+| `high_volatility_put` | put | 100 | 100 | 1 | 0.05 | 0 | 0.8 | 28.460000 | 28.533940 | +0.07394 | 0.02559 | 2.89 | 0.5541 | -0.0864 | 1.0088 | 0 |
+| `negative_rate_put` | put | 100 | 100 | 1 | -0.01 | 0 | 0.2 | 8.518075 | 8.518074 | -1.43e-06 | 0 (zero-width) | zero-width | 0.0000 | 1.0000 | infinite | 0 |
+| `negative_rate_call` | call | 100 | 100 | 1 | -0.01 | 0 | 0.2 | 7.536196 | 7.568589 | +0.03239 | 0.01452 | 2.23 | 0.2941 | 0.5028 | 1.9797 | 0 |
+| `non_dividend_call_control` | call | 100 | 100 | 1 | 0.05 | 0 | 0.2 | 10.450584 | 10.450568 | -1.51e-05 | 0 (zero-width) | zero-width | 0.0000 | 1.0000 | infinite | 0 |
+| `high_dividend_call` | call | 100 | 100 | 1 | 0.01 | 0.1 | 0.25 | 6.731179 | 6.775596 | +0.04442 | 0.01692 | 2.63 | 0.3195 | 0.3306 | 1.3490 | 0 |
+
+![Primary cases](docs/figures/american_lsm_primary_cases.svg)
+
+Three of the nine cases are **deterministic**: their valuation estimator has
+exactly zero variance, from immediate exercise at time zero
+(`deep_itm_put`) or from a control variate that reproduces the payoff exactly
+(`negative_rate_put`, `non_dividend_call_control`, both of which never exercise
+early). Their interval is a single point, so containment of any finite-step
+tree value is arithmetically impossible however close the agreement — and their
+agreement is very close, at 4.3e-13, 1.4e-06 and 1.5e-05. They are reported
+separately and are excluded from every stochastic statistic in the table above.
+
+### Sensitivity findings
+
+![Sensitivity](docs/figures/american_lsm_sensitivity.svg)
+
+* **Degree one is inadequate.** At a fixed 64-date grid and 32,768 training
+  paths, the linear basis gives a mean gap of 0.60422 and a worst case of
+  2.43419 — more than twenty times the quadratic arm. **Quadratic and cubic
+  are comparable** at this path budget: 0.02713 versus 0.02828, a difference of
+  0.00115 that is roughly 0.14 combined valuation-only standard errors. Note
+  this bounds the difference against *valuation* noise only — each experiment
+  ran one training seed, so seed-to-seed variation of the fitted policy is not
+  measured here and "comparable" means "not separated by valuation noise", not
+  "replicated as equal".
+* **More exercise dates did not help at a fixed path budget.** Holding training
+  paths at 32,768, going 32 → 64 → 128 dates moved the mean gap 0.02808 →
+  0.02713 → 0.03298. Refining the grid adds regression dates without adding
+  paths to fit them on, so policy-fitting error grows faster than grid bias
+  falls.
+* **More paths cut valuation noise; the mean gap improved only modestly.**
+  Along the 16,384 → 32,768 → 65,536 training-path ladder the mean valuation-only
+  SE falls cleanly (0.02508 → 0.01799 → 0.01263), while the mean gap moves
+  0.02513 → 0.02713 → 0.02380. The end-to-end improvement is real but small and
+  **not monotone**; the intermediate rise is within the noise of the mean, so
+  this supports a residual systematic bias that paths alone do not remove.
+* **Every applicable finite control variate achieved a variance-reduction ratio
+  of at least approximately one** — the minimum over all seven experiments is
+  1.0001, so the European control never materially *hurt*. Deterministic cases
+  are excluded from that minimum: their ratio is an undefined 0/0, and cases
+  whose control removes all variance are counted as infinite rather than
+  folded into it.
+* **Regression fallbacks appear in sparse deep-OTM regions.** The primary
+  experiment records 4 constant-fallback dates, all in `deep_otm_put`, where
+  too few paths are in the money at a given date to fit the continuation basis
+  and the fit falls back to a constant. Across experiments the count ranges
+  from 2 to 9.
+
+### Scope and what these results do not establish
+
+One-factor geometric Brownian motion with constant rate, dividend yield and
+volatility. All evidence is synthetic: no market data, quoted price, or
+calibration target enters this study. The CRR reference is an internal
+cross-check between two very different numerical methods — it is **not** exact
+American truth and **not** market truth, and agreement with it says nothing
+about whether GBM describes live option prices.
+
+These results **select no production label policy**. Task 8E separately
+predeclares and runs the CRR label-policy calibration study; nothing here may
+be reused as its acceptance criterion.
+
 ## Build the Python package
 
 The editable install compiles the C++ extension:

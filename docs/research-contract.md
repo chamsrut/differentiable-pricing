@@ -62,6 +62,29 @@ degree one factor at a time. Its confidence interval covers valuation sampling
 error only; policy suboptimality and Bermudan exercise-grid bias remain
 separate numerical effects.
 
+The reviewed stage-2 LSM/CRR cross-check evidence is frozen in
+[results/american_lsm_crosscheck_results_v1.json](results/american_lsm_crosscheck_results_v1.json)
+(schema `american-lsm-crosscheck-results/1`), extracted programmatically from
+the reviewed raw report by `scripts/freeze_american_lsm_results.py`. Seven
+experiments over nine pinned regimes, 63 case rows. The primary experiment
+reaches a mean CRR-minus-LSM gap of 0.02380 price units with a mean
+valuation-only standard error of 0.01263.
+
+That evidence is descriptive, not a gate. In particular:
+
+- the stochastic interval-containment count is a diagnostic with no nominal
+  rate and **must not** be promoted to an acceptance criterion;
+- deterministic zero-width cases are summarised separately from stochastic
+  interval comparisons and are excluded from the reported minimum
+  variance-reduction ratio;
+- the CRR reference is an internal cross-check, not exact American truth and
+  not market truth.
+
+**This study selects no production label policy.** Task 8E separately
+predeclares and runs the CRR label-policy calibration study, with its own
+gates fixed before results are observed. No number frozen by task 8D may be
+reused as a task 8E acceptance criterion.
+
 ## Data protocol
 
 Each generated row or partition records:
@@ -147,3 +170,9 @@ tuning against that dataset.
 - Faster kernel inference is not faster end-to-end pricing unless feature,
   transfer, batching, and derivative costs are counted.
 - Successful interpolation is not proof of extrapolation.
+- A valuation-only Monte Carlo interval is not a total-error bar. It excludes
+  policy-fitting error and exercise-grid bias, so an interval that excludes a
+  tree reference is not by itself evidence of a defect.
+- Agreement between LSM and a high-step CRR tree is agreement between two
+  numerical methods inside one model. It is not evidence that the model
+  describes market prices.
