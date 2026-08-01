@@ -48,6 +48,53 @@ from differentiable_pricing.ml.train import train_to_artifact
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
+FLOAT64_EPS = np.finfo(np.float64).eps
+# Cross-library bit identity is not required and must not be asserted. NumPy and
+# PyTorch evaluate exp() through different vectorized libm kernels, so the
+# discounted operands S*exp(-qT) and K*exp(-rT) may disagree in their last bit
+# across platforms and library versions. A one-ULP operand disagreement survives
+# at full absolute size in the intrinsic-value lower bound, which is a cancelling
+# difference of those operands and is several times smaller than either of them,
+# so tolerances must be derived from the operand scale rather than from the
+# expected value. Budget: 2 ULP of library-to-library exp disagreement, 1 ULP for
+# the two roundings of the multiply by spot/strike, and 1 ULP for the rounding of
+# the combining subtraction; doubled for headroom.
+BOUND_ULP_BUDGET = 8.0
+
+
+def bound_tolerance(*operands: np.ndarray) -> np.ndarray:
+    """Return the per-row float64 tolerance for a bound built from ``operands``.
+
+    ``ulp(x) <= FLOAT64_EPS * |x|``, so ``BOUND_ULP_BUDGET`` ULP of the largest
+    operand bounds the accumulated evaluation-order difference. At the scales
+    used here this is ~2e-13, roughly twelve orders of magnitude below the error
+    a materially wrong projection (undiscounted strike, wrong sign, missing
+    floor at zero) would produce.
+    """
+    scale = np.max(np.abs(np.stack(operands)), axis=0)
+    return BOUND_ULP_BUDGET * FLOAT64_EPS * scale
+
+
+def assert_matches_bound(
+    actual: np.ndarray,
+    expected: np.ndarray,
+    tolerance: np.ndarray,
+    label: str,
+) -> None:
+    """Assert ``actual`` sits on ``expected`` within a per-row ULP budget.
+
+    ``np.testing.assert_allclose`` cannot report an array-valued ``atol``, so the
+    per-row comparison is spelled out here to keep the tolerance scale-aware.
+    """
+    difference = np.abs(actual - expected)
+    assert np.all(difference <= tolerance), (
+        f"{label} projection off its discounted bound:\n"
+        f"  actual:    {actual!r}\n"
+        f"  expected:  {expected!r}\n"
+        f"  |diff|:    {difference!r}\n"
+        f"  tolerance: {tolerance!r} ({BOUND_ULP_BUDGET} ULP of the operand scale)"
+    )
+
 DATASET_CONFIG = f"""
 schema_version = "{SCHEMA_VERSION}"
 generator_version = "{GENERATOR_VERSION}"
@@ -265,8 +312,12 @@ def test_european_projection_enforces_discounted_price_bounds() -> None:
     low_price = low_bounded(tensor).detach().numpy()
     high_price = high_bounded(tensor).detach().numpy()
 
-    np.testing.assert_allclose(low_price, lower, rtol=0.0, atol=1.0e-14)
-    np.testing.assert_allclose(high_price, upper, rtol=0.0, atol=1.0e-14)
+    # Both bounds are compared against the same operand-scaled tolerance: the
+    # upper bound is a single discounted operand, the lower bound a difference
+    # of the two, and both inherit absolute error at the operand scale.
+    tolerance = bound_tolerance(discounted_spot, discounted_strike)
+    assert_matches_bound(low_price, lower, tolerance, "lower")
+    assert_matches_bound(high_price, upper, tolerance, "upper")
     target_inside_bounds = (lower + upper) / 2.0
     assert np.all(
         np.abs(low_price - target_inside_bounds)
