@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="740" viewBox="0 0 1180 740" role="img">
+<title>American LSM primary case results</title>
+<style>text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }</style>
+<rect width="1180" height="740" rx="18" fill="#ffffff"/>
+<text x="36.0" y="44.0" font-size="25" font-weight="700" text-anchor="start" fill="#172033">Primary experiment case results (paths-high-primary-v1)</text>
+<text x="36.0" y="72.0" font-size="14" font-weight="400" text-anchor="start" fill="#536078">CRR - LSM per case, with a +/- 1 valuation-only standard error bar. Positive means LSM sits below the</text>
+<text x="36.0" y="92.0" font-size="14" font-weight="400" text-anchor="start" fill="#536078">CRR reference, which is the expected ordering for a fixed learned stopping policy on a coarser grid.</text>
+<text x="36.0" y="120.0" font-size="13" font-weight="400" text-anchor="start" fill="#b42318">The bar covers valuation sampling noise only. Policy-fitting error and exercise-grid bias are NOT included,</text>
+<text x="36.0" y="139.0" font-size="13" font-weight="400" text-anchor="start" fill="#b42318">so a bar excluding zero is not evidence of a defect and is not an acceptance gate.</text>
+<rect x="36.0" y="164.0" width="22.0" height="9.0" rx="4.0" fill="#2563eb"/>
+<text x="66.0" y="172.0" font-size="12" font-weight="400" text-anchor="start" fill="#354158">Stochastic case (+/- 1 valuation-only SE)</text>
+<rect x="490.0" y="164.0" width="22.0" height="9.0" rx="4.0" fill="#0f9d76"/>
+<text x="520.0" y="172.0" font-size="12" font-weight="400" text-anchor="start" fill="#354158">Deterministic case (zero-width interval)</text>
+<line x1="313.2" y1="198.0" x2="313.2" y2="652.0" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="313.2" y="188.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0</text>
+<line x1="452.5" y1="198.0" x2="452.5" y2="652.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="452.5" y="188.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0.021</text>
+<line x1="645.0" y1="198.0" x2="645.0" y2="652.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="645.0" y="188.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0.050</text>
+<line x1="837.5" y1="198.0" x2="837.5" y2="652.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="837.5" y="188.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0.079</text>
+<line x1="1030.0" y1="198.0" x2="1030.0" y2="652.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="1030.0" y="188.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0.107</text>
+<text x="645.0" y="684.0" font-size="13" font-weight="400" text-anchor="middle" fill="#536078">CRR reference minus LSM price (price units, linear scale)</text>
+<text x="242.0" y="224.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">standard_atm_put</text>
+<text x="242.0" y="241.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">put S=100 K=100 T=1 r=0.05 q=0 v=0.2</text>
+<line x1="547.5" y1="220.0" x2="686.0" y2="220.0" stroke="#2563eb" stroke-width="3.0"/>
+<line x1="547.5" y1="214.0" x2="547.5" y2="226.0" stroke="#2563eb" stroke-width="2.0"/>
+<line x1="686.0" y1="214.0" x2="686.0" y2="226.0" stroke="#2563eb" stroke-width="2.0"/>
+<circle cx="616.7" cy="220.0" r="5" fill="#2563eb"/>
+<text x="1042.0" y="224.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+0.04552 +/- 0.01039</text>
+<text x="242.0" y="274.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">deep_itm_put</text>
+<text x="242.0" y="291.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">put S=70 K=100 T=1 r=0.05 q=0 v=0.25</text>
+<circle cx="313.2" cy="270.0" r="6" fill="#ffffff" stroke="#0f9d76" stroke-width="2.5"/>
+<text x="1042.0" y="274.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+4.26e-13  zero-width</text>
+<text x="242.0" y="324.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">deep_otm_put</text>
+<text x="242.0" y="341.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">put S=130 K=100 T=1 r=0.05 q=0 v=0.25</text>
+<line x1="350.5" y1="320.0" x2="427.1" y2="320.0" stroke="#2563eb" stroke-width="3.0"/>
+<line x1="350.5" y1="314.0" x2="350.5" y2="326.0" stroke="#2563eb" stroke-width="2.0"/>
+<line x1="427.1" y1="314.0" x2="427.1" y2="326.0" stroke="#2563eb" stroke-width="2.0"/>
+<circle cx="388.8" cy="320.0" r="5" fill="#2563eb"/>
+<text x="1042.0" y="324.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+0.01133 +/- 0.00574</text>
+<text x="242.0" y="374.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">short_maturity_put</text>
+<text x="242.0" y="391.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">put S=100 K=100 T=0.05 r=0.05 q=0 v=0.2</text>
+<line x1="339.9" y1="370.0" x2="374.7" y2="370.0" stroke="#2563eb" stroke-width="3.0"/>
+<line x1="339.9" y1="364.0" x2="339.9" y2="376.0" stroke="#2563eb" stroke-width="2.0"/>
+<line x1="374.7" y1="364.0" x2="374.7" y2="376.0" stroke="#2563eb" stroke-width="2.0"/>
+<circle cx="357.3" cy="370.0" r="5" fill="#2563eb"/>
+<text x="1042.0" y="374.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+0.00661 +/- 0.00261</text>
+<text x="242.0" y="424.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">high_volatility_put</text>
+<text x="242.0" y="441.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">put S=100 K=100 T=1 r=0.05 q=0 v=0.8</text>
+<line x1="635.6" y1="420.0" x2="976.9" y2="420.0" stroke="#2563eb" stroke-width="3.0"/>
+<line x1="635.6" y1="414.0" x2="635.6" y2="426.0" stroke="#2563eb" stroke-width="2.0"/>
+<line x1="976.9" y1="414.0" x2="976.9" y2="426.0" stroke="#2563eb" stroke-width="2.0"/>
+<circle cx="806.2" cy="420.0" r="5" fill="#2563eb"/>
+<text x="1042.0" y="424.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+0.07394 +/- 0.02559</text>
+<text x="242.0" y="474.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">negative_rate_put</text>
+<text x="242.0" y="491.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">put S=100 K=100 T=1 r=-0.01 q=0 v=0.2</text>
+<circle cx="313.2" cy="470.0" r="6" fill="#ffffff" stroke="#0f9d76" stroke-width="2.5"/>
+<text x="1042.0" y="474.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">-1.43e-06  zero-width</text>
+<text x="242.0" y="524.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">negative_rate_call</text>
+<text x="242.0" y="541.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">call S=100 K=100 T=1 r=-0.01 q=0 v=0.2</text>
+<line x1="432.4" y1="520.0" x2="626.0" y2="520.0" stroke="#2563eb" stroke-width="3.0"/>
+<line x1="432.4" y1="514.0" x2="432.4" y2="526.0" stroke="#2563eb" stroke-width="2.0"/>
+<line x1="626.0" y1="514.0" x2="626.0" y2="526.0" stroke="#2563eb" stroke-width="2.0"/>
+<circle cx="529.2" cy="520.0" r="5" fill="#2563eb"/>
+<text x="1042.0" y="524.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+0.03239 +/- 0.01452</text>
+<text x="242.0" y="574.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">non_dividend_call_control</text>
+<text x="242.0" y="591.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">call S=100 K=100 T=1 r=0.05 q=0 v=0.2</text>
+<circle cx="313.1" cy="570.0" r="6" fill="#ffffff" stroke="#0f9d76" stroke-width="2.5"/>
+<text x="1042.0" y="574.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">-1.51e-05  zero-width</text>
+<text x="242.0" y="624.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">high_dividend_call</text>
+<text x="242.0" y="641.0" font-size="10" font-weight="400" text-anchor="end" fill="#536078">call S=100 K=100 T=1 r=0.01 q=0.1 v=0.25</text>
+<line x1="496.6" y1="620.0" x2="722.2" y2="620.0" stroke="#2563eb" stroke-width="3.0"/>
+<line x1="496.6" y1="614.0" x2="496.6" y2="626.0" stroke="#2563eb" stroke-width="2.0"/>
+<line x1="722.2" y1="614.0" x2="722.2" y2="626.0" stroke="#2563eb" stroke-width="2.0"/>
+<circle cx="609.4" cy="620.0" r="5" fill="#2563eb"/>
+<text x="1042.0" y="624.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">+0.04442 +/- 0.01692</text>
+</svg>

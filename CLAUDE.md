@@ -26,7 +26,9 @@ Run the full local gate. It compiles Python, script, and hook sources, validates
 the TOML and JSON configuration, checks that the CI test partition is still a
 partition, verifies the locked European replication protocol and its pinned
 file hashes, validates both the development and completed-replication result
-snapshots, verifies that all checked-in figures match deterministic renders,
+snapshots, validates the frozen American LSM cross-check snapshot and its
+repository provenance, verifies that all checked-in figures match
+deterministic renders,
 runs Ruff and clang-format, builds and runs the C++ tests, and finishes with
 the full Python suite (`python3 -m pytest -q`, both partitions). It therefore
 needs the editable install below; a missing pytest fails the gate rather than
@@ -80,6 +82,27 @@ python -m differentiable_pricing.american.lsm_crosscheck \
   --config configs/american_lsm_crosscheck_v1.toml \
   --output artifacts/american-lsm-crosscheck-v1.json
 ```
+
+The reviewed cross-check evidence is frozen in
+`docs/results/american_lsm_crosscheck_results_v1.json`. Raw reports stay
+ignored under `artifacts/` and are never committed. Regenerate the snapshot and
+its figures only from a reviewed report, then let the gate enforce them:
+
+```bash
+python scripts/freeze_american_lsm_results.py \
+  --report artifacts/american-lsm-crosscheck-review-fixed-v1.json \
+  --output docs/results/american_lsm_crosscheck_results_v1.json --update
+python scripts/plot_american_lsm_results.py
+python scripts/freeze_american_lsm_results.py --check
+python scripts/plot_american_lsm_results.py --check
+```
+
+Both `--check` modes run in the local gate and in CI and must keep working
+with `artifacts/` absent: they validate the checked-in snapshot and reconcile
+its configuration and C++ provenance digests against current repository files.
+Never make CI depend on an ignored artifact. That study selects no production
+label policy; task 8E predeclares and runs the CRR label-policy calibration
+study separately.
 
 Machine-specific CRR benchmarks belong under ignored `artifacts/` and must
 record compiler/build, affinity, thread count, warm-up, repetitions, and batch

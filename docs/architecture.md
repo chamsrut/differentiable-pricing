@@ -46,6 +46,40 @@ control-variate estimates, pair-aware uncertainty, exercise counts, memory
 accounting, and regression diagnostics. A future training-data boundary may
 move to `N x D` float64 arrays when selected input derivatives exist.
 
+## Frozen result snapshots
+
+Expensive study reports live under the ignored `artifacts/` directory. What the
+repository carries instead is a compact, strictly versioned **result snapshot**
+under `docs/results/`, plus deterministic SVG figures under `docs/figures/`
+rendered from that snapshot alone.
+
+Each snapshot family has one generator/validator script in `scripts/` that:
+
+- validates the raw report against an exact key schema, rejecting unknown and
+  missing fields and any non-finite economic value;
+- recomputes every summary statistic from the underlying rows, so an edited
+  report cannot be frozen;
+- extracts every number programmatically, never by transcription;
+- records the source report's filename and full SHA-256 plus configuration and
+  C++ provenance digests;
+- writes atomically through a same-directory temporary file and refuses silent
+  overwrite without an explicit update flag;
+- emits canonical JSON with sorted keys and no wall-clock or environment
+  fields, so regeneration is byte-reproducible;
+- exits `2` on any validation, provenance, or I/O failure.
+
+Each also offers a `--check` mode that CI runs. **`--check` must not require
+the ignored artifact.** It validates the checked-in snapshot on its own terms
+and reconciles its recorded digests against current repository files; composite
+engine identities are recomputed from the same sources `CMakeLists.txt` hashes,
+so no compiled extension is needed either. Figure scripts expose a matching
+`--check` that fails when a checked-in SVG is stale.
+
+Current members: the European replication and validation snapshots, and
+`american_lsm_crosscheck_results_v1.json`
+(`scripts/freeze_american_lsm_results.py`,
+`scripts/plot_american_lsm_results.py`).
+
 ## Model artifact contract
 
 The export format must be framework-neutral and versioned. It should contain:

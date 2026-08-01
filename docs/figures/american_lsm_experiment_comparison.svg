@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="740" viewBox="0 0 1180 740" role="img">
+<title>American LSM experiment comparison</title>
+<style>text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }</style>
+<rect width="1180" height="740" rx="18" fill="#ffffff"/>
+<text x="36.0" y="44.0" font-size="25" font-weight="700" text-anchor="start" fill="#172033">American LSM cross-check: experiment comparison</text>
+<text x="36.0" y="72.0" font-size="14" font-weight="400" text-anchor="start" fill="#536078">Price units, log scale. CRR - LSM is the gap to the 8,192-step CRR adjacent-average reference.</text>
+<text x="36.0" y="94.0" font-size="13" font-weight="400" text-anchor="start" fill="#b42318">The standard error is valuation sampling noise only. It is NOT a total-error bar: it excludes policy-fitting</text>
+<text x="36.0" y="113.0" font-size="13" font-weight="400" text-anchor="start" fill="#b42318">error and discrete-exercise (grid) bias, which are systematic and do not shrink with more valuation paths.</text>
+<rect x="36.0" y="133.0" width="22.0" height="9.0" rx="4.0" fill="#2563eb"/>
+<text x="66.0" y="141.0" font-size="12" font-weight="400" text-anchor="start" fill="#354158">Mean CRR - LSM</text>
+<rect x="286.0" y="133.0" width="22.0" height="9.0" rx="4.0" fill="#7c3aed"/>
+<text x="316.0" y="141.0" font-size="12" font-weight="400" text-anchor="start" fill="#354158">Max |CRR - LSM|</text>
+<rect x="536.0" y="133.0" width="22.0" height="9.0" rx="4.0" fill="#d97706"/>
+<text x="566.0" y="141.0" font-size="12" font-weight="400" text-anchor="start" fill="#354158">Mean valuation-only SE</text>
+<line x1="300.0" y1="184.0" x2="300.0" y2="656.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="300.0" y="174.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0.01</text>
+<line x1="553.3" y1="184.0" x2="553.3" y2="656.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="553.3" y="174.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">0.1</text>
+<line x1="806.7" y1="184.0" x2="806.7" y2="656.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="806.7" y="174.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">1</text>
+<line x1="1060.0" y1="184.0" x2="1060.0" y2="656.0" stroke="#dce2ea" stroke-width="1.0"/>
+<text x="1060.0" y="174.0" font-size="12" font-weight="400" text-anchor="middle" fill="#657189">10</text>
+<text x="680.0" y="694.0" font-size="13" font-weight="400" text-anchor="middle" fill="#536078">Price difference (log scale)</text>
+<text x="284.0" y="202.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">paths-low-v1</text>
+<text x="284.0" y="219.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">path_convergence</text>
+<text x="284.0" y="235.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">64 steps | degree 2 | 16,384 train</text>
+<rect x="300.0" y="192.0" width="101.4" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="409.4" y="203.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.02513</text>
+<rect x="300.0" y="208.0" width="286.6" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="594.6" y="219.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.13529</text>
+<rect x="300.0" y="224.0" width="101.2" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="409.2" y="235.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.02508</text>
+<text x="284.0" y="270.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">steps-low-v1</text>
+<text x="284.0" y="287.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">exercise_grid_convergence</text>
+<text x="284.0" y="303.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">32 steps | degree 2 | 32,768 train</text>
+<rect x="300.0" y="260.0" width="113.6" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="421.6" y="271.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.02808</text>
+<rect x="300.0" y="276.0" width="279.3" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="587.3" y="287.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.12666</text>
+<rect x="300.0" y="292.0" width="63.5" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="371.5" y="303.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.01781</text>
+<text x="284.0" y="338.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">reference-v1</text>
+<text x="284.0" y="355.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">reference</text>
+<text x="284.0" y="371.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">64 steps | degree 2 | 32,768 train</text>
+<rect x="300.0" y="328.0" width="109.8" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="417.8" y="339.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.02713</text>
+<rect x="300.0" y="344.0" width="228.5" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="536.5" y="355.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.07977</text>
+<rect x="300.0" y="360.0" width="64.6" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="372.6" y="371.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.01799</text>
+<text x="284.0" y="406.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">steps-high-v1</text>
+<text x="284.0" y="423.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">exercise_grid_convergence</text>
+<text x="284.0" y="439.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">128 steps | degree 2 | 32,768 train</text>
+<rect x="300.0" y="396.0" width="131.3" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="439.3" y="407.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.03298</text>
+<rect x="300.0" y="412.0" width="296.0" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="604.0" y="423.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.14736</text>
+<rect x="300.0" y="428.0" width="63.7" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="371.7" y="439.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.01784</text>
+<text x="284.0" y="474.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">degree-one-v1</text>
+<text x="284.0" y="491.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">basis_sensitivity</text>
+<text x="284.0" y="507.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">64 steps | degree 1 | 32,768 train</text>
+<rect x="300.0" y="464.0" width="451.2" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="759.2" y="475.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.60422</text>
+<rect x="300.0" y="480.0" width="604.5" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="912.5" y="491.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">2.43419</text>
+<rect x="300.0" y="496.0" width="66.4" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="374.4" y="507.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.01828</text>
+<text x="284.0" y="542.0" font-size="13" font-weight="500" text-anchor="end" fill="#172033">degree-three-v1</text>
+<text x="284.0" y="559.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">basis_sensitivity</text>
+<text x="284.0" y="575.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">64 steps | degree 3 | 32,768 train</text>
+<rect x="300.0" y="532.0" width="114.4" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="422.4" y="543.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.02828</text>
+<rect x="300.0" y="548.0" width="265.0" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="573.0" y="559.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.11119</text>
+<rect x="300.0" y="564.0" width="63.3" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="371.3" y="575.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.01778</text>
+<text x="284.0" y="610.0" font-size="13" font-weight="700" text-anchor="end" fill="#172033">paths-high-primary-v1</text>
+<text x="284.0" y="627.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">primary</text>
+<text x="284.0" y="643.0" font-size="11" font-weight="400" text-anchor="end" fill="#536078">64 steps | degree 2 | 65,536 train</text>
+<rect x="300.0" y="600.0" width="95.4" height="13.0" rx="3.0" fill="#2563eb"/>
+<text x="403.4" y="611.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.02380</text>
+<rect x="300.0" y="616.0" width="220.1" height="13.0" rx="3.0" fill="#7c3aed"/>
+<text x="528.1" y="627.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.07394</text>
+<rect x="300.0" y="632.0" width="25.7" height="13.0" rx="3.0" fill="#d97706"/>
+<text x="333.7" y="643.0" font-size="11" font-weight="400" text-anchor="start" fill="#354158">0.01263</text>
+</svg>

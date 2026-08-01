@@ -257,6 +257,47 @@ contains no timing fields. Its CRR comparison is an independent-algorithm
 cross-check within one model, not a comparison with market prices and not a
 formal proof that either discretization is exact.
 
+### The frozen result snapshot
+
+The generated report stays ignored under `artifacts/`. The reviewed evidence is
+frozen instead as a compact, strictly versioned snapshot,
+`docs/results/american_lsm_crosscheck_results_v1.json`
+(schema `american-lsm-crosscheck-results/1`), produced by
+`scripts/freeze_american_lsm_results.py`. Every number in it is extracted
+programmatically; none is transcribed.
+
+```bash
+# regenerate from the reviewed report (refuses silent overwrite without --update)
+python scripts/freeze_american_lsm_results.py \
+  --report artifacts/american-lsm-crosscheck-review-fixed-v1.json \
+  --output docs/results/american_lsm_crosscheck_results_v1.json --update
+
+# CI-safe validation: needs no ignored artifact
+python scripts/freeze_american_lsm_results.py --check
+python scripts/plot_american_lsm_results.py --check
+```
+
+Extraction is a semantic gate, not a copy. It rejects a report with unknown or
+missing fields, a non-finite economic value, a summary that disagrees with a
+recomputation from its own case rows, a deterministic zero-width case leaking
+into a stochastic statistic, or a deterministic case setting the reported
+minimum variance-reduction ratio. `--check` revalidates the snapshot on its own
+terms and reconciles its configuration and C++ provenance digests against the
+current repository sources; the composite engine identities are recomputed from
+the same files `CMakeLists.txt` hashes, so neither the ignored artifact nor a
+built extension module is required.
+
+The snapshot preserves the interpretation, not merely the numbers: the estimand
+is a learned policy's value, the interval is valuation-only, deterministic cases
+are separated from stochastic interval comparisons, and the CRR reference is an
+internal cross-check rather than American or market truth. Declared limitations
+travel with it. `scripts/plot_american_lsm_results.py` renders the three
+checked-in SVGs from the snapshot alone.
+
+These results select **no** production label policy. Task 8E separately
+predeclares and runs the CRR label-policy calibration study; no number frozen
+here may be reused as its acceptance criterion.
+
 The strongest regression signal against discount-time and stopping-index errors
 is not in this report: it is the early-exercise-premium cross-check in the C++
 test suite, which compares \(V_{\mathrm{LSM}}-V_{\mathrm{BS}}\) against the CRR

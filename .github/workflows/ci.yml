@@ -55,6 +55,13 @@ jobs:
         run: |
           python3 scripts/plot_european_validation_results.py --check
           python3 scripts/plot_european_replication_results.py --check
+      - name: Frozen American cross-check result is valid and current
+        # Deliberately uses only checked-in files. The raw cross-check report
+        # is git-ignored and is never present here, so neither check may
+        # depend on it.
+        run: |
+          python3 scripts/freeze_american_lsm_results.py --check
+          python3 scripts/plot_american_lsm_results.py --check
 
   ml:
     name: Neural baseline / CPU
