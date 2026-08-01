@@ -40,6 +40,19 @@ python scripts/freeze_american_lsm_results.py --check
 python scripts/plot_american_lsm_results.py --check
 ```
 
+## Markdown and math
+
+Documentation is read on GitHub, which renders math only with dollar
+delimiters. Use `$...$` inline and `$$` fences on their own lines for display;
+never `\(...\)` or `\[...\]`, which GitHub prints as literal backslashes. Keep
+a blank line before and after every display block, keep an inline expression on
+a single line — a `$...$` broken across a line break does not render — and keep
+shell commands, file names, and code literals in backticks or fenced blocks so
+no stray `$` is parsed as math. Do not indent a continuation line inside a `$$`
+block, which Markdown can read as code. Stay inside core KaTeX: prefer
+`\mathrm{...}` to `\operatorname{...}`, and never use `\DeclareMathOperator`,
+`\newcommand`, `\require`, or `\label`, which GitHub does not define.
+
 Pull requests should include:
 
 - the problem and numerical assumptions;

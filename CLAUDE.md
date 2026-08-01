@@ -169,6 +169,12 @@ needed, and no enumerated file list has to be kept in sync.
 - Preserve warning-clean builds with `DP_WARNINGS_AS_ERRORS=ON`.
 - Tests must fail deterministically and include negative/error cases.
 - Python is typed, formatted for 100 columns, and linted with Ruff.
+- Markdown math must use GitHub-compatible delimiters: `$...$` inline and `$$`
+  on its own line for display, never `\(...\)` or `\[...\]`. Surround display
+  blocks with blank lines, keep an inline expression on one line, and keep
+  commands and code literals in backticks so no stray `$` becomes math. Stay
+  inside core KaTeX: prefer `\mathrm{...}` to `\operatorname{...}`, and never
+  use `\DeclareMathOperator`, `\newcommand`, `\require`, or `\label`.
 - Do not commit generated datasets, model weights, virtual environments, or
   build directories.
 - New dependencies require a concrete benefit and a documented reproducibility
