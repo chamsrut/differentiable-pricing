@@ -12,13 +12,13 @@ does not make the model assumptions more realistic.
 
 Under the pricing measure,
 
-\[
+$$
 \frac{dS_t}{S_t}=(r-q)\,dt+\sigma\,dW_t.
-\]
+$$
 
-For \(M\) equal exercise intervals, \(t_m=mT/M\). The implementation estimates
+For $M$ equal exercise intervals, $t_m=mT/M$. The implementation estimates
 the value of a learned stopping policy exercisable on
-\(\{0,t_1,\ldots,t_M\}\). This is a Bermudan approximation to continuous
+$\{0,t_1,\ldots,t_M\}$. This is a Bermudan approximation to continuous
 American exercise.
 
 Four errors must not be conflated:
@@ -41,7 +41,7 @@ nominal rate against those quantities, so no count derived from it is an
 acceptance gate and none is used as one.
 
 Items 1--3 are systematic: they do not shrink as valuation paths increase.
-Item 4 does, at the usual \(n^{-1/2}\). Adding valuation paths therefore
+Item 4 does, at the usual $n^{-1/2}$. Adding valuation paths therefore
 narrows the interval around a fixed policy-and-grid bias, and the number of
 cases whose interval contains a finer-grid reference is expected to **fall**
 towards zero rather than approach any target fraction. Reading `0/N` as failed
@@ -60,7 +60,7 @@ would conflate:
   exactly. Their interval is a single point, so containing a finite-step tree
   value is arithmetically impossible no matter how close the agreement.
   Counting them as containment failures would misrepresent agreement at the
-  \(10^{-13}\)--\(10^{-5}\) level as disagreement, so their tree differences
+  $10^{-13}$--$10^{-5}$ level as disagreement, so their tree differences
   are reported separately instead.
 
 No exact-recovery tolerance is invented to convert those differences into
@@ -86,14 +86,14 @@ training pass:
 4. exercises when intrinsic value strictly exceeds the nonnegative fitted
    continuation value.
 
-For \(x=\log(S/K)\), the date-specific coordinate is
+For $x=\log(S/K)$, the date-specific coordinate is
 
-\[
+$$
 z=\frac{x-\bar{x}}{s_x},\qquad
 \widehat C(x)=\max\left(0,\sum_{j=0}^{d}\beta_j z^j\right).
-\]
+$$
 
-The degree is restricted to \(1\le d\le3\). Modified Gram--Schmidt QR with a
+The degree is restricted to $1\le d\le3$. Modified Gram--Schmidt QR with a
 reorthogonalization pass solves the small least-squares problem. Insufficient
 or numerically rank-deficient samples fall back to the mean discounted cash
 flow, and every fallback is reported. Increasing polynomial degree without a
@@ -102,11 +102,11 @@ subject of
 [Glasserman and Yu (2004)](https://arxiv.org/pdf/math/0503556).
 
 The time-zero choice is also fixed from the training sample before valuation.
-For a call with \(r\ge0\) and \(q\le0\), the engine applies the structural
+For a call with $r\ge0$ and $q\le0$, the engine applies the structural
 no-early-exercise result rather than allowing sampling noise to invent an
-exercise region. It likewise suppresses early put exercise when \(r\le0\) and
-\(q\ge0\): the European lower bound
-\(K e^{-r\tau}-S e^{-q\tau}\) is then at least \(K-S\), so continuation
+exercise region. It likewise suppresses early put exercise when $r\le0$ and
+$q\ge0$: the European lower bound
+$K e^{-r\tau}-S e^{-q\tau}$ is then at least $K-S$, so continuation
 dominates intrinsic value.
 
 ## Antithetic sampling and uncertainty
@@ -116,60 +116,61 @@ Each random normal sequence drives a positive-shock path and its antithetic
 negative-shock path. The estimator treats the average of those two payoffs as
 one independent observation. Consequently,
 
-\[
+$$
 n_{\mathrm{eff}}=\frac{P_{\mathrm{valuation}}}{2},
 \qquad
 \operatorname{SE}(\bar Z)
 =\sqrt{\frac{s_Z^2}{n_{\mathrm{eff}}}}.
-\]
+$$
 
 Treating all paths as independent would understate uncertainty because the two
 members of a pair are correlated. The reported 95% interval is the
 large-sample normal approximation
 
-\[
+$$
 \bar Z\ \pm\ 1.959963984540054\,\operatorname{SE}(\bar Z).
-\]
+$$
 
 ## European control variate
 
-On every valuation path, let \(X\) be the discounted payoff from the frozen
-American stopping policy and \(Y\) the discounted European payoff at maturity.
-The known expectation of \(Y\) is the analytic Black--Scholes price
-\(V_{\mathrm{BS}}\). The coefficient is estimated from antithetic pair
+On every valuation path, let $X$ be the discounted payoff from the frozen
+American stopping policy and $Y$ the discounted European payoff at maturity.
+The known expectation of $Y$ is the analytic Black--Scholes price
+$V_{\mathrm{BS}}$. The coefficient is estimated from antithetic pair
 averages on the policy-training stream and then frozen before the independent
 valuation stream:
 
-\[
+$$
 \widehat\beta_{\mathrm{train}}
 =\frac{\widehat{\operatorname{Cov}}_{\mathrm{train}}(X,Y)}
        {\widehat{\operatorname{Var}}_{\mathrm{train}}(Y)},
 \qquad
 Z=X-\widehat\beta_{\mathrm{train}}
        \left(Y-V_{\mathrm{BS}}\right).
-\]
+$$
 
 Although the same training paths also fit the policy, no coefficient is
 estimated on the valuation sample. Conditional on the frozen policy and
-coefficient, \(\mathbb E[Z]=\mathbb E[X]\). The report retains raw and adjusted
+coefficient, $\mathbb E[Z]=\mathbb E[X]$. The report retains raw and adjusted
 prices and standard errors, the fitted coefficient, the European Monte Carlo
 and analytic prices, and the realized out-of-sample variance-reduction ratio.
 
 ### Applicability of the reported ratio
 
-The variance-reduction ratio is \(\widehat{\operatorname{Var}}(X)/
-\widehat{\operatorname{Var}}(Z)\). Two degenerate cases must not be read the
-same way, so applicability is reported explicitly:
+The variance-reduction ratio is
+$\widehat{\operatorname{Var}}(X)/\widehat{\operatorname{Var}}(Z)$.
+Two degenerate cases must not be read the same way, so applicability is
+reported explicitly:
 
 - If the training policy chooses **immediate exercise**, the payoff is already
   deterministic. No valuation simulation runs, the engine uses coefficient
   zero, and both variances are exactly zero. The ratio is the undefined form
-  \(0/0\). It is marked `variance_reduction_applicable = false`, is emitted as
+  $0/0$. It is marked `variance_reduction_applicable = false`, is emitted as
   JSON `null`, and is **excluded from every variance-reduction summary**: such
   a case can neither set nor lower a reported minimum. A placeholder value here
   would silently become the reported worst case and hide the genuine one.
 - If an **applicable** control variate removes all variance --- as structural
-  suppression does, where \(X\equiv Y\) path by path --- the ratio is a
+  suppression does, where $X\equiv Y$ path by path --- the ratio is a
   positive infinity. That is a measurement, not an undefined form. It is
   counted in `variance_reduction_infinite_cases`, emitted as JSON `null`, and
   excluded from the finite minimum.
@@ -187,9 +188,9 @@ always reported.
 ## Memory and complexity
 
 Policy fitting stores double-precision log spots and is
-\(O(P_{\mathrm{train}}M)\) in memory and roughly
-\(O(P_{\mathrm{train}}Md)\) in arithmetic. Valuation streams each antithetic
-pair and uses \(O(M)\) memory.
+$O(P_{\mathrm{train}}M)$ in memory and roughly
+$O(P_{\mathrm{train}}Md)$ in arithmetic. Valuation streams each antithetic
+pair and uses $O(M)$ memory.
 
 The engine computes a deterministic estimate of all bulk training storage
 exactly once, at the public entry point: the path matrix, cash flows, stopping
@@ -210,11 +211,11 @@ here. The LSM engine is instead made safe for every input that validator
 currently admits.
 
 A finite log spot is not sufficient. The simulated state is a random walk in
-\(\log S\), and \(\exp(x)\) leaves double precision near \(x\approx709.78\)
-while \(x\) itself remains far inside the representable range. A drift large
+$\log S$, and $\exp(x)$ leaves double precision near $x\approx709.78$
+while $x$ itself remains far inside the representable range. A drift large
 enough to push the walk past that bound produced an infinite spot, while the
 matching discount factor underflowed to exactly zero; their product was the
-IEEE indeterminate form \(\infty\times0=\mathrm{NaN}\), which then propagated
+IEEE indeterminate form $\infty\times0=\mathrm{NaN}$, which then propagated
 silently through the online moments into a returned "price". A large negative
 rate overflowed the discount factor directly.
 
@@ -300,7 +301,7 @@ here may be reused as its acceptance criterion.
 
 The strongest regression signal against discount-time and stopping-index errors
 is not in this report: it is the early-exercise-premium cross-check in the C++
-test suite, which compares \(V_{\mathrm{LSM}}-V_{\mathrm{BS}}\) against the CRR
+test suite, which compares $V_{\mathrm{LSM}}-V_{\mathrm{BS}}$ against the CRR
 American-minus-European premium. Subtracting the shared European component
 cancels most of the diffusion noise, so a mis-discounted exercise cash flow
 shows up first order. Run the C++ tests as well as the study when changing the
@@ -315,7 +316,7 @@ The following are consequences of the method, not defects, and must not be
 Bermudan grid is a lower bound for the same-grid optimal value, which is itself
 a lower bound for continuous exercise. The finer-grid CRR average therefore
 exceeds it, and every observed gap has that sign. Because the gap is systematic
-while the standard error shrinks at \(n^{-1/2}\), increasing valuation paths
+while the standard error shrinks at $n^{-1/2}$, increasing valuation paths
 tightens the interval around the gap rather than closing it, which is exactly
 why the stochastic containment count falls as paths increase.
 
