@@ -60,8 +60,7 @@ The price recursion uses the exact floating-point maximum above. Exercise
 metadata is deliberately more conservative: it records exercise only when
 
 $$
-\Phi(S_{n,j})-C_{n,j}
->
+\Phi(S_{n,j}) - C_{n,j} >
 10^{-12}\max\left(1,\lvert\Phi(S_{n,j})\rvert,\lvert C_{n,j}\rvert\right).
 $$
 
