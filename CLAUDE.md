@@ -108,8 +108,71 @@ Machine-specific CRR benchmarks belong under ignored `artifacts/` and must
 record compiler/build, affinity, thread count, warm-up, repetitions, and batch
 size. They are evidence, not portable pass/fail gates.
 
+Run the real-market feasibility audit only when the private archive is
+present. It verifies `manifests/sha256sums.txt` before decoding anything,
+consults the vendor's per-request `condition.json`, reads every `.dbn.zst` in
+bounded chunks through the vendor reader, fails loudly on a truncated payload,
+never decompresses or modifies a raw file, and writes normalized partitioned
+Parquet atomically beneath the ignored `data/processed/` tree:
+
+```bash
+python -m pip install -e '.[dev,market]'
+python -m differentiable_pricing.market.ingest \
+  --config configs/market_feasibility_v1.toml \
+  --output artifacts/market-feasibility-v1-audit3/feasibility-report-v3.json
+```
+
+The archive under `data/market-feasibility-v1/` is proprietary quote-level
+data. It, and every Parquet file derived from it, stays out of Git. CI never
+sees it: `python/tests/market/` builds DBN fixtures programmatically with the
+vendor encoder and skips the decode-backed tests when the `market` extra is
+absent, so the lightweight `.[dev,data]` job runs the whole suite unchanged.
+
+The audit reports; it does not price, fit, or fill gaps. Three rules keep it
+from smuggling a conclusion into its own source:
+
+- **Absent inputs are probed, never assumed.** Every external input the study
+  needs is declared in `[[declared_sources]]` as a path and a kind, and the
+  audit observes `absent`, `present_but_empty` or `present`. Those are distinct
+  facts with distinct remedies, and an empty directory is invisible to a
+  SHA-256 manifest, so it has to be probed for. Nothing about dividends,
+  borrow, curves or corporate actions is a constant in the code.
+- **Capabilities are scoped, not one verdict.** `archive_integrity`,
+  `ingestion_feasibility`, `xsp_european_surface_readiness`,
+  `spy_american_calibration_readiness` and `replication_readiness` are reported
+  separately, each from recorded checks that state the observation deciding
+  them.
+- **Coverage denominators are the resolved universe, within one population.**
+  "Any instrument quoted in this minute" is retained as a descriptive liveness
+  metric and is never an acceptance gate; contract-minute coverage, per-contract
+  coverage and per-contract synchronization distributions are what the
+  capabilities use, and every distribution spans the whole resolved universe
+  including contracts that never traded. A product whose payload mixes
+  instrument kinds is accumulated per population, so a futures block's
+  numerator, denominator and spread distribution are all outrights and calendar
+  spreads are reported beside them, never inside them. A strike counts as paired
+  only when its call and put are tradable in the *same minute*. Tradability is
+  config-versioned in `[tradability]` and requires finite positive sizes on both
+  sides; several exploratory relative-spread thresholds are reported and no
+  capability check consults any of them.
+
+Capability minima carry their own provenance and it is not uniform. The
+structural surface minima are properties of the method. The session-count
+minima in `[capabilities]` were chosen after this three-session archive was
+observed: they are `provisional_pilot_target`, not desk-grade, and must be
+justified against the intended estimator and flipped to `frozen` before any
+pilot partition is consumed. Do not write a blanket claim that no threshold in
+this audit followed the results.
+
+Put-call parity fitting, implied forwards, dividend inference and forward
+moneyness are **task 9B** and are explicitly out of scope here. The archive
+carries no independent dividend ground truth, so no artefact of this audit may
+describe a dividend as observed or inferred.
+
 The `train` extra includes the `data` dependencies plus PyTorch. It is required
-by every test under `python/tests/ml/`, so the full local gate needs it.
+by every test under `python/tests/ml/`, so the full local gate needs it. The
+`market` extra adds the `databento-dbn` reader and is optional; only the real
+ingestion pipeline needs it.
 
 The suite is split by directory, and CI mirrors that split exactly:
 

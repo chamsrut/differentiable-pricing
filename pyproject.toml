@@ -23,6 +23,15 @@ train = [
     "pyarrow>=17",
     "torch>=2.4,<3",
 ]
+# Decoding vendor DBN payloads. Optional on purpose: no test may depend on the
+# private market archive, so CI runs the whole suite without this extra and the
+# few decoder-backed tests skip. Reproducibility cost is one pinned-major
+# binary wheel from the data vendor, used only by differentiable_pricing.market.
+market = [
+    "numpy>=2.0",
+    "pyarrow>=17",
+    "databento-dbn>=0.36,<1",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.9",
