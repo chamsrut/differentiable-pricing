@@ -1,0 +1,362 @@
+# Feasibility audit of the market-feasibility-v1 raw archive.
+#
+# This configuration declares what was acquired, how it must be read, and what
+# the study would additionally need. It declares no discount curve, no dividend
+# schedule, no borrow rate and no forward construction. Instead it declares the
+# external sources as *probes*: the audit observes whether each one is absent,
+# present but empty, or present with content, and the scoped capability results
+# follow from those observations rather than from a constant in the source.
+#
+# Units and conventions
+#   * All timestamps are UTC. Databento fixed-point prices carry a 1e-9 scale.
+#   * The session window is declared in exchange-local wall-clock time and is
+#     converted per date with a real time zone, so daylight-saving transitions
+#     are handled instead of being assumed away by a fixed UTC offset.
+#   * Strikes and premiums are in USD per share; contract multipliers are not
+#     assumed and must come from resolved definitions where available.
+
+schema_version = "market-feasibility/2"
+audit_version = "2.0.0"
+
+[archive]
+root = "data/market-feasibility-v1"
+sha256_manifest = "manifests/sha256sums.txt"
+request_inventory = "manifests/requests.csv"
+# The vendor ships a per-date completeness statement with every request. It is
+# the only authoritative claim about whether a date is complete, so the audit
+# consumes it instead of asserting completeness itself.
+vendor_condition_filename = "condition.json"
+# Every file the manifest covers, including the manifests themselves. The
+# manifest file cannot hash itself, so it is the single permitted exception.
+expected_manifest_entries = 119
+expected_total_files = 120
+
+[output]
+# Both roots are inside git-ignored trees. Quote-level market data and derived
+# Parquet must never enter version control.
+processed_root = "data/processed/market-feasibility-v1-audit3"
+report_root = "artifacts/market-feasibility-v1-audit3"
+
+[session]
+# Regular US equity trading hours. OPRA option trading extends past the equity
+# close for some classes; the audit measures coverage against this window only
+# and reports out-of-window records separately rather than discarding them.
+name = "us-equity-regular"
+time_zone = "America/New_York"
+open_local = "09:30"
+close_local = "16:00"
+expected_minutes = 390
+
+[synchronization]
+# The intended cross-product synchronization grid. Databento *-1m schemas stamp
+# each interval at its close, so minute k covers (k-1, k] and the grid runs from
+# open+1min through close inclusive.
+frequency_seconds = 60
+label = "interval-close"
+
+[[dates]]
+date = "2026-06-17"
+role = "development"
+
+[[dates]]
+date = "2026-06-18"
+role = "development"
+
+[[dates]]
+date = "2026-07-30"
+role = "held_out"
+
+# ---------------------------------------------------------------------------
+# Products. `archive_subpath` is provenance, not contract identity: instruments
+# are resolved from historical definition records, never from file names.
+#
+# Reference attribution is per product. `underlying_product` names the declared
+# product carrying this product's actual underlying; `proxy_underlying_product`
+# is the explicit, caveated stand-in for an underlying that was not acquired.
+# A product with neither reports spot moneyness as unavailable.
+#
+# `feed_class` states how much of the market a quote feed sees. It is required
+# wherever a quote schema is declared, so no partial-venue book can be described
+# as a national best bid and offer by omission.
+# ---------------------------------------------------------------------------
+
+[[products]]
+key = "spy-options"
+dataset = "OPRA.PILLAR"
+product = "SPY"
+instrument_kind = "option"
+role = "primary_option_chain"
+settles_on = "SPY shares, physically delivered"
+archive_subpath = "raw/databento/opra/spy"
+definition_schema = "definition"
+quote_schema = "cbbo-1m"
+schemas = ["definition", "cbbo-1m", "statistics"]
+# OPRA's consolidated best bid and offer across the option exchanges.
+feed_class = "consolidated_nbbo"
+underlying_product = "spy-underlying"
+
+[[products]]
+key = "xsp-options"
+dataset = "OPRA.PILLAR"
+product = "XSP"
+instrument_kind = "option"
+role = "cash_settled_control"
+settles_on = "the S&P 500 index divided by ten, cash settled"
+archive_subpath = "raw/databento/opra/xsp"
+definition_schema = "definition"
+quote_schema = "cbbo-1m"
+schemas = ["definition", "cbbo-1m", "statistics"]
+feed_class = "consolidated_nbbo"
+# XSP's own underlying (the index level) was not acquired. SPY is declared as an
+# explicit proxy so the substitution appears next to every number derived from
+# it; it is never applied silently.
+proxy_underlying_product = "spy-underlying"
+proxy_caveat = """XSP settles on the S&P 500 index divided by ten, which is not in this archive. \
+SPY is a physically settled ETF on the same index and is used here only to bucket spot \
+moneyness. The ETF/index basis is unmeasured in this audit: SPY accrues and distributes \
+dividends while the index does not, so the two levels differ by a time-varying amount that \
+steps at each ex-date. Every moneyness bucket derived from this anchor is labelled \
+proxy-derived. Quantifying the basis requires an implied forward and is deferred to task 9B."""
+
+[[products]]
+key = "spy-underlying"
+dataset = "EQUS.MINI"
+product = "SPY"
+instrument_kind = "equity"
+role = "underlying_reference"
+settles_on = "SPY shares"
+archive_subpath = "raw/databento/equs-mini/spy"
+quote_schema = "bbo-1m"
+schemas = ["bbo-1m"]
+# EQUS.MINI consolidates a subset of US equity venues. It is not the SIP
+# national best bid and offer, so its top of book is a partial-venue view whose
+# quoted spread is wider than the NBBO's. The audit reports that spread
+# distribution as the spot reference's uncertainty.
+feed_class = "partial_venue_consolidated"
+reference_selection = "single_instrument"
+
+[[products]]
+key = "es-futures"
+dataset = "GLBX.MDP3"
+product = "ES"
+instrument_kind = "future"
+role = "futures_control"
+settles_on = "the S&P 500 index, cash settled"
+archive_subpath = "raw/databento/glbx/es"
+definition_schema = "definition"
+quote_schema = "bbo-1m"
+schemas = ["definition", "bbo-1m", "statistics"]
+feed_class = "exchange_direct"
+# The ES payload contains calendar spreads alongside outrights. The reference is
+# chosen by a declared rule over resolved outright definitions, never by which
+# instrument the decoder happened to emit first in a minute.
+reference_selection = "nearest_unexpired_outright"
+
+[[products]]
+key = "sr3-futures"
+dataset = "GLBX.MDP3"
+product = "SR3"
+instrument_kind = "future"
+role = "rate_control"
+settles_on = "compounded SOFR over the reference quarter, cash settled"
+archive_subpath = "raw/databento/glbx/sr3"
+definition_schema = "definition"
+schemas = ["definition", "statistics"]
+
+# ---------------------------------------------------------------------------
+# Declared synchronization pairs, audited per contract on the grid above.
+# ---------------------------------------------------------------------------
+
+[[synchronization_pairs]]
+name = "spy-options-vs-spy-underlying"
+option_product = "spy-options"
+reference_product = "spy-underlying"
+role = "primary"
+
+[[synchronization_pairs]]
+name = "xsp-options-vs-spy-underlying"
+option_product = "xsp-options"
+reference_product = "spy-underlying"
+role = "control_proxy"
+
+[[synchronization_pairs]]
+name = "xsp-options-vs-es-futures"
+option_product = "xsp-options"
+reference_product = "es-futures"
+role = "control_proxy"
+
+[[synchronization_pairs]]
+name = "spy-options-vs-es-futures"
+option_product = "spy-options"
+reference_product = "es-futures"
+role = "control_proxy"
+
+# ---------------------------------------------------------------------------
+# FRED series. Declared as daily controls only. A daily constant-maturity
+# Treasury yield is not an OIS discount curve and is not tradable; the audit
+# states that rather than interpolating one.
+# ---------------------------------------------------------------------------
+
+[[fred_series]]
+series_id = "SOFR"
+path = "raw/fred/SOFR/SOFR.csv"
+role = "daily_overnight_rate"
+
+[[fred_series]]
+series_id = "DGS1MO"
+path = "raw/fred/DGS1MO/DGS1MO.csv"
+role = "daily_treasury_control"
+
+[[fred_series]]
+series_id = "DGS3MO"
+path = "raw/fred/DGS3MO/DGS3MO.csv"
+role = "daily_treasury_control"
+
+[[fred_series]]
+series_id = "DGS6MO"
+path = "raw/fred/DGS6MO/DGS6MO.csv"
+role = "daily_treasury_control"
+
+[[fred_series]]
+series_id = "DGS1"
+path = "raw/fred/DGS1/DGS1.csv"
+role = "daily_treasury_control"
+
+[[fred_series]]
+series_id = "DGS2"
+path = "raw/fred/DGS2/DGS2.csv"
+role = "daily_treasury_control"
+
+# ---------------------------------------------------------------------------
+# Declared sources: the external inputs the study needs, stated as observable
+# probes rather than as constants in the audit's source. Each is reported as
+# `absent`, `present_but_empty` or `present`. Those are different facts with
+# different remedies, and a SHA-256 manifest cannot tell them apart because a
+# manifest lists files and an empty directory holds none.
+#
+# A `required` source gates its capability. A `recommended` one is reported as
+# advisory and does not gate.
+# ---------------------------------------------------------------------------
+
+[[declared_sources]]
+key = "discrete_dividend_schedule"
+path = "raw/state-street"
+kind = "directory"
+requirement = "required"
+capability = "spy_american_calibration_readiness"
+why = """SPY is a physically settled ETF paying discrete quarterly dividends. Early exercise of \
+an American call is driven by those cash flows, so their ex-dates and amounts are a first-order \
+input to any American calibration."""
+candidate_source = "issuer distribution history from the fund sponsor, with declared/ex/pay dates"
+
+[[declared_sources]]
+key = "corporate_action_and_contract_adjustment_history"
+path = "raw/occ"
+kind = "directory"
+requirement = "required"
+capability = "spy_american_calibration_readiness"
+why = """Adjusted OPRA contracts carry non-standard deliverables. The OSI root distinguishes them \
+in-band and this audit classifies them separately, but confirming what an adjusted contract \
+actually delivers needs the adjustment memoranda themselves."""
+candidate_source = "OCC contract-adjustment memoranda or a vendor equivalent"
+
+[[declared_sources]]
+key = "securities_lending_borrow_rate"
+path = "raw/borrow"
+kind = "directory"
+requirement = "required"
+capability = "spy_american_calibration_readiness"
+why = """A physically settled American option's forward embeds the cost of borrowing the \
+underlying. Without a borrow series the forward cannot be decomposed into carry components."""
+candidate_source = "a securities-lending fee series for the underlying"
+
+[[declared_sources]]
+key = "underlying_index_level"
+path = "raw/index"
+kind = "directory"
+requirement = "recommended"
+capability = "xsp_european_surface_readiness"
+why = """The cash-settled control settles on an index level that was not acquired, so spot \
+moneyness for it is proxy-derived. An index feed would remove the proxy."""
+candidate_source = "an index level feed for the settlement index"
+
+# ---------------------------------------------------------------------------
+# Tradability. The structural requirements are definitional: a book with no size
+# on a side is not a book anyone could have hit, and a record the vendor flagged
+# as having a bad receive timestamp cannot be placed on a synchronization grid.
+#
+# The relative-spread cut is deliberately NOT a single number. Any one value
+# chosen now would be an acceptance threshold selected after the results were
+# observed. Several exploratory values are declared and every one of them is
+# reported; none gates any capability.
+# ---------------------------------------------------------------------------
+
+[tradability]
+require_positive_sizes = true
+require_positive_bid = true
+require_positive_spread = true
+exclude_vendor_flagged = true
+# A stale two-sided book is still a firm quote, so staleness is reported rather
+# than excluded. Coverage is published under both readings.
+exclude_stale = false
+exploratory_relative_spread_thresholds = [0.02, 0.05, 0.10, 0.25, 0.50]
+
+# ---------------------------------------------------------------------------
+# Capability minima. These are of two different kinds and the difference is
+# recorded rather than glossed over.
+#
+# The surface minima are structural: a fit needs several expiries each carrying
+# several strikes at which a call and a put are tradable in the SAME minute.
+# That is a property of the method and was not derived from any observation of
+# this archive.
+#
+# The session minima are NOT structural and are not claimed to be. They were
+# chosen after the three-session feasibility archive had been ingested and
+# examined. They are prospective targets for a future pilot acquisition, not
+# desk-grade acceptance criteria, and `session_minima_status` says so. They must
+# be frozen — reviewed, justified against the intended estimator, and the status
+# flipped to "frozen" — before any pilot partition is consumed, or they will be
+# a threshold set after seeing results, which is exactly what this project's
+# rules forbid.
+# ---------------------------------------------------------------------------
+
+[capabilities]
+minimum_sessions = 60
+minimum_held_out_sessions = 12
+minimum_expiries_with_paired_strikes = 6
+minimum_paired_strikes_per_expiry = 8
+session_minima_status = "provisional_pilot_target"
+session_minima_provenance = """Chosen after ingesting and examining the three-session \
+market-feasibility-v1 archive, as prospective pilot-acquisition targets. Sixty sessions is \
+roughly one calendar quarter of trading days and twelve held out is one fifth of that; \
+neither number was derived from an estimator's variance, a power calculation, or any \
+result. They are provisional and non-binding: no capability claim rests on their exact \
+values, only on the fact that three sessions is far below any of them. They must be \
+justified against the intended estimator and frozen before a pilot partition is consumed."""
+structural_minima_provenance = """Properties of the method, fixed independently of this \
+archive: fitting a volatility surface needs several expiries, each carrying several strikes \
+at which a call and a put are simultaneously tradable, because a smile is not identified \
+from isolated quotes. No observation of this archive informed either number."""
+
+# ---------------------------------------------------------------------------
+# Audit parameters. Fixed before results were observed.
+# ---------------------------------------------------------------------------
+
+[audit]
+# Bounded-memory ingestion knobs. `read_chunk_bytes` bounds the compressed
+# bytes handed to the decoder at once; `parquet_batch_rows` bounds the rows
+# buffered before a row group is flushed. The row buffer, not the read chunk,
+# is the dominant memory term.
+read_chunk_bytes = 1048576
+parquet_batch_rows = 262144
+parquet_compression = "zstd"
+
+# Spot moneyness bucket edges, K/S. Descriptive coverage only: no dividend,
+# borrow or carry adjustment is applied, so these are not forward moneyness.
+moneyness_bucket_edges = [0.5, 0.8, 0.9, 0.95, 0.99, 1.01, 1.05, 1.1, 1.2, 1.5]
+
+# Time-to-maturity buckets in calendar days from the session date.
+maturity_bucket_edges_days = [0, 1, 7, 30, 91, 182, 365, 730]
+
+# Extrapolation target for the acquisition-cost projection.
+extrapolation_trading_dates = 200
