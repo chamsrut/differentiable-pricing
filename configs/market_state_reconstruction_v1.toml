@@ -1,0 +1,336 @@
+# Task 9B: market-state identifiability and reconstruction.
+#
+# What this study is
+#   It asks which economic inputs a later discrete-dividend American PDE pricer
+#   needs, and which of them the three-session market-feasibility-v1 archive can
+#   actually supply. It reconstructs a discount factor and a forward from
+#   European put-call parity on XSP, computes a strictly-named diagnostic
+#   residual on SPY, and classifies every PDE input by how well it is
+#   identified. It produces the input contract for Task 9C.
+#
+# What this study is not
+#   It does not solve a PDE, generate synthetic labels, train a network,
+#   compute Greeks, invert implied volatility, or fit a volatility surface.
+#   None of those are in scope and none of them appear in the output.
+#
+# Units and conventions
+#   * Timestamps are UTC internally; snapshot and expiry times are declared in
+#     exchange-local wall-clock time and converted per date through a real time
+#     zone, so a daylight-saving transition shifts the instant rather than
+#     silently misaligning it.
+#   * Strikes and premiums are USD per share, as quoted. No contract multiplier
+#     is applied anywhere: parity in per-share units is multiplier-free, and the
+#     archive's OPRA definitions leave the multiplier undefined.
+#   * Year fractions are ACT/365 fixed, measured between two instants, declared
+#     in [time]. It is a convention, not an observation.
+#
+# Provenance status
+#   These settings were chosen AFTER the three-session feasibility archive had
+#   been ingested and examined. They are exploratory pilot settings. They are
+#   not predeclared replication settings, they gate no replication, and no
+#   window, method or snapshot may be selected as "best" after seeing the
+#   results of this study. `settings_status` records that in the report.
+
+schema_version = "market-state-reconstruction/1"
+study_version = "1.0.0"
+settings_status = "exploratory_pilot"
+settings_provenance = """Every snapshot time, strike window, minimum pair count and fit method \
+below was chosen after the three-session market-feasibility-v1 archive had been ingested and \
+examined. They are exploratory pilot settings for a descriptive identifiability study. They are \
+not predeclared replication settings and they gate no replication partition. Reporting several \
+windows and both fit methods side by side is the point: the sensitivity across them is a result \
+of this study, and selecting the window or method that looks best afterwards would convert a \
+descriptive spread into a fitted parameter. Before any of this informs a consumed partition the \
+settings must be justified against the intended estimator and frozen."""
+
+# ---------------------------------------------------------------------------
+# Task 9A provenance. Nothing is recomputed from the raw archive here: this
+# study reads 9A's normalized Parquet and must prove it is reading the same
+# bytes 9A produced its report from. Three digests are checked before any
+# arithmetic happens, and a mismatch is a hard failure rather than a warning.
+#
+#   config  the 9A configuration file, hashed verbatim, and cross-checked
+#           against the digest the 9A report recorded for itself
+#   report  the 9A feasibility report this study consumes
+#   source  the raw archive's SHA-256 manifest, cross-checked against the
+#           digest the 9A report recorded for it
+#
+# The report and the processed tree live under git-ignored roots. That is
+# deliberate: they are derived from proprietary quote-level data and never
+# enter version control, so this study runs locally and never in CI.
+# ---------------------------------------------------------------------------
+
+[provenance]
+feasibility_config = "configs/market_feasibility_v1.toml"
+feasibility_config_sha256 = "59205d8b9260024aea6abbf12bf35ebfca23319b4758f0f7d6f1c9e736db02c2"
+feasibility_report = "artifacts/market-feasibility-v1-audit3/feasibility-report-v3.json"
+feasibility_report_sha256 = "668780cc51af775f26ebf442a1ae3af2632feab4d48a77f1483f3b78d23d6f90"
+archive_root = "data/market-feasibility-v1"
+source_manifest = "manifests/sha256sums.txt"
+source_manifest_sha256 = "58c888341faf243477673c2d1824ba16f687926a6c15c4598aac6501711b8ec1"
+processed_root = "data/processed/market-feasibility-v1-audit3"
+expected_feasibility_schema_version = "market-feasibility-report/2"
+expected_feasibility_audit_version = "2.0.0"
+# Declared-source probe inherited from 9A. This study re-probes it because its
+# state is the single most consequential fact about SPY identifiability, and a
+# fact that important must be observed at the moment it is used rather than
+# quoted from an older report.
+dividend_source_path = "raw/state-street"
+borrow_source_path = "raw/borrow"
+corporate_action_source_path = "raw/occ"
+
+# ---------------------------------------------------------------------------
+# Sessions. Roles are copied from 9A so the held-out session stays held out.
+# This study only measures; it selects nothing and tunes nothing.
+# ---------------------------------------------------------------------------
+
+[[dates]]
+date = "2026-06-17"
+role = "development"
+
+[[dates]]
+date = "2026-06-18"
+role = "development"
+
+[[dates]]
+date = "2026-07-30"
+role = "held_out"
+
+# ---------------------------------------------------------------------------
+# Snapshots. Databento's *-1m schemas stamp each interval at its close, so the
+# record labelled 10:30 covers (10:29, 10:30]. A snapshot is therefore an
+# interval-close observation, not an instantaneous one, and the label says so.
+#
+# Three fixed times: after the opening auction has cleared, mid-session, and
+# before the closing auction imbalance period. Chosen after observing the
+# archive; exploratory, not predeclared.
+# ---------------------------------------------------------------------------
+
+[snapshots]
+time_zone = "America/New_York"
+label = "interval-close"
+times_local = ["10:30", "13:00", "15:45"]
+rationale = """After the opening auction has settled, mid-session, and shortly before the closing \
+auction. Fixed in advance of the fitting code being written, but after the archive was observed; \
+all three are reported for every expiry and none is selected as canonical."""
+
+# ---------------------------------------------------------------------------
+# Pairing. Only standard-root contracts quoted in the SAME minute, with an
+# identical expiry and an identical strike, are paired. "Same minute" means the
+# same interval-close timestamp on both legs; a call from 10:30 and a put from
+# 10:31 are not a pair, because parity holds between simultaneous prices and
+# nothing else.
+# ---------------------------------------------------------------------------
+
+[pairing]
+european_option_product = "xsp-options"
+american_option_product = "spy-options"
+underlying_product = "spy-underlying"
+require_standard_root = true
+require_tradable = true
+require_same_minute = true
+# 9A's `tradable_core`: finite positive sizes on both sides, a positive bid, a
+# strictly positive spread, a book graded 'ok' or 'stale', and no vendor flag.
+tradability_source = "task_9a_tradable_core"
+
+# ---------------------------------------------------------------------------
+# Strike windows. The anchor is the paired strike minimizing |C_mid - P_mid|,
+# which is the strike nearest the implied forward without needing a forward.
+# Windows are relative half-widths about that anchor.
+#
+# All three widths are reported for every expiry, snapshot and method. The
+# spread across them IS a result. Do not pick one afterwards.
+# ---------------------------------------------------------------------------
+
+[strike_windows]
+anchor_rule = "paired_strike_minimizing_abs_call_put_mid_difference"
+relative_half_widths = [0.10, 0.15, 0.20]
+
+# ---------------------------------------------------------------------------
+# Fits. Both methods are deterministic closed-form weighted least squares on
+# the two-parameter model y = a + b*K, solved in strike-centered coordinates
+# and mapped back, so the reported intercept is exact for the uncentered model.
+#
+# The weighted method weights each pair by the inverse square of the combined
+# call and put bid-ask width. That width is an executable-liquidity measure: it
+# is the width of the interval a taker could actually have transacted the
+# combination inside. It is NOT a statistical standard error, the residuals are
+# not assumed independent or Gaussian, and no confidence interval is derived
+# from it anywhere in this study.
+# ---------------------------------------------------------------------------
+
+[fit]
+methods = ["unweighted_least_squares", "weighted_least_squares_bidask"]
+weight_definition = "inverse_square_combined_call_put_bid_ask_width"
+weight_caveat = """The combined call/put bid-ask width is a measure of executable liquidity, not \
+an independent statistical standard error. No standard error, confidence interval or p-value is \
+derived from it in this study, and the residuals are neither assumed independent nor Gaussian."""
+minimum_pairs_per_fit = 4
+minimum_pairs_for_american_diagnostic = 5
+# Above this 2-norm condition number of the centered design matrix the fit is
+# reported as poorly conditioned. It is a reporting flag, never a filter: the
+# fit is still published with its diagnostics.
+condition_number_warning = 1.0e8
+
+# ---------------------------------------------------------------------------
+# Time. The archive's OPRA definition records carry an expiration DATE at
+# midnight UTC and no settlement time, no settlement style and no AM/PM flag.
+# The expiry instant below is therefore an assumption this study declares, not
+# a fact it observed, and every tau in the report is labelled with it.
+# ---------------------------------------------------------------------------
+
+[time]
+day_count = "ACT/365F"
+day_count_note = """ACT/365 fixed between two instants: tau = (expiry_instant - snapshot_instant) \
+in seconds, divided by 365 * 86400. A calendar-day convention, not a business-day one, and not a \
+money-market ACT/360."""
+expiry_time_local = "16:00"
+expiry_time_zone = "America/New_York"
+expiry_time_status = "assumed"
+expiry_time_provenance = """The archive's OPRA definition records carry an expiration date \
+stamped at 00:00 UTC and no settlement metadata: no settlement time, no AM/PM settlement flag and \
+no exercise style. A 16:00 America/New_York expiry instant is assumed here for every contract. It \
+is wrong for AM-settled expiries and it is an approximation for PM-settled ones, whose settlement \
+value is struck at the close but whose trading may cease at a different instant. The error it \
+induces in tau is at most a few hours, which is negligible for a six-month rate and material for \
+a one-day one, which is exactly why short expiries are excluded from rate interpretation below."""
+# Expiries at or below this tau are excluded from RATE interpretation. D and F
+# are still fitted and reported for them; only r = -log(D)/tau is suppressed,
+# because dividing a discount factor within one tick of 1 by a tau of hours
+# turns quote granularity into a double-digit annualized rate.
+minimum_rate_interpretation_days = 1.0
+zero_dte_rate_interpretation = false
+zero_dte_note = """A same-session expiry has a tau of hours. The smallest representable change in \
+a quoted premium then moves -log(D)/tau by whole percentage points, so the resulting number \
+describes the quote grid, not the funding market. Zero-DTE expiries are fitted and reported and \
+their rate field is explicitly withheld."""
+
+# ---------------------------------------------------------------------------
+# Sensitivity. Every axis below is reported; none is optimized over.
+# ---------------------------------------------------------------------------
+
+[sensitivity]
+across_strike_windows = true
+across_fit_methods = true
+across_snapshots = true
+across_dates = true
+# The SPY diagnostic is recomputed with spot at the quoted bid, mid and ask.
+# EQUS.MINI is a partial-venue consolidation, not the SIP NBBO, so its half
+# spread is a lower bound on the spot uncertainty, not a full accounting of it.
+underlying_spot_variants = ["mid", "bid", "ask"]
+underlying_spot_caveat = """The underlying feed is EQUS.MINI, a partial-venue consolidation. Its \
+top of book is not the national best bid and offer, so its quoted half-spread is a lower bound on \
+the error in the spot level, not a measurement of it."""
+
+# ---------------------------------------------------------------------------
+# The SPY American diagnostic. European parity is NOT an identity for American
+# options, so nothing here is a parity fit. Given D(T) from a matched XSP
+# expiry, the per-strike quantity
+#
+#     F_tilde_i(T) = [C_A - P_A + D(T) K_i] / D(T)
+#
+# and the aggregate
+#
+#     Q_tilde(T)   = S_SPY - D(T) * median_i F_tilde_i(T)
+#
+# are computed and reported under one name: the American parity carry residual.
+# The forbidden names below are listed in the configuration so they are
+# impossible to reintroduce without editing a declaration that says why not.
+# ---------------------------------------------------------------------------
+
+[american]
+require_exact_expiry_match = true
+matched_expiry_rule = "identical expiration_date in the SPY and XSP resolved universes"
+residual_name = "american_parity_carry_residual"
+forbidden_names = [
+    "observed dividend",
+    "exact dividend present value",
+    "borrow rate",
+    "exact SPY forward",
+    "independent market input",
+]
+residual_caveat = """The American parity carry residual is a residual and nothing else. It \
+contains, inseparably: the present value of dividends expected before expiry; the early-exercise \
+premia of the American call and put, which do not cancel; quote noise on four legs; the error in a \
+partial-venue spot; and any contract difference between the SPY and XSP listings sharing an \
+expiration date. No decomposition of it is attempted here and none is identified by this archive. \
+It is a diagnostic for judging whether a later joint calibration is plausible, not a market \
+input."""
+# Strike dependence of F_tilde is the observable that betrays early-exercise
+# contamination: under exact European parity F_tilde is constant in K, so a
+# systematic slope is contamination or misspecification, not noise.
+report_strike_dependence = true
+
+[american.ex_date_schedule]
+# The issuer's published distribution SCHEDULE. This is a calendar, not a
+# measurement: it fixes the dates on which a distribution is scheduled and says
+# nothing about the cash amount or about what the options market did.
+#
+# The archive still carries no dividend data of its own: 9A's
+# `discrete_dividend_schedule` probe found `raw/state-street` present but empty,
+# and this study re-probes it. Nothing below is read from the archive, nothing
+# below adjusts, corrects or decomposes any number, and the dates enter no
+# arithmetic. They label which cross-session transition contains the scheduled
+# event, and that is all.
+status = "officially_scheduled"
+source_title = "SPDR Dividend and Capital Gain Distribution Schedule"
+source_publisher = "State Street Global Advisors"
+source_url = "https://www.ssga.com/library-content/products/fund-data/etfs/us/distribution/SPDR_Dividend_Distribution_Schedule.pdf"
+# The quarterly rows of the State Street table apply to both SPY and MDY.
+applies_to = ["SPY", "MDY"]
+ex_dates = ["2026-06-18"]
+record_dates = ["2026-06-18"]
+payable_dates = ["2026-07-31"]
+# What the schedule does and does not establish. The parser requires these two
+# to stay negative: a published calendar cannot verify a cash amount it does not
+# state, nor an economic effect it does not measure.
+amount_status = "not_verified"
+economic_effect_status = "not_verified"
+scope = """This source establishes the SCHEDULED DATES only. It carries no cash amount for this \
+distribution, so no artefact of this study may describe a dividend amount as observed, inferred or \
+validated. It also establishes nothing about the options market: whether, when and by how much a \
+scheduled distribution is reflected in quoted option prices is a market question this three-session \
+archive cannot answer. A cross-session change in the American parity carry residual that coincides \
+with a scheduled ex-date is a temporal alignment, not a measurement of the distribution, and it \
+remains inseparable from borrow, early exercise, ETF/index basis, and quote and fitting effects."""
+
+# ---------------------------------------------------------------------------
+# Rate controls. Descriptive comparison only.
+#
+# A constant-maturity Treasury yield is not an OIS zero rate: different credit,
+# different collateral, different compounding, and a par-yield quotation rather
+# than a zero one. A quoted SR3 settlement price implies 100 - price, which is
+# a futures rate on compounded SOFR over a future three-month accrual period,
+# not a zero-coupon yield to that period's end, and it carries a convexity
+# difference from the corresponding forward rate.
+#
+# No curve is bootstrapped here. Accrual schedules, business-day conventions
+# and futures convexity are not implemented, so no artefact of this study may
+# claim an OIS curve was constructed.
+# ---------------------------------------------------------------------------
+
+[rate_controls]
+fred_series = ["SOFR", "DGS1MO", "DGS3MO", "DGS6MO", "DGS1"]
+sr3_product = "sr3-futures"
+sr3_statistic = "SETTLEMENT_PRICE"
+sr3_rate_definition = "100 minus the settlement price, in percent"
+comparison_status = "descriptive_only"
+comparison_caveat = """Descriptive comparison only. Treasury constant-maturity yields are par \
+yields on government credit and are not OIS zero rates. An SR3 settlement price implies a futures \
+rate on compounded SOFR over a forward three-month accrual period; it is not a zero-coupon yield \
+to that period's end, and the futures/forward convexity difference is not modelled. No accrual \
+schedule, business-day convention, compounding convention or convexity adjustment is implemented \
+in this study, so nothing here is a bootstrapped OIS curve."""
+
+# ---------------------------------------------------------------------------
+# Output. Every root is inside a git-ignored tree. Fitted discount factors,
+# forwards, residuals and figures are derived from proprietary quote-level data
+# and never enter version control.
+# ---------------------------------------------------------------------------
+
+[output]
+report_root = "artifacts/market-state-reconstruction-v1"
+report_filename = "state-reconstruction-report-v1.json"
+table_filename = "european-parity-fits-v1.csv"
+american_table_filename = "american-carry-residuals-v1.csv"
+figure_subdirectory = "figures"

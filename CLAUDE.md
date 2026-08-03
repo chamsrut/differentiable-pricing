@@ -169,6 +169,63 @@ moneyness are **task 9B** and are explicitly out of scope here. The archive
 carries no independent dividend ground truth, so no artefact of this audit may
 describe a dividend as observed or inferred.
 
+Run the task 9B market-state reconstruction only when the task 9A processed
+tree and report are present. It verifies the 9A config, report and raw-manifest
+digests before any arithmetic and aborts with nothing written on a mismatch,
+reads only the processed Parquet, and writes deterministic, atomic output
+beneath the ignored `artifacts/` tree:
+
+```bash
+python -m differentiable_pricing.market.reconstruct \
+  --config configs/market_state_reconstruction_v1.toml
+```
+
+The method, conventions, forbidden names and proposed task 9C interface are in
+`docs/market-state-reconstruction-contract.md`. Load-bearing rules:
+
+- **The slope sign is mandatory.** Parity gives `y = C - P = a + bK` with
+  `b = -D`, so a non-negative fitted slope is reported as a contradiction with
+  the offending value intact. Nothing is clamped: `D <= 0`, `F <= 0`, non-finite
+  results, singular or ill-conditioned designs and insufficient pairs each get
+  their own named diagnostic, and ill conditioning warns rather than invalidates.
+- **Bid-ask widths are executable-liquidity measures, never standard errors.**
+  The weighted fit uses the inverse square of the combined call/put width; no
+  standard error, confidence interval or p-value is derived anywhere.
+- **The SPY quantity has exactly one name**: the American parity carry residual,
+  `Q = S - D * median_i F_tilde_i`. It is never an observed dividend, an exact
+  dividend present value, a borrow rate, an exact SPY forward, or an independent
+  market input. Those five names are declared in `[american] forbidden_names` and
+  the config parser rejects a configuration that drops one.
+- **Every setting is `exploratory_pilot`**, chosen after the archive was
+  observed. All three strike windows, both fit methods and all three snapshots
+  are reported side by side; the spread across them is a result and no axis may
+  be selected as best after seeing results.
+- The expiry instant is **assumed**: the archive's definition records carry a
+  date at midnight UTC and no settlement time, style or multiplier. Zero-DTE and
+  sub-day expiries are fitted but their rate is withheld.
+- The SPY ex-date is `officially_scheduled` from the issuer's published SPDR
+  distribution schedule, cited by title and URL in
+  `[american.ex_date_schedule]`. That fixes the scheduled dates and nothing
+  else: the parser requires `amount_status` and `economic_effect_status` to stay
+  `not_verified`, no dividend amount may be described as observed or inferred,
+  and a carry-residual step coinciding with the ex-date is reported as a
+  temporal alignment, never as a measurement of the distribution.
+- `pointwise_identified_curve_unconstructed` is not a softer
+  `jointly_identifiable_only`. Parity identifies D(T) and F(T) at each quoted
+  expiry on their own; the exploratory stability threshold may change the
+  stability statement and never the pointwise identifiability statement, and the
+  class also records that only knots exist, with no curve interpolated through
+  them. `jointly_identifiable_only` stays for genuinely confounded quantities
+  such as SPY dividends versus effective borrow/carry.
+- Rate-control comparison is descriptive only. No OIS curve is bootstrapped, and
+  a Treasury par yield and an SR3 futures rate are neither zero rates nor each
+  other.
+
+The generated report, tables and figures are derived from proprietary
+quote-level data. Never stage them, nor any fitted curve or inferred market
+value; the tests use synthetic fixtures only, so CI runs the whole suite without
+the archive.
+
 The `train` extra includes the `data` dependencies plus PyTorch. It is required
 by every test under `python/tests/ml/`, so the full local gate needs it. The
 `market` extra adds the `databento-dbn` reader and is optional; only the real
