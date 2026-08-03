@@ -616,6 +616,8 @@ smallest convergence-supported $N$ built in `Release`.
 | [docs/architecture.md](docs/architecture.md) | Language boundary, snapshot discipline, artifact contract, stage-1 model math |
 | [docs/american-crr-contract.md](docs/american-crr-contract.md) | Lattice, recursion, exercise metadata, complexity, convergence semantics |
 | [docs/american-lsm-contract.md](docs/american-lsm-contract.md) | Estimand, policy/valuation separation, uncertainty, control variate, overflow rejection |
+| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope |
+| [docs/market-state-reconstruction-contract.md](docs/market-state-reconstruction-contract.md) | Parity fitting, identifiability classes, forbidden names, proposed task 9C interface |
 | [docs/agentic-workflow.md](docs/agentic-workflow.md) | Agent roles, guardrails, review loop |
 | [CLAUDE.md](CLAUDE.md) | Operating contract: commands, numerical non-negotiables, coding rules |
 
