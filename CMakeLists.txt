@@ -29,6 +29,7 @@ add_library(
     dp_core
     cpp/src/binomial_tree.cpp
     cpp/src/black_scholes.cpp
+    cpp/src/finite_difference_pde.cpp
     cpp/src/least_squares_monte_carlo.cpp
     cpp/src/option.cpp
     cpp/src/smooth_mlp.cpp
@@ -92,7 +93,10 @@ if(DP_BUILD_PYTHON_BINDINGS)
         APPEND
         PROPERTY CMAKE_CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/module.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/pde_module.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/binomial_tree.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/finite_difference_pde.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/finite_difference_pde.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/black_scholes.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/least_squares_monte_carlo.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/option.hpp
@@ -164,6 +168,32 @@ if(DP_BUILD_PYTHON_BINDINGS)
         "${DP_OPTION_SOURCE_SHA256}"
     )
     string(SHA256 DP_LSM_IMPLEMENTATION_SHA256 "${DP_LSM_IDENTITY_INPUT}")
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/pde_module.cpp
+        DP_PDE_BINDING_SOURCE_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include/dp/finite_difference_pde.hpp
+        DP_PDE_HEADER_SHA256
+    )
+    file(
+        SHA256
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/finite_difference_pde.cpp
+        DP_PDE_SOURCE_SHA256
+    )
+    # The finite-difference identity deliberately excludes
+    # bindings/python/module.cpp: the PDE oracle is bound from its own
+    # translation unit so the CRR and LSM identities above stay byte-stable.
+    string(
+        CONCAT
+        DP_PDE_IDENTITY_INPUT
+        "${DP_PDE_BINDING_SOURCE_SHA256}:${DP_PDE_HEADER_SHA256}:"
+        "${DP_OPTION_HEADER_SHA256}:${DP_PDE_SOURCE_SHA256}:"
+        "${DP_OPTION_SOURCE_SHA256}"
+    )
+    string(SHA256 DP_PDE_IMPLEMENTATION_SHA256 "${DP_PDE_IDENTITY_INPUT}")
     pybind11_add_module(_core MODULE bindings/python/module.cpp)
     target_link_libraries(_core PRIVATE dp::core)
     target_compile_features(_core PRIVATE cxx_std_20)
@@ -179,7 +209,20 @@ if(DP_BUILD_PYTHON_BINDINGS)
             DP_LSM_IMPLEMENTATION_SHA256="${DP_LSM_IMPLEMENTATION_SHA256}"
             DP_LSM_SOURCE_SHA256="${DP_LSM_SOURCE_SHA256}"
     )
+    pybind11_add_module(_pde MODULE bindings/python/pde_module.cpp)
+    target_link_libraries(_pde PRIVATE dp::core)
+    target_compile_features(_pde PRIVATE cxx_std_20)
+    target_compile_definitions(
+        _pde
+        PRIVATE
+            DP_BUILD_CONFIGURATION="$<CONFIG>"
+            DP_CXX_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+            DP_PDE_HEADER_SHA256="${DP_PDE_HEADER_SHA256}"
+            DP_PDE_IMPLEMENTATION_SHA256="${DP_PDE_IMPLEMENTATION_SHA256}"
+            DP_PDE_SOURCE_SHA256="${DP_PDE_SOURCE_SHA256}"
+    )
     install(TARGETS _core LIBRARY DESTINATION differentiable_pricing)
+    install(TARGETS _pde LIBRARY DESTINATION differentiable_pricing)
 endif()
 
 install(TARGETS dp_core EXPORT dpTargets)

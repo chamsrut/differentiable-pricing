@@ -3,6 +3,7 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -11,6 +12,7 @@
 
 #include "dp/binomial_tree.hpp"
 #include "dp/black_scholes.hpp"
+#include "dp/finite_difference_pde.hpp"
 #include "dp/least_squares_monte_carlo.hpp"
 #include "dp/smooth_mlp.hpp"
 
@@ -895,6 +897,598 @@ void test_invalid_input_is_rejected() {
     }
 }
 
+// --------------------------------------------------------------------------
+// Task 9C-A: deterministic finite-difference oracle
+// --------------------------------------------------------------------------
+
+// A flat curve is the only shape for which Black-Scholes and CRR references
+// exist, so most fixtures below use one. The curve is still carried as log
+// discounts, and the knot-alignment test uses a genuinely piecewise curve.
+dp::PiecewiseLogDiscountCurve flat_curve(const double rate, const double horizon) {
+    return dp::PiecewiseLogDiscountCurve{{0.0, horizon}, {0.0, -rate * horizon}};
+}
+
+dp::PdeContract pde_contract(const dp::OptionType option_type,
+                             const dp::ExerciseStyle exercise_style, const double spot,
+                             const double strike, const double expiry, const double rate,
+                             const double carry, const double volatility,
+                             std::vector<dp::CashDividend> dividends) {
+    return dp::PdeContract{
+        option_type,
+        exercise_style,
+        spot,
+        strike,
+        0.0,
+        expiry,
+        volatility,
+        carry,
+        flat_curve(rate, expiry),
+        dividends.empty() ? dp::CashDividendSchedule::declared_none()
+                          : dp::CashDividendSchedule::declared(std::move(dividends)),
+        dp::SettlementConvention::cash,
+        100.0,
+    };
+}
+
+dp::PdeGrid pde_grid(const std::size_t spot_intervals, const std::size_t time_steps,
+                     const double spot_maximum) {
+    return dp::PdeGrid{spot_intervals, time_steps, spot_maximum, 2U, 1.0e-11, 1.2, 50'000U};
+}
+
+// The PSOR tolerance is a per-step residual bound, so the solver's contribution
+// to a price accumulates over the time steps. At the settings used below it is
+// observed near 1e-7, so comparisons that should be exact in exact arithmetic
+// are given this band. It is a solver tolerance, not a modelling allowance: a
+// genuine exercise premium in these fixtures is orders of magnitude larger.
+constexpr double pde_solver_band = 1.0e-6;
+
+void expect_psor_failure(const std::function<void()>& action, const std::string& message) {
+    try {
+        action();
+    } catch (const dp::PdePsorFailure& failure) {
+        expect_true(failure.solver_status() ==
+                        dp::PdeSolverStatus::psor_iteration_limit_exceeded,
+                    message + ": failure did not report the iteration-limit status");
+        expect_true(failure.residual() > failure.tolerance(),
+                    message + ": failure did not report a residual above the tolerance");
+        // pybind11 forwards what() and nothing else, so the diagnostics have to
+        // survive in the message for a Python caller to see them at all.
+        const std::string text = failure.what();
+        expect_true(text.find("iterations") != std::string::npos &&
+                        text.find("relative residual") != std::string::npos &&
+                        text.find("tolerance") != std::string::npos,
+                    message + ": failure message dropped its diagnostics: " + text);
+        return;
+    }
+    throw std::runtime_error(message + ": no PdePsorFailure was thrown");
+}
+
+void test_pde_european_matches_black_scholes() {
+    struct Case {
+        dp::OptionType option_type;
+        double spot;
+        double strike;
+        double expiry;
+        double rate;
+        double carry;
+        double volatility;
+    };
+    const std::vector<Case> cases{
+        {dp::OptionType::call, 100.0, 100.0, 1.0, 0.05, 0.0, 0.2},
+        {dp::OptionType::put, 100.0, 100.0, 1.0, 0.05, 0.0, 0.2},
+        {dp::OptionType::call, 110.0, 100.0, 0.5, 0.03, 0.02, 0.3},
+        {dp::OptionType::put, 90.0, 100.0, 2.0, 0.01, 0.04, 0.25},
+        {dp::OptionType::call, 100.0, 120.0, 1.5, -0.01, 0.0, 0.15},
+    };
+    for (const Case& item : cases) {
+        const auto contract =
+            pde_contract(item.option_type, dp::ExerciseStyle::european, item.spot, item.strike,
+                         item.expiry, item.rate, item.carry, item.volatility, {});
+        const dp::PdeResult result =
+            dp::finite_difference_price(contract, pde_grid(1'600U, 800U, 400.0));
+        const auto reference = dp::black_scholes(
+            item.option_type, dp::BlackScholesInput{item.spot, item.strike, item.expiry, item.rate,
+                                                    item.carry, item.volatility});
+        expect_near(result.price, reference.price, 5.0e-4, "European PDE against Black-Scholes");
+        expect_true(result.solver_status == dp::PdeSolverStatus::discrete_system_converged,
+                    "European PDE solver status");
+        expect_true(result.discretization_accuracy ==
+                        dp::PdeDiscretizationAccuracy::not_assessed,
+                    "European PDE discretization accuracy status");
+        expect_true(result.psor_solves == 0U, "European PDE must not run a PSOR solve");
+        expect_true(result.dividend_events.empty(), "European PDE dividend events");
+    }
+}
+
+void test_pde_american_matches_crr_reference() {
+    struct Case {
+        dp::OptionType option_type;
+        double spot;
+        double strike;
+        double expiry;
+        double rate;
+        double carry;
+        double volatility;
+    };
+    const std::vector<Case> cases{
+        {dp::OptionType::put, 100.0, 100.0, 1.0, 0.05, 0.0, 0.2},
+        {dp::OptionType::put, 90.0, 100.0, 0.5, 0.03, 0.0, 0.35},
+        {dp::OptionType::put, 130.0, 100.0, 2.0, 0.02, 0.0, 0.25},
+        {dp::OptionType::call, 100.0, 100.0, 1.0, 0.05, 0.06, 0.2},
+        {dp::OptionType::call, 130.0, 100.0, 2.0, 0.02, 0.06, 0.25},
+    };
+    for (const Case& item : cases) {
+        const auto contract =
+            pde_contract(item.option_type, dp::ExerciseStyle::american, item.spot, item.strike,
+                         item.expiry, item.rate, item.carry, item.volatility, {});
+        const dp::PdeResult result =
+            dp::finite_difference_price(contract, pde_grid(1'600U, 800U, 400.0));
+        const dp::CrrPriceOnlyResult reference = dp::crr_price_only(dp::CrrPriceRequest{
+            item.option_type,
+            dp::ExerciseStyle::american,
+            {item.spot, item.strike, item.expiry, item.rate, item.carry, item.volatility},
+            8'192U,
+        });
+        // Both references carry their own discretization error, so this is a
+        // conservative cross-engine regression band, not a convergence claim.
+        expect_near(result.price, reference.price, 2.0e-3, "American PDE against CRR");
+        expect_true(result.psor_solves ==
+                        result.crank_nicolson_steps + result.damped_half_steps,
+                    "American PDE must solve one LCP per implicit step");
+        expect_true(result.maximum_relative_lcp_residual <= result.psor_tolerance,
+                    "American PDE LCP residual must respect the declared tolerance");
+    }
+}
+
+void test_pde_american_call_without_dividends_matches_european() {
+    // With a non-negative rate, zero carry and no cash dividend the American
+    // call has no exercise premium, so the obstacle must never bind.
+    for (const double rate : {0.0, 0.05}) {
+        const auto european = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0,
+                                           100.0, 1.0, rate, 0.0, 0.2, {});
+        const auto american = pde_contract(dp::OptionType::call, dp::ExerciseStyle::american, 100.0,
+                                           100.0, 1.0, rate, 0.0, 0.2, {});
+        const dp::PdeResult european_result =
+            dp::finite_difference_price(european, pde_grid(800U, 400U, 400.0));
+        const dp::PdeResult american_result =
+            dp::finite_difference_price(american, pde_grid(800U, 400U, 400.0));
+        expect_near(american_result.price, european_result.price, pde_solver_band,
+                    "American call without carry or dividends");
+    }
+}
+
+void test_pde_american_dominates_intrinsic_and_european() {
+    const std::vector<dp::CashDividend> dividends{{0.5, 4.0}};
+    for (const dp::OptionType option_type : {dp::OptionType::call, dp::OptionType::put}) {
+        for (const double spot : {70.0, 100.0, 140.0}) {
+            const auto european = pde_contract(option_type, dp::ExerciseStyle::european, spot,
+                                               100.0, 1.0, 0.05, 0.01, 0.2, dividends);
+            const auto american = pde_contract(option_type, dp::ExerciseStyle::american, spot,
+                                               100.0, 1.0, 0.05, 0.01, 0.2, dividends);
+            const double european_price =
+                dp::finite_difference_price(european, pde_grid(800U, 400U, 400.0)).price;
+            const double american_price =
+                dp::finite_difference_price(american, pde_grid(800U, 400U, 400.0)).price;
+            const double intrinsic = option_type == dp::OptionType::call
+                                         ? std::max(spot - 100.0, 0.0)
+                                         : std::max(100.0 - spot, 0.0);
+            expect_true(american_price >= intrinsic - pde_solver_band,
+                        "American price fell below intrinsic value");
+            expect_true(american_price >= european_price - pde_solver_band,
+                        "American price fell below the European price");
+        }
+    }
+}
+
+void test_pde_rejects_degenerate_dividend_schedules() {
+    const auto price_with = [](std::vector<dp::CashDividend> dividends) {
+        const auto contract =
+            pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0, 100.0, 1.0, 0.05,
+                         0.0, 0.2, std::move(dividends));
+        static_cast<void>(dp::finite_difference_price(contract, pde_grid(200U, 100U, 400.0)));
+    };
+    // A zero dividend is an event that does nothing, which is not the same
+    // statement as no event. It is rejected rather than silently applied.
+    expect_invalid_argument_contains([&]() { price_with({{0.5, 0.0}}); },
+                                     "amount must be finite and positive",
+                                     "zero cash dividend");
+    expect_invalid_argument_contains([&]() { price_with({{0.5, -1.0}}); },
+                                     "amount must be finite and positive",
+                                     "negative cash dividend");
+    expect_invalid_argument_contains([&]() { price_with({{0.0, 1.0}}); },
+                                     "strictly inside", "dividend at the valuation time");
+    expect_invalid_argument_contains([&]() { price_with({{1.0, 1.0}}); },
+                                     "strictly inside", "dividend at expiry");
+    expect_invalid_argument_contains([&]() { price_with({{1.5, 1.0}}); },
+                                     "strictly inside", "dividend after expiry");
+    expect_invalid_argument_contains([&]() { price_with({{0.6, 1.0}, {0.3, 1.0}}); },
+                                     "sorted", "unsorted dividend schedule");
+    expect_invalid_argument_contains([&]() { price_with({{0.5, 1.0}, {0.5, 1.0}}); },
+                                     "repeat", "duplicated dividend ex-time");
+
+    // A default-constructed schedule is undeclared, not empty.
+    dp::PdeContract undeclared = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european,
+                                              100.0, 100.0, 1.0, 0.05, 0.0, 0.2, {});
+    undeclared.dividends = dp::CashDividendSchedule{};
+    expect_invalid_argument_contains(
+        [&]() {
+            static_cast<void>(dp::finite_difference_price(undeclared, pde_grid(200U, 100U, 400.0)));
+        },
+        "declared explicitly", "undeclared dividend schedule");
+}
+
+void test_pde_dividend_size_moves_prices_in_the_expected_direction() {
+    const std::vector<double> amounts{0.5, 1.0, 2.0, 4.0};
+    double previous_call = 0.0;
+    double previous_put = 0.0;
+    for (std::size_t index = 0U; index < amounts.size(); ++index) {
+        const std::vector<dp::CashDividend> dividends{{0.5, amounts[index]}};
+        const auto call = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0,
+                                       100.0, 1.0, 0.05, 0.0, 0.2, dividends);
+        const auto put = pde_contract(dp::OptionType::put, dp::ExerciseStyle::european, 100.0,
+                                      100.0, 1.0, 0.05, 0.0, 0.2, dividends);
+        const double call_price =
+            dp::finite_difference_price(call, pde_grid(800U, 400U, 400.0)).price;
+        const double put_price =
+            dp::finite_difference_price(put, pde_grid(800U, 400U, 400.0)).price;
+        if (index != 0U) {
+            expect_true(call_price < previous_call - 1.0e-6,
+                        "a larger cash dividend must lower the call price");
+            expect_true(put_price > previous_put + 1.0e-6,
+                        "a larger cash dividend must raise the put price");
+        }
+        previous_call = call_price;
+        previous_put = put_price;
+    }
+}
+
+void test_pde_dividend_jump_mapping() {
+    expect_near(dp::post_dividend_spot(100.0, 2.5), 97.5, 0.0, "post-dividend spot above the drop");
+    expect_near(dp::post_dividend_spot(2.0, 2.0), 0.0, 0.0, "post-dividend spot at the drop");
+    // The floor at zero is the whole content of the S < d branch: a stock
+    // cannot go through a cash dividend into negative territory.
+    expect_near(dp::post_dividend_spot(0.5, 2.0), 0.0, 0.0, "post-dividend spot below the drop");
+
+    // A put whose spot is below the dividend lands on the absorbing S = 0 node,
+    // where the option is certain to pay the strike at expiry.
+    const std::vector<dp::CashDividend> dividends{{0.001, 20.0}};
+    const auto contract = pde_contract(dp::OptionType::put, dp::ExerciseStyle::european, 5.0, 100.0,
+                                       1.0, 0.05, 0.0, 0.2, dividends);
+    const dp::PdeResult result =
+        dp::finite_difference_price(contract, pde_grid(800U, 400U, 400.0));
+    expect_near(result.price, 100.0 * std::exp(-0.05), 1.0e-5, "put below a cash dividend");
+    expect_true(result.dividend_events.size() == 1U, "one dividend event must be recorded");
+    expect_near(result.dividend_events.front().amount, 20.0, 0.0, "recorded dividend amount");
+}
+
+void test_pde_allows_exercise_immediately_before_a_dividend() {
+    // A dividend large enough to leave the stock deep out of the money makes
+    // holding past the ex-date worthless, so the American call must collapse
+    // onto a European call expiring at the ex-time.
+    const std::vector<dp::CashDividend> dividends{{0.5, 40.0}};
+    const auto american = pde_contract(dp::OptionType::call, dp::ExerciseStyle::american, 100.0,
+                                       90.0, 1.0, 0.03, 0.0, 0.2, dividends);
+    const auto european = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0,
+                                       90.0, 1.0, 0.03, 0.0, 0.2, dividends);
+    const auto stub = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0, 90.0,
+                                   0.5, 0.03, 0.0, 0.2, {});
+    const double american_price =
+        dp::finite_difference_price(american, pde_grid(1'600U, 800U, 400.0)).price;
+    const double european_price =
+        dp::finite_difference_price(european, pde_grid(1'600U, 800U, 400.0)).price;
+    const double stub_price =
+        dp::finite_difference_price(stub, pde_grid(1'600U, 400U, 400.0)).price;
+    expect_true(american_price >= stub_price - 1.0e-4,
+                "American call must be worth at least exercise just before the ex-date");
+    expect_near(american_price, stub_price, 5.0e-3,
+                "American call under a dominating dividend");
+    expect_true(american_price > european_price + 1.0,
+                "American call must exceed its European counterpart under a large dividend");
+}
+
+void test_pde_aligns_curve_knots_and_refuses_extrapolation() {
+    const dp::PiecewiseLogDiscountCurve curve{{0.0, 0.25, 0.75, 1.0},
+                                              {0.0, -0.005, -0.02, -0.03}};
+    dp::PdeContract contract = pde_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0,
+                                            100.0, 1.0, 0.03, 0.0, 0.2, {});
+    contract.discount_curve = curve;
+    contract.dividends = dp::CashDividendSchedule::declared({{0.4, 1.5}, {0.9, 1.5}});
+    const dp::PdeResult result =
+        dp::finite_difference_price(contract, pde_grid(400U, 200U, 400.0));
+
+    const std::vector<double> expected{0.0, 0.25, 0.4, 0.75, 0.9, 1.0};
+    expect_true(result.aligned_times.size() == expected.size(),
+                "aligned time grid must carry every interior knot and ex-time");
+    for (std::size_t index = 0U; index < expected.size(); ++index) {
+        expect_near(result.aligned_times[index], expected[index], 1.0e-15, "aligned time");
+    }
+    expect_true(result.dividend_events.size() == 2U, "both dividends must be applied");
+    expect_near(result.aligned_times[result.dividend_events[0].aligned_time_index], 0.4, 1.0e-15,
+                "first dividend alignment index");
+    expect_near(result.aligned_times[result.dividend_events[1].aligned_time_index], 0.9, 1.0e-15,
+                "second dividend alignment index");
+
+    // Interpolation inside the knots; refusal outside them.
+    expect_near(curve.log_discount(0.5), -0.0125, 1.0e-15, "log-discount interpolation");
+    expect_near(curve.discount_factor(0.0, 1.0), std::exp(-0.03), 1.0e-15, "discount factor");
+    expect_near(curve.segment_rate(0U), 0.02, 1.0e-14, "segment rate");
+    expect_invalid_argument_contains([&]() { static_cast<void>(curve.log_discount(1.5)); },
+                                     "extrapolation is refused", "log discount beyond the curve");
+    expect_invalid_argument_contains([&]() { static_cast<void>(curve.log_discount(-0.5)); },
+                                     "extrapolation is refused", "log discount before the curve");
+
+    dp::PdeContract short_curve = contract;
+    short_curve.discount_curve = dp::PiecewiseLogDiscountCurve{{0.0, 0.5}, {0.0, -0.015}};
+    short_curve.dividends = dp::CashDividendSchedule::declared_none();
+    expect_invalid_argument_contains(
+        [&]() {
+            static_cast<void>(dp::finite_difference_price(short_curve, pde_grid(200U, 100U, 400.0)));
+        },
+        "bracket", "curve that does not reach expiry");
+}
+
+void test_invalid_pde_requests_are_rejected() {
+    const auto price = [](const dp::PdeContract& contract, const dp::PdeGrid& grid) {
+        static_cast<void>(dp::finite_difference_price(contract, grid));
+    };
+    const dp::PdeContract valid = pde_contract(dp::OptionType::put, dp::ExerciseStyle::american,
+                                               100.0, 100.0, 1.0, 0.05, 0.0, 0.2, {});
+    const dp::PdeGrid grid = pde_grid(200U, 100U, 400.0);
+
+    const auto mutate = [&](const std::function<void(dp::PdeContract&)>& change) {
+        dp::PdeContract contract = valid;
+        change(contract);
+        return contract;
+    };
+    expect_invalid_argument([&]() { price(mutate([](auto& c) { c.spot = 0.0; }), grid); },
+                            "non-positive spot");
+    expect_invalid_argument([&]() { price(mutate([](auto& c) { c.strike = -1.0; }), grid); },
+                            "negative strike");
+    expect_invalid_argument([&]() { price(mutate([](auto& c) { c.expiry_time = 0.0; }), grid); },
+                            "expiry at the valuation time");
+    expect_invalid_argument([&]() { price(mutate([](auto& c) { c.volatility = 0.0; }), grid); },
+                            "zero volatility");
+    expect_invalid_argument_contains(
+        [&]() { price(mutate([](auto& c) { c.continuous_carry.reset(); }), grid); },
+        "stated explicitly", "unstated continuous carry");
+    expect_invalid_argument(
+        [&]() {
+            price(mutate([](auto& c) {
+                      c.continuous_carry = std::numeric_limits<double>::quiet_NaN();
+                  }),
+                  grid);
+        },
+        "non-finite continuous carry");
+    expect_invalid_argument(
+        [&]() { price(mutate([](auto& c) { c.contract_multiplier = 0.0; }), grid); },
+        "non-positive contract multiplier");
+    expect_invalid_argument_contains(
+        [&]() {
+            price(mutate([](auto& c) {
+                      c.discount_curve =
+                          dp::PiecewiseLogDiscountCurve{{0.5, 1.0}, {-0.025, -0.05}};
+                  }),
+                  grid);
+        },
+        "begin at (0, 0)", "curve that does not begin at the origin");
+    expect_invalid_argument_contains(
+        [&]() {
+            price(mutate([](auto& c) {
+                      c.discount_curve =
+                          dp::PiecewiseLogDiscountCurve{{0.0, 1.0, 0.5}, {0.0, -0.05, -0.025}};
+                  }),
+                  grid);
+        },
+        "strictly increasing", "curve with unsorted knots");
+    expect_invalid_argument_contains(
+        [&]() {
+            price(mutate([](auto& c) {
+                      c.discount_curve = dp::PiecewiseLogDiscountCurve{{0.0, 1.0}, {0.0}};
+                  }),
+                  grid);
+        },
+        "equal length", "curve with mismatched columns");
+
+    const auto with_grid = [&](const std::function<void(dp::PdeGrid&)>& change) {
+        dp::PdeGrid changed = grid;
+        change(changed);
+        return changed;
+    };
+    expect_invalid_argument(
+        [&]() { price(valid, with_grid([](auto& g) { g.spot_intervals = 3U; })); },
+        "too few spot intervals");
+    expect_invalid_argument([&]() { price(valid, with_grid([](auto& g) { g.time_steps = 0U; })); },
+                            "zero time steps");
+    expect_invalid_argument(
+        [&]() { price(valid, with_grid([](auto& g) { g.psor_tolerance = 0.0; })); },
+        "non-positive PSOR tolerance");
+    expect_invalid_argument(
+        [&]() { price(valid, with_grid([](auto& g) { g.psor_relaxation = 2.0; })); },
+        "PSOR relaxation at the stability boundary");
+    expect_invalid_argument(
+        [&]() { price(valid, with_grid([](auto& g) { g.psor_maximum_iterations = 0U; })); },
+        "zero PSOR iteration limit");
+    expect_invalid_argument_contains(
+        [&]() { price(valid, with_grid([](auto& g) { g.spot_maximum = 100.0; })); },
+        "must exceed both the spot and the strike", "domain that does not contain the strike");
+
+    // Too few time steps to align every declared event.
+    dp::PdeContract crowded = valid;
+    crowded.dividends = dp::CashDividendSchedule::declared({{0.2, 1.0}, {0.4, 1.0}, {0.6, 1.0}});
+    expect_invalid_argument_contains(
+        [&]() { price(crowded, with_grid([](auto& g) { g.time_steps = 2U; })); },
+        "cannot align", "time grid too coarse to align every event");
+
+    expect_invalid_argument_contains(
+        [&]() { static_cast<void>(dp::parse_settlement_convention("chained")); },
+        "'cash' or 'physical'", "unknown settlement convention");
+}
+
+void test_pde_reports_psor_non_convergence() {
+    const auto contract = pde_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0,
+                                       100.0, 1.0, 0.05, 0.0, 0.2, {});
+    dp::PdeGrid grid = pde_grid(400U, 200U, 400.0);
+    grid.psor_tolerance = 1.0e-16;
+    grid.psor_maximum_iterations = 2U;
+    expect_psor_failure(
+        [&]() { static_cast<void>(dp::finite_difference_price(contract, grid)); },
+        "PSOR iteration limit");
+}
+
+void test_pde_rejects_an_unresolvable_expiry_span() {
+    // A span below the time-alignment tolerance collapses to a single aligned
+    // instant. Left unchecked the marching loop would not execute and the
+    // undiscounted terminal payoff would be returned as a discrete-system result.
+    dp::PdeContract collapsed = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european,
+                                             110.0, 100.0, 1.0, 0.05, 0.0, 0.2, {});
+    collapsed.discount_curve = dp::PiecewiseLogDiscountCurve{{0.0, 0.1, 1.0}, {0.0, -0.005, -0.5}};
+    collapsed.valuation_time = 0.05;
+    collapsed.expiry_time = 0.05 + 1.0e-13;
+    expect_invalid_argument_contains(
+        [&]() {
+            static_cast<void>(dp::finite_difference_price(collapsed, pde_grid(200U, 100U, 400.0)));
+        },
+        "time-alignment tolerance", "unresolvable expiry span");
+
+    // A genuinely short but resolvable expiry still prices. Roughly 2.6 hours.
+    // The spot step must resolve the diffusion width sigma * S * sqrt(T), which
+    // here is 0.35: the solver does not scale the requested grid to the expiry,
+    // so the caller owns that choice. At h = 0.02 the step is 6% of the width.
+    const auto brief = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0, 100.0,
+                                    3.0e-4, 0.05, 0.0, 0.2, {});
+    const dp::PdeResult result =
+        dp::finite_difference_price(brief, pde_grid(10'000U, 50U, 200.0));
+    const auto reference = dp::black_scholes(
+        dp::OptionType::call, dp::BlackScholesInput{100.0, 100.0, 3.0e-4, 0.05, 0.0, 0.2});
+    expect_near(result.price, reference.price, 1.0e-4, "short-dated European call");
+    expect_true(result.solver_status == dp::PdeSolverStatus::discrete_system_converged,
+                "short-dated European call solver status");
+    expect_true(result.discretization_accuracy == dp::PdeDiscretizationAccuracy::not_assessed,
+                "short-dated European call discretization accuracy status");
+}
+
+void test_pde_multi_dividend_boundary_matches_the_forward_closed_form() {
+    // Deep in the money the call is worth its discounted forward intrinsic. The
+    // check is discriminating precisely because attributing one dividend to the
+    // wrong side of a segment boundary would move the price by O(d), which is
+    // seven orders of magnitude above the discretization error here.
+    const double rate = 0.05;
+    const double carry = 0.02;
+    const double expiry = 1.0;
+    const double strike = 100.0;
+    const double spot = 3900.0;
+    const std::vector<dp::CashDividend> dividends{{0.35, 1.5}, {0.75, 2.5}};
+    const auto contract = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, spot,
+                                       strike, expiry, rate, carry, 0.2, dividends);
+    const dp::PdeResult result =
+        dp::finite_difference_price(contract, dp::PdeGrid{4'000U, 800U, 4'000.0, 2U, 1.0e-11, 1.2,
+                                                          50'000U});
+    double expected = spot * std::exp(-carry * expiry);
+    for (const dp::CashDividend& dividend : dividends) {
+        expected -= dividend.amount * std::exp(-rate * dividend.ex_time) *
+                    std::exp(-carry * (expiry - dividend.ex_time));
+    }
+    expected -= strike * std::exp(-rate * expiry);
+    expect_near(result.price, expected, 1.0e-5, "deep in-the-money multi-dividend call");
+    expect_true(result.dividend_events.size() == 2U, "both dividends must be applied");
+}
+
+void test_pde_handles_a_dividend_on_a_curve_knot() {
+    // A dividend ex-time that coincides with a curve knot must merge into one
+    // aligned instant rather than producing a zero-length segment.
+    dp::PdeContract contract = pde_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0,
+                                            100.0, 1.0, 0.03, 0.0, 0.25, {});
+    contract.discount_curve =
+        dp::PiecewiseLogDiscountCurve{{0.0, 0.25, 0.6, 1.0}, {0.0, -0.01, -0.024, -0.04}};
+    contract.dividends = dp::CashDividendSchedule::declared({{0.6, 2.0}});
+    const dp::PdeResult result =
+        dp::finite_difference_price(contract, pde_grid(800U, 400U, 400.0));
+    const std::vector<double> expected{0.0, 0.25, 0.6, 1.0};
+    expect_true(result.aligned_times.size() == expected.size(),
+                "a coincident knot and ex-time must merge into one aligned instant");
+    for (std::size_t index = 0U; index < expected.size(); ++index) {
+        expect_near(result.aligned_times[index], expected[index], 1.0e-15, "aligned time");
+    }
+    expect_true(result.dividend_events.size() == 1U, "the coincident dividend must be applied");
+    expect_true(result.dividend_events.front().aligned_time_index == 2U,
+                "the coincident dividend must index the merged instant");
+}
+
+void test_pde_is_deterministic_and_multiplier_free() {
+    const std::vector<dp::CashDividend> dividends{{0.35, 1.25}, {0.8, 2.0}};
+    const auto contract = pde_contract(dp::OptionType::put, dp::ExerciseStyle::american, 103.0,
+                                       100.0, 1.0, 0.04, 0.01, 0.28, dividends);
+    const dp::PdeGrid grid = pde_grid(800U, 400U, 400.0);
+    const dp::PdeResult first = dp::finite_difference_price(contract, grid);
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        const dp::PdeResult again = dp::finite_difference_price(contract, grid);
+        expect_true(again.price == first.price, "PDE price must be bitwise reproducible");
+        expect_true(again.psor_total_iterations == first.psor_total_iterations,
+                    "PSOR iteration totals must be reproducible");
+        expect_true(again.maximum_lcp_residual == first.maximum_lcp_residual,
+                    "LCP residual must be reproducible");
+    }
+
+    // The multiplier is reporting metadata; per-share arithmetic must ignore it.
+    dp::PdeContract rescaled = contract;
+    rescaled.contract_multiplier = 1.0;
+    expect_true(dp::finite_difference_price(rescaled, grid).price == first.price,
+                "contract multiplier must not enter the pricing arithmetic");
+}
+
+void test_pde_refinement_ladder_converges() {
+    const auto contract = pde_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0,
+                                       100.0, 1.0, 0.05, 0.0, 0.2, {});
+    const double reference =
+        dp::black_scholes(dp::OptionType::call, dp::BlackScholesInput{100.0, 100.0, 1.0, 0.05, 0.0,
+                                                                      0.2})
+            .price;
+    double previous_error = 0.0;
+    for (std::size_t level = 0U; level < 4U; ++level) {
+        const std::size_t factor = std::size_t{1U} << level;
+        const dp::PdeResult result = dp::finite_difference_price(
+            contract, pde_grid(200U * factor, 100U * factor, 400.0));
+        const double error = std::abs(result.price - reference);
+        if (level != 0U) {
+            // Second-order refinement would quarter the error. The gate is a
+            // conservative factor of three so it measures convergence rather
+            // than a tuned order.
+            expect_true(error < previous_error / 3.0,
+                        "European refinement ladder did not converge");
+        }
+        previous_error = error;
+    }
+
+    // Domain truncation is a separate axis and is reported, not assumed away.
+    const double wide = dp::finite_difference_price(contract, pde_grid(1'600U, 400U, 800.0)).price;
+    const double medium = dp::finite_difference_price(contract, pde_grid(800U, 400U, 400.0)).price;
+    const double tight = dp::finite_difference_price(contract, pde_grid(300U, 400U, 150.0)).price;
+    expect_near(medium, wide, 1.0e-6, "spot domain doubling must barely move the price");
+    expect_true(std::abs(tight - wide) > std::abs(medium - wide),
+                "a tight spot domain must be measurably more truncated");
+}
+
+void test_pde_american_refinement_ladder_converges() {
+    const auto contract = pde_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0,
+                                       100.0, 1.0, 0.05, 0.0, 0.2, {});
+    const double reference =
+        dp::crr_price_only(dp::CrrPriceRequest{dp::OptionType::put, dp::ExerciseStyle::american,
+                                               {100.0, 100.0, 1.0, 0.05, 0.0, 0.2}, 8'192U})
+            .price;
+    double previous_error = 0.0;
+    for (std::size_t level = 0U; level < 3U; ++level) {
+        const std::size_t factor = std::size_t{1U} << level;
+        const dp::PdeResult result = dp::finite_difference_price(
+            contract, pde_grid(400U * factor, 200U * factor, 400.0));
+        const double error = std::abs(result.price - reference);
+        if (level != 0U) {
+            expect_true(error < previous_error, "American refinement ladder did not converge");
+        }
+        previous_error = error;
+    }
+    expect_true(previous_error < 5.0e-4, "refined American PDE must agree with the CRR reference");
+}
+
 }  // namespace
 
 int main() {
@@ -942,6 +1536,26 @@ int main() {
         {"invalid LSM requests", test_invalid_lsm_requests_are_rejected},
         {"MLP reverse gradient", test_mlp_reverse_gradient_against_central_difference},
         {"invalid input", test_invalid_input_is_rejected},
+        {"European PDE against Black-Scholes", test_pde_european_matches_black_scholes},
+        {"American PDE against CRR", test_pde_american_matches_crr_reference},
+        {"no-dividend American call PDE parity",
+         test_pde_american_call_without_dividends_matches_european},
+        {"American PDE bounds", test_pde_american_dominates_intrinsic_and_european},
+        {"degenerate dividend schedules", test_pde_rejects_degenerate_dividend_schedules},
+        {"dividend size direction",
+         test_pde_dividend_size_moves_prices_in_the_expected_direction},
+        {"dividend jump mapping", test_pde_dividend_jump_mapping},
+        {"exercise before a dividend", test_pde_allows_exercise_immediately_before_a_dividend},
+        {"discount-curve alignment", test_pde_aligns_curve_knots_and_refuses_extrapolation},
+        {"invalid PDE requests", test_invalid_pde_requests_are_rejected},
+        {"PSOR non-convergence", test_pde_reports_psor_non_convergence},
+        {"unresolvable expiry span", test_pde_rejects_an_unresolvable_expiry_span},
+        {"multi-dividend forward boundary",
+         test_pde_multi_dividend_boundary_matches_the_forward_closed_form},
+        {"dividend on a curve knot", test_pde_handles_a_dividend_on_a_curve_knot},
+        {"PDE determinism", test_pde_is_deterministic_and_multiplier_free},
+        {"European PDE refinement ladder", test_pde_refinement_ladder_converges},
+        {"American PDE refinement ladder", test_pde_american_refinement_ladder_converges},
     };
 
     int failures = 0;
