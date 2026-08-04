@@ -83,6 +83,28 @@ python -m differentiable_pricing.american.lsm_crosscheck \
   --output artifacts/american-lsm-crosscheck-v1.json
 ```
 
+Run the controlled task 9C-B PDE label-policy pilot only when its numerical
+evidence is requested. It is expensive and is not part of CI. The second
+command recomputes every price but reuses the first run's measured timing block
+so all deterministic JSON/CSV outputs can be checked byte for byte:
+
+```bash
+python -m differentiable_pricing.american.pde_label_policy \
+  --config configs/pde_label_policy_pilot_v1.toml \
+  --output-directory artifacts/pde-label-policy-pilot-v1-run1
+python -m differentiable_pricing.american.pde_label_policy \
+  --config configs/pde_label_policy_pilot_v1.toml \
+  --output-directory artifacts/pde-label-policy-pilot-v1-run2 \
+  --performance-source artifacts/pde-label-policy-pilot-v1-run1/report.json \
+  --verify-identical-to artifacts/pde-label-policy-pilot-v1-run1
+```
+
+The fixed regular-case gates live in the versioned config. Stress cases are
+always retained and are descriptive; they never loosen or decide those gates.
+The runner may select the cheapest passing candidate in its declared order or
+emit `no_policy_selected`. Its 8/16-worker projections assume ideal scaling and
+are not a production-feasibility claim.
+
 The reviewed cross-check evidence is frozen in
 `docs/results/american_lsm_crosscheck_results_v1.json`. Raw reports stay
 ignored under `artifacts/` and are never committed. Regenerate the snapshot and

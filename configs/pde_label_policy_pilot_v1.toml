@@ -1,0 +1,470 @@
+# Task 9C-B controlled synthetic-label pilot. These choices and thresholds are
+# declared before the report under artifacts/ is generated. Stress cases are
+# descriptive, remain in every output, and are not part of policy selection.
+
+schema_version = "pde-label-policy-pilot/1"
+
+[study]
+name = "pde-label-policy-pilot-v1"
+engine = "dp::finite_difference_price/v1"
+price_units = "currency_per_share"
+greek_method = "centered_price_bumps"
+curve_construction = "flat_continuously_compounded_from_case_rate"
+selection_order = ["grid_800x400", "grid_1600x800", "richardson_800x400_1600x800"]
+anchor_cases = ["regular_euro_atm_call", "stress_american_put_exercise_boundary"]
+projected_label_count = 250000
+projected_worker_counts = [8, 16]
+
+[solver]
+spot_maximum = 400.0
+rannacher_steps = 2
+psor_tolerance = 1.0e-11
+psor_relaxation = 1.2
+psor_maximum_iterations = 200000
+settlement = "cash"
+contract_multiplier = 100.0
+
+[[grids]]
+name = "grid_800x400"
+spot_intervals = 800
+time_steps = 400
+role = "candidate"
+
+[[grids]]
+name = "grid_1600x800"
+spot_intervals = 1600
+time_steps = 800
+role = "candidate"
+
+[[grids]]
+name = "grid_3200x1600"
+spot_intervals = 3200
+time_steps = 1600
+role = "reference"
+
+[[grids]]
+name = "grid_6400x3200"
+spot_intervals = 6400
+time_steps = 3200
+role = "anchor"
+
+[bumps]
+# Absolute currency-per-share spot bumps and absolute-volatility bumps.
+spot = [2.0, 1.0, 0.5]
+primary_spot = 1.0
+volatility = [0.02, 0.01, 0.005]
+primary_volatility = 0.01
+
+[richardson]
+coarse_to_fine_ratio = 2
+assumed_order = 2.0
+minimum_supported_observed_order = 1.5
+maximum_supported_observed_order = 2.5
+
+[criteria]
+price_absolute_error = 5.0e-4
+delta_absolute_error = 1.0e-3
+gamma_absolute_error = 2.0e-4
+vega_absolute_error_per_unit_volatility = 5.0e-2
+# Bump-ladder stability is an additional predeclared pilot requirement. It
+# uses the same scales as the accuracy gates and is not loosened after results.
+delta_bump_variation = 1.0e-3
+gamma_bump_variation = 2.0e-4
+vega_bump_variation_per_unit_volatility = 5.0e-2
+shape_tolerance = 1.0e-8
+
+# Moneyness is S/K. Every curve begins at (0, 0) and ends at
+# (expiry_time, -rate * expiry_time). Dividend times are ACT/365F year
+# fractions from the same origin and lie strictly inside the contract life.
+
+[[cases]]
+name = "regular_euro_atm_call"
+classification = "regular"
+description = "analytic-style European control at ordinary parameters"
+option_type = "call"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.05
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_euro_atm_put"
+classification = "regular"
+description = "European put control at ordinary parameters"
+option_type = "put"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.05
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_otm_call_short_low_vol"
+classification = "regular"
+description = "short low-volatility call at moneyness 0.6"
+option_type = "call"
+exercise_style = "european"
+spot = 60.0
+strike = 100.0
+expiry_time = 0.08
+rate = 0.03
+continuous_carry = 0.0
+volatility = 0.12
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_itm_call_long_high_vol"
+classification = "regular"
+description = "long high-volatility call at moneyness 1.4"
+option_type = "call"
+exercise_style = "european"
+spot = 140.0
+strike = 100.0
+expiry_time = 3.0
+rate = 0.04
+continuous_carry = 0.02
+volatility = 0.60
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_itm_put_short"
+classification = "regular"
+description = "short put at moneyness 0.6"
+option_type = "put"
+exercise_style = "european"
+spot = 60.0
+strike = 100.0
+expiry_time = 0.12
+rate = 0.01
+continuous_carry = 0.0
+volatility = 0.25
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_otm_put_long"
+classification = "regular"
+description = "long put at moneyness 1.4"
+option_type = "put"
+exercise_style = "european"
+spot = 140.0
+strike = 100.0
+expiry_time = 2.5
+rate = 0.02
+continuous_carry = 0.01
+volatility = 0.35
+dividends = []
+
+[[cases]]
+name = "regular_euro_negative_rate_call"
+classification = "regular"
+description = "negative-rate European call"
+option_type = "call"
+exercise_style = "european"
+spot = 90.0
+strike = 100.0
+expiry_time = 1.5
+rate = -0.02
+continuous_carry = 0.0
+volatility = 0.18
+dividends = []
+
+[[cases]]
+name = "regular_euro_negative_rate_put"
+classification = "regular"
+description = "negative-rate European put"
+option_type = "put"
+exercise_style = "european"
+spot = 110.0
+strike = 100.0
+expiry_time = 0.75
+rate = -0.015
+continuous_carry = -0.03
+volatility = 0.30
+dividends = []
+
+[[cases]]
+name = "regular_euro_high_rate_call"
+classification = "regular"
+description = "high-rate low-volatility call"
+option_type = "call"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 0.5
+rate = 0.15
+continuous_carry = 0.0
+volatility = 0.14
+dividends = []
+
+[[cases]]
+name = "regular_euro_high_carry_put"
+classification = "regular"
+description = "high continuous-carry put"
+option_type = "put"
+exercise_style = "european"
+spot = 105.0
+strike = 100.0
+expiry_time = 2.0
+rate = 0.03
+continuous_carry = 0.12
+volatility = 0.22
+dividends = []
+
+[[cases]]
+name = "regular_euro_one_dividend_near_valuation_call"
+classification = "regular"
+description = "one cash dividend near valuation"
+option_type = "call"
+exercise_style = "european"
+spot = 95.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.04
+continuous_carry = 0.01
+volatility = 0.24
+dividends = [[0.03, 1.5]]
+
+[[cases]]
+name = "regular_euro_one_dividend_near_expiry_put"
+classification = "regular"
+description = "one cash dividend near expiry"
+option_type = "put"
+exercise_style = "european"
+spot = 105.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.04
+continuous_carry = 0.01
+volatility = 0.24
+dividends = [[0.97, 1.5]]
+
+[[cases]]
+name = "regular_euro_multiple_dividends_call"
+classification = "regular"
+description = "three cash dividends spread across a long maturity"
+option_type = "call"
+exercise_style = "european"
+spot = 110.0
+strike = 100.0
+expiry_time = 2.0
+rate = 0.035
+continuous_carry = 0.015
+volatility = 0.28
+dividends = [[0.25, 1.0], [0.9, 1.25], [1.75, 1.5]]
+
+[[cases]]
+name = "regular_euro_multiple_dividends_put"
+classification = "regular"
+description = "two material dividends on a medium-maturity put"
+option_type = "put"
+exercise_style = "european"
+spot = 85.0
+strike = 100.0
+expiry_time = 1.25
+rate = 0.02
+continuous_carry = 0.0
+volatility = 0.40
+dividends = [[0.2, 2.0], [0.85, 2.5]]
+
+[[cases]]
+name = "regular_american_call_no_exercise_control"
+classification = "regular"
+description = "non-dividend American call expected to equal European"
+option_type = "call"
+exercise_style = "american"
+spot = 100.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.05
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_american_put_early_exercise"
+classification = "regular"
+description = "ordinary American put with a material exercise premium"
+option_type = "put"
+exercise_style = "american"
+spot = 90.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.06
+continuous_carry = 0.0
+volatility = 0.22
+dividends = []
+
+[[cases]]
+name = "regular_american_put_high_rate"
+classification = "regular"
+description = "high-rate American put with early exercise"
+option_type = "put"
+exercise_style = "american"
+spot = 80.0
+strike = 100.0
+expiry_time = 0.75
+rate = 0.15
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_american_put_negative_rate_control"
+classification = "regular"
+description = "negative-rate American put control with weak exercise incentive"
+option_type = "put"
+exercise_style = "american"
+spot = 105.0
+strike = 100.0
+expiry_time = 1.5
+rate = -0.02
+continuous_carry = 0.0
+volatility = 0.30
+dividends = []
+
+[[cases]]
+name = "regular_american_high_carry_call"
+classification = "regular"
+description = "continuous-carry American call with early exercise incentive"
+option_type = "call"
+exercise_style = "american"
+spot = 120.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.02
+continuous_carry = 0.12
+volatility = 0.18
+dividends = []
+
+[[cases]]
+name = "regular_american_one_dividend_call"
+classification = "regular"
+description = "American call with one material cash dividend"
+option_type = "call"
+exercise_style = "american"
+spot = 115.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.03
+continuous_carry = 0.0
+volatility = 0.22
+dividends = [[0.5, 5.0]]
+
+[[cases]]
+name = "regular_american_multiple_dividends_put"
+classification = "regular"
+description = "American put with multiple cash dividends"
+option_type = "put"
+exercise_style = "american"
+spot = 95.0
+strike = 100.0
+expiry_time = 2.0
+rate = 0.05
+continuous_carry = 0.01
+volatility = 0.32
+dividends = [[0.3, 1.5], [1.0, 1.5], [1.7, 1.5]]
+
+[[cases]]
+name = "regular_american_short_high_vol_put"
+classification = "regular"
+description = "short high-volatility American put"
+option_type = "put"
+exercise_style = "american"
+spot = 100.0
+strike = 100.0
+expiry_time = 0.08
+rate = 0.04
+continuous_carry = 0.0
+volatility = 0.60
+dividends = []
+
+[[cases]]
+name = "stress_american_put_exercise_boundary"
+classification = "stress"
+description = "spot chosen near an American-put exercise boundary; Greek supervision is suspect"
+option_type = "put"
+exercise_style = "american"
+spot = 82.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.08
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "stress_american_call_pre_dividend_boundary"
+classification = "stress"
+description = "dividend-sensitive American call near an exercise transition"
+option_type = "call"
+exercise_style = "american"
+spot = 105.0
+strike = 100.0
+expiry_time = 0.55
+rate = 0.03
+continuous_carry = 0.0
+volatility = 0.16
+dividends = [[0.08, 8.0]]
+
+[[cases]]
+name = "stress_euro_short_low_vol_atm"
+classification = "stress"
+description = "short low-volatility ATM payoff-kink resolution stress"
+option_type = "call"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 0.01
+rate = 0.02
+continuous_carry = 0.0
+volatility = 0.08
+dividends = []
+
+[[cases]]
+name = "stress_american_deep_itm_put_kink"
+classification = "stress"
+description = "deep-ITM American put near immediate-exercise contact"
+option_type = "put"
+exercise_style = "american"
+spot = 65.0
+strike = 100.0
+expiry_time = 0.25
+rate = 0.12
+continuous_carry = 0.0
+volatility = 0.15
+dividends = []
+
+[[cases]]
+name = "stress_american_large_near_dividend_call"
+classification = "stress"
+description = "large near-valuation dividend and pre-dividend exercise stress"
+option_type = "call"
+exercise_style = "american"
+spot = 110.0
+strike = 100.0
+expiry_time = 0.5
+rate = 0.04
+continuous_carry = 0.0
+volatility = 0.25
+dividends = [[0.015, 18.0]]
+
+[[cases]]
+name = "stress_american_multiple_dividend_call"
+classification = "stress"
+description = "multiple large dividends with several exercise opportunities"
+option_type = "call"
+exercise_style = "american"
+spot = 125.0
+strike = 100.0
+expiry_time = 1.5
+rate = 0.01
+continuous_carry = 0.02
+volatility = 0.35
+dividends = [[0.1, 6.0], [0.7, 7.0], [1.42, 8.0]]
