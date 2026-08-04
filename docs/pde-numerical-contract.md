@@ -395,3 +395,32 @@ It is exploratory, it selects nothing, and it is not part of CI.
 - The upper boundary condition is asymptotic. Domain truncation error is
   measured, not eliminated.
 - Nothing here reads, calibrates to, or implies any real market quote.
+
+## Task 9C-B label-policy pilot
+
+Task 9C-B leaves the scalar C++ solver unchanged and derives price, delta,
+gamma and vega labels by deterministic centered price bumps in
+`differentiable_pricing.american.pde_label_policy`. Its frozen design is
+`configs/pde_label_policy_pilot_v1.toml`; generated evidence remains ignored
+under `artifacts/`.
+
+Every bumped solve for a case and grid uses the same domain target, actual
+nodes, time grid, curve, carry and cash-dividend schedule. The runner checks
+the actual grid signature and aborts if it changes. Spot and volatility bump
+ladders are both reported. Vega is reported per unit absolute volatility and
+per volatility point (the former divided by 100); theta and rho remain out of
+scope.
+
+Candidate grids are 800x400, 1600x800, and the signed second-order Richardson
+pair `(4 * V_1600 - V_800) / 3`. The main reference is 3200x1600, selectively
+extrapolated with 1600x800 only when the observed factor-two order lies inside
+the predeclared support interval. The 6400x3200 rung is restricted to two
+declared anchors. Unsupported observed order is preserved as a result and
+never repaired by assuming second order.
+
+Only regular cases decide selection and every one must pass every frozen price,
+Greek, bump-stability, bound and shape check. Stress cases remain in all JSON
+and CSV output; an exercise-boundary or payoff-kink row may be retained for
+price evaluation while being flagged unsuitable for Greek supervision. If no
+candidate clears the regular design, the only permitted recommendation is
+`no_policy_selected`.
