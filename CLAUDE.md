@@ -202,7 +202,8 @@ python -m differentiable_pricing.market.reconstruct \
   --config configs/market_state_reconstruction_v1.toml
 ```
 
-The method, conventions, forbidden names and proposed task 9C interface are in
+The method, conventions, forbidden names and the task 9C input interface — now
+implemented by the task 9C-A solver, still fed only by synthetic inputs — are in
 `docs/market-state-reconstruction-contract.md`. Load-bearing rules:
 
 - **The slope sign is mandatory.** Parity gives `y = C - P = a + bK` with

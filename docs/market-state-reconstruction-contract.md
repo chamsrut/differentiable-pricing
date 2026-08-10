@@ -137,9 +137,9 @@ invalidate.
 
 ### Strike windows
 
-The forward anchor is the paired strike minimizing $|C_{\mathrm{mid}} -
-P_{\mathrm{mid}}|$, which is the strike nearest the forward and needs no
-discount factor, dividend or spot to find. Three relative half-widths about
+The forward anchor is the paired strike minimizing
+$|C_{\mathrm{mid}} - P_{\mathrm{mid}}|$, which is the strike nearest the
+forward and needs no discount factor, dividend or spot to find. Three relative half-widths about
 that anchor are reported for every expiry, snapshot and method. **The spread
 across them is a result, not an error bar to be minimized, and no window may be
 selected after seeing the results.**
@@ -317,12 +317,20 @@ either. It may combine genuine market movement, quote microstructure, a change
 in which strikes pass the tradability and window filters at each snapshot, and
 fitting variation. This study reports it and does not decompose it.
 
-## Proposed task 9C input contract
+## Task 9C input contract
 
-Specified here, **not implemented**. Task 9C owns the solver; the point of
-stating the interface now is that each field's real-market provenance is
-decided by the identifiability matrix, so the interface cannot quietly acquire
-a field no data can fill.
+Specified here before any solver existed. The point of stating the interface
+first is that each field's real-market provenance is decided by the
+identifiability matrix, so the interface cannot quietly acquire a field no data
+can fill.
+
+Task 9C-A has since implemented exactly this interface as `dp::PdeContract`
+([pde-numerical-contract.md](pde-numerical-contract.md)), including the
+optional carry and the explicitly declared empty dividend schedule. That is a
+solver taking these inputs, **not** a solver fed by this archive: nothing in
+this repository prices a real quote, and the `unavailable` and
+`jointly_identifiable_only` rows below are unchanged by the solver's
+existence.
 
 | Field | Type | Real-market provenance |
 | --- | --- | --- |

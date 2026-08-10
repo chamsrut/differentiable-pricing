@@ -8,11 +8,12 @@ finite-difference oracle for European and American vanilla calls and puts with
 that prices a contract the CRR and LSM engines cannot: those two carry a
 continuous dividend yield, and a cash dividend is not a yield.
 
-**Task 9C-A supports deterministic pricing only.** Greeks, optimized batching,
-label-policy selection and frozen acceptance gates are task 9C-B. Nothing in
-this document is an acceptance gate, and the first grid policy is explicitly
-**not** claimed to be label-grade: no grid, step count, domain maximum or PSOR
-setting here has been justified as fit for generating training labels.
+**Task 9C-A supports deterministic pricing only.** Nothing in this document
+outside the task 9C-B section is an acceptance gate, and the first grid policy
+is explicitly **not** claimed to be label-grade: no grid, step count, domain
+maximum or PSOR setting here has been justified as fit for generating training
+labels. Task 9C-B tested that question separately and answered it negatively
+(below); the engine itself is unchanged by it.
 
 The public surface is `cpp/include/dp/finite_difference_pde.hpp` and the `_pde`
 Python extension. The oracle is bound from `bindings/python/pde_module.cpp`,
@@ -136,9 +137,9 @@ d_i=-(l_i+u_i)-r,
 $$
 
 which are independent of $h$. Where central differencing would make $l_i$ or
-$u_i$ negative — that is where convection dominates diffusion, $|r-c|>\sigma^2
-i$, which can only happen at the smallest few $i$ — that row switches to
-one-sided upwinding in the drift direction. This keeps every off-diagonal
+$u_i$ negative — that is where convection dominates diffusion,
+$|r-c|>\sigma^2 i$, which can only happen at the smallest few $i$ — that row
+switches to one-sided upwinding in the drift direction. This keeps every off-diagonal
 non-negative, which is what makes the implicit operator an M-matrix and PSOR
 monotone. `PdeResult::upwinded_rows` reports the largest number of rows
 upwinded in any one time segment; a nonzero value is a fact about the grid, not
@@ -306,7 +307,9 @@ Supported:
 Not supported in task 9C-A, and not silently approximated:
 
 - Greeks of any kind. The grid carries no sensitivity output and none should be
-  read off it. This is task 9C-B.
+  read off it. Task 9C-B derived Greeks *outside* the engine by bumping and
+  repricing; exposing a valuation-time slice and reading delta and gamma off it
+  is task 9C-C1, which is designed and not implemented.
 - Non-constant or state-dependent volatility.
 - Proportional dividends, dividend curves, or any inference of a dividend from
   market data. Task 9B established that the archive carries no independent
@@ -424,3 +427,39 @@ and CSV output; an exercise-boundary or payoff-kink row may be retained for
 price evaluation while being flagged unsuitable for Greek supervision. If no
 candidate clears the regular design, the only permitted recommendation is
 `no_policy_selected`.
+
+### Outcome
+
+The pilot was run once and its reviewed report is frozen in
+[results/american_pde_label_policy_results_v1.json](results/american_pde_label_policy_results_v1.json),
+digest-pinned by `python/tests/test_pde_label_policy_results_snapshot.py`. It
+recorded `selected_accuracy_policy = no_policy_selected` with
+`criteria_were_not_loosened = true`. Read it as three separate findings.
+
+1. **The accuracy caps were met at 1600x800.** Across all 22 regular cases the
+   worst absolute errors against the study's internal reference were 3.5822e-4
+   in price (cap 5e-4), 1.7330e-5 in delta (cap 1e-3), 4.5225e-6 in gamma (cap
+   2e-4) and 2.9727e-3 in vega per unit volatility (cap 5e-2).
+2. **Selection failed on stability and shape, not on those caps.** The same
+   candidate failed 5 regular cases: four where the *reference* delta or vega
+   itself moved across the bump ladder by more than the frozen variation
+   allowance, and one negative-rate American put whose price fell 2.7e-8 below
+   its European dominance control against a 1e-8 shape tolerance. That gap is
+   the size of the solver's accumulated PSOR residual, and the criterion was
+   still not loosened. The 800x400 candidate failed 11 regular cases and the
+   Richardson pair 9, so the declared order had no passing member.
+3. **Richardson is a reference technique, not a label policy.** Where the
+   solution is smooth it was the most accurate candidate by an order of
+   magnitude, but the observed factor-two order fell outside the supported
+   `[1.5, 2.5]` band in 11 of the 28 cases — concentrated at early exercise,
+   dividends, short maturities and deep-in-the-money kinks. Unsupported order
+   was preserved as a result rather than repaired by assuming second order.
+
+The cost is the other result: 1,638 solves and about 126.6 million PSOR
+iterations produced four labels for 28 states in 2.19 hours of single-core wall
+time, because each state and grid costs thirteen independent solves. The
+report's 250,000-label projections are idealized independent-worker
+extrapolations of that measurement and are not production-feasibility claims.
+
+No production label policy therefore exists, and none of these numbers may be
+reused as an acceptance criterion for a later label-policy study.

@@ -171,8 +171,9 @@ exact truth.
 
 CRR is the stronger first oracle in this one-factor Markov setting: it is
 deterministic, exposes the exercise decision at every node, and can be refined
-without regression or sampling noise. Least-Squares Monte Carlo (LSM) will be
-implemented as a separate engine after the tree contract is stable.
+without regression or sampling noise. Least-Squares Monte Carlo (LSM) was
+implemented afterwards as a separate engine, once the tree contract was stable
+([american-lsm-contract.md](american-lsm-contract.md)).
 
 The LSM implementation must:
 
@@ -189,10 +190,15 @@ prices.
 
 ## Current non-claims
 
-- No American Greek is exposed yet.
+- No American Greek is exposed by this engine, and none by the finite-difference
+  oracle either. The task 9C-B pilot obtained Greeks by bumping and repricing
+  outside both engines, and selected no policy.
 - The batch boundary is price-only; American Greeks are not exposed.
 - The checked-in convergence configuration is exploratory and does not yet
   authorize a label step count.
+- This engine carries a continuous dividend yield. It does not price an
+  explicit cash dividend; that contract belongs to the finite-difference oracle
+  ([pde-numerical-contract.md](pde-numerical-contract.md)).
 - Runtime measurements are machine-specific evidence and are not CI gates.
 - No American training dataset or neural result exists yet.
 - Continuous exercise is approximated by exercise at every lattice time
