@@ -40,6 +40,13 @@ python scripts/freeze_american_lsm_results.py --check
 python scripts/plot_american_lsm_results.py --check
 ```
 
+`docs/results/american_pde_label_policy_results_v1.json` is the task 9C-B
+report itself, checked in unchanged and pinned by SHA-256 in
+`python/tests/test_pde_label_policy_results_snapshot.py`, which also reconciles
+the configuration and runner digests it records. Replacing it means rerunning
+that expensive pilot and updating the pinned digest in the same reviewed
+change; never edit the JSON by hand.
+
 ## Markdown and math
 
 Documentation is read on GitHub, which renders math only with dollar

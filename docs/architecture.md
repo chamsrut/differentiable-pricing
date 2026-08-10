@@ -23,6 +23,9 @@ flowchart TD
   $O(N)$ workspace per worker and serial arithmetic inside each tree;
 - deterministic LSM policy fitting on antithetic training paths and
   pair-aware valuation on a disjoint streaming path set;
+- the scalar finite-difference PDE oracle for European and American vanillas
+  with explicit discrete cash dividends, bound in its own translation unit so
+  the CRR and LSM implementation digests stay byte-stable;
 - deterministic validation of contract/model inputs;
 - low-overhead model inference;
 - reverse-mode derivatives of the deployed smooth network;
@@ -34,6 +37,10 @@ flowchart TD
 - Parquet metadata and lineage;
 - PyTorch training and checkpointing;
 - experiment comparison, calibration plots, and artifact export;
+- study runners over the C++ engines, including the bump-and-reprice label
+  policy pilot, which computes no price of its own;
+- read-only ingestion and market-state reconstruction of the private quote
+  archive;
 - orchestration of cross-language parity tests.
 
 ### Binding
@@ -43,7 +50,9 @@ numeric types and contiguous arrays. Avoid Python callbacks in hot pricing
 loops. The CRR boundary accepts typed column vectors and returns price, step
 count, and lattice probability. The scalar LSM boundary returns the raw and
 control-variate estimates, pair-aware uncertainty, exercise counts, memory
-accounting, and regression diagnostics. A future training-data boundary may
+accounting, and regression diagnostics. The `_pde` extension is its own
+translation unit and returns the price together with the grid, time and PSOR
+diagnostics actually used — no sensitivity. A future training-data boundary may
 move to `N x D` float64 arrays when selected input derivatives exist.
 
 ## Frozen result snapshots
@@ -79,6 +88,20 @@ Current members: the European replication and validation snapshots, and
 `american_lsm_crosscheck_results_v1.json`
 (`scripts/freeze_american_lsm_results.py`,
 `scripts/plot_american_lsm_results.py`).
+
+`american_pde_label_policy_results_v1.json` is frozen differently and
+deliberately so. The task 9C-B runner already emits canonical, timestamp-free
+JSON that a second run reproduces byte for byte, so the reviewed report is
+checked in as-is and pinned by SHA-256 in
+`python/tests/test_pde_label_policy_results_snapshot.py`, which also reconciles
+the configuration and runner digests it records against the current files. It
+carries no figures. Replacing it means rerunning the pilot and updating the
+pinned digest in the same reviewed change.
+
+Python owns the read-only market pipelines (`market.ingest`,
+`market.reconstruct`). They read proprietary quote-level data, write only
+beneath ignored trees, and contribute no snapshot to `docs/results/`: nothing
+derived from that archive may be committed.
 
 ## Model artifact contract
 

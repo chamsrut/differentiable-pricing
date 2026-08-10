@@ -85,6 +85,33 @@ predeclares and runs the CRR label-policy calibration study, with its own
 gates fixed before results are observed. No number frozen by task 8D may be
 reused as a task 8E acceptance criterion.
 
+### The discrete-dividend PDE oracle and its label-policy pilot
+
+Neither the tree nor the LSM engine prices an explicit cash dividend, which a
+real American equity option needs. Task 9C-A added a third, numerically
+unrelated reference: a one-dimensional Crank--Nicolson finite-difference solver
+with Rannacher damping and a PSOR solve of the American obstacle, specified in
+[pde-numerical-contract.md](pde-numerical-contract.md). It prices only; it
+exposes no sensitivity.
+
+Task 9C-B then asked, under criteria frozen in
+`configs/pde_label_policy_pilot_v1.toml`, whether a fixed grid can supply
+price, delta, gamma and vega labels by centered bumps. The frozen answer in
+[results/american_pde_label_policy_results_v1.json](results/american_pde_label_policy_results_v1.json)
+is `no_policy_selected`, with `criteria_were_not_loosened = true`. The
+1600x800 candidate met every predeclared absolute-error cap on all 22 regular
+cases and still failed five of them on bump stability and on an
+American-dominance shape check; Richardson extrapolation was the most accurate
+candidate where the solution is smooth but had unsupported observed order in 11
+of the 28 cases, so it is a reference technique rather than a label policy.
+
+Three consequences bind later work. **No American label policy exists**, so no
+American dataset generation and no American neural training may begin. A
+negative selection is a result, not a licence to relax the criteria that
+produced it. And the pilot's measured cost — thirteen scalar solves per state
+and grid — is why the next milestone (task 9C-C1) is to read a valuation-time
+slice and its delta and gamma out of a single solve, not to buy more cores.
+
 ## Data protocol
 
 Each generated row or partition records:
@@ -107,6 +134,24 @@ moneyness rather than raw spot and strike). Keep named partitions:
 
 Do not random-split rows originating from the same paths, grids, curve
 scenario, or near-duplicate contract state.
+
+### Real-market inputs
+
+Tasks 9A and 9B establish where a real-market pricing input could come from,
+and nothing more. 9A audits a three-session proprietary quote archive read-only
+and reports scoped capabilities; 9B fits same-minute put-call parity and
+classifies each PDE input as directly observed, pointwise identified, jointly
+identifiable only, external convention, or unavailable
+([market-state-reconstruction-contract.md](market-state-reconstruction-contract.md)).
+
+Neither produces a price, a label, a Greek, an implied volatility, or a
+calibrated curve or surface. Discount factors and forwards are identified at
+quoted expiries as knots with no interpolation through them; dividend amounts,
+borrow and carry, and corporate-action adjustments are not available from that
+archive. Every artefact of both studies is derived from proprietary quote-level
+data and stays out of Git, so their tests use synthetic fixtures and CI never
+sees the archive. Every threshold in both is exploratory and was chosen after
+the archive was observed; none gates a replication partition.
 
 ## Metrics
 
@@ -176,3 +221,10 @@ tuning against that dataset.
 - Agreement between LSM and a high-step CRR tree is agreement between two
   numerical methods inside one model. It is not evidence that the model
   describes market prices.
+- Meeting the task 9C-B accuracy caps at one grid is not a label policy. The
+  pilot selected none, and its idealized worker projections are not a
+  feasibility claim.
+- A three-session archive audit is a feasibility and identifiability study, not
+  a historical market study, and it establishes no calibration capability. No
+  dividend amount, borrow rate, or American implied volatility has been
+  inferred anywhere in this repository.
