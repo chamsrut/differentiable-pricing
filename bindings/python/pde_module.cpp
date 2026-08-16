@@ -46,6 +46,74 @@ namespace {
     return dp::CashDividendSchedule::declared(std::move(parsed));
 }
 
+// The canonical spellings of the parsed enums. Going back through these rather
+// than echoing the caller's own strings is what makes the echo *normalized*: it
+// reports what the solver accepted, not what the caller happened to type.
+[[nodiscard]] const char* option_type_name(const dp::OptionType value) {
+    return value == dp::OptionType::call ? "call" : "put";
+}
+
+[[nodiscard]] const char* exercise_style_name(const dp::ExerciseStyle value) {
+    return value == dp::ExerciseStyle::european ? "european" : "american";
+}
+
+[[nodiscard]] const char* settlement_name(const dp::SettlementConvention value) {
+    return value == dp::SettlementConvention::cash ? "cash" : "physical";
+}
+
+// The mandatory input-state echo of the valuation-time surface.
+//
+// It reports the normalized pricing and numerical inputs the solver actually
+// accepted, taken from the constructed `dp::PdeSurfaceContract`, `dp::PdeGrid`
+// and `dp::PdeSurfaceSettings` rather than from the raw Python arguments, so a
+// consumer can reconstruct the identity of the call that produced a result
+// instead of trusting its own record of what it asked for.
+//
+// It binds the returned result to the declared inputs. It is **not** independent
+// evidence that the numerical algorithm used those inputs correctly; that
+// remains the job of the validation suite in docs/pde-numerical-contract.md.
+//
+// `contract_multiplier` is reported here as declared reporting metadata. It
+// never enters pricing arithmetic and a consumer must not admit it to a
+// solver-input identity.
+[[nodiscard]] py::dict surface_input_echo(const dp::PdeSurfaceContract& contract,
+                                          const dp::PdeGrid& grid,
+                                          const dp::PdeSurfaceSettings& settings) {
+    py::list dividends;
+    for (const dp::CashDividend& dividend : contract.dividends.dividends()) {
+        py::list entry;
+        entry.append(dividend.ex_time);
+        entry.append(dividend.amount);
+        dividends.append(std::move(entry));
+    }
+
+    py::dict echo;
+    echo["option_type"] = option_type_name(contract.option_type);
+    echo["exercise_style"] = exercise_style_name(contract.exercise_style);
+    echo["strike"] = contract.strike;
+    echo["valuation_time"] = contract.valuation_time;
+    echo["expiry_time"] = contract.expiry_time;
+    echo["volatility"] = contract.volatility;
+    // Engaged by construction: `validate()` rejects a disengaged carry before a
+    // surface is ever returned, so the echo never has to invent a zero.
+    echo["continuous_carry"] = contract.continuous_carry.value();
+    echo["curve_times"] = contract.discount_curve.times;
+    echo["curve_log_discounts"] = contract.discount_curve.log_discounts;
+    echo["dividends"] = std::move(dividends);
+    echo["dividends_declared"] = contract.dividends.is_declared();
+    echo["settlement"] = settlement_name(contract.settlement);
+    echo["contract_multiplier"] = contract.contract_multiplier;
+    echo["spot_intervals"] = grid.spot_intervals;
+    echo["time_steps"] = grid.time_steps;
+    echo["spot_maximum"] = grid.spot_maximum;
+    echo["rannacher_steps"] = grid.rannacher_steps;
+    echo["psor_tolerance"] = grid.psor_tolerance;
+    echo["psor_relaxation"] = grid.psor_relaxation;
+    echo["psor_maximum_iterations"] = grid.psor_maximum_iterations;
+    echo["boundary_exclusion_nodes"] = settings.boundary_exclusion_nodes;
+    return echo;
+}
+
 [[nodiscard]] py::list dividend_event_rows(const std::vector<dp::PdeDividendEvent>& events) {
     py::list rows;
     for (const dp::PdeDividendEvent& event : events) {
@@ -399,6 +467,9 @@ PYBIND11_MODULE(_pde, module) {
             }();
 
             py::dict output;
+            // Mandatory and additive: every surface result carries the
+            // normalized input state that produced it.
+            output["surface_input"] = surface_input_echo(contract, grid, settings);
             add_solve_diagnostics(output, evaluation.surface.diagnostics);
             output["backward_inductions"] = evaluation.surface.backward_inductions;
             output["valuation_time"] = evaluation.surface.valuation_time;
@@ -434,7 +505,12 @@ PYBIND11_MODULE(_pde, module) {
         py::arg("query_spots"),
         "Run one backward induction and return the valuation-time spot slice with "
         "nodewise price, delta, gamma, exercise classification and Greek eligibility, "
-        "together with every requested spot evaluated against that single solve. There "
+        "together with every requested spot evaluated against that single solve. The "
+        "result always carries a `surface_input` echo of the normalized pricing and "
+        "numerical inputs the solver accepted, so a consumer can reconstruct the "
+        "identity of the call rather than trust its own record of it; the echo binds "
+        "the result to its declared inputs and is not evidence that the algorithm used "
+        "them correctly. There "
         "is no spot argument: the solved domain depends only on the strike and the grid. "
         "Query order is preserved, duplicates are kept, and a spot outside the solved "
         "domain is rejected rather than extrapolated. A query's delta and gamma are "

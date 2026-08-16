@@ -110,6 +110,24 @@ sources after the pilot ran — and are deliberately not reconciled against HEAD
 nor refreshed to match it. It carries no figures. Replacing it means rerunning the pilot and updating the
 pinned digest in the same reviewed change.
 
+`american.pde_surface_harvest` (task 9C-C2a) contributes no snapshot either, and
+for a different reason: it is exploratory infrastructure whose outputs are a
+demonstration, not evidence. It publishes `report.json`, `rows.csv` and a
+`manifest.json` written **last** that pins both digests, so an interrupted run
+cannot read as a completed dataset. Its outputs are canonical, contain no
+timestamp, hostname, path or runtime. Byte identity is claimed only under stated
+preconditions: identical TOML bytes, identical source-name provenance (the same
+recorded `config_name`), identical runner code and engine, and differences
+confined to harmless candidate ordering or chunk size. Identical bytes loaded
+under a *different filename* keep the raw and semantic digests, every identity,
+every assignment and `rows.csv` unchanged, while `report.json` and its dependent
+manifest differ in recorded provenance alone; `verify_semantic_identity` is the
+check for that case and `verify_byte_identity` the stricter one. Reordered but
+semantically equivalent TOML likewise preserves IDs, assignments and `rows.csv`,
+while the exact-source digest deliberately changes the report and manifest.
+They belong under ignored `artifacts/`
+and are never committed.
+
 Python owns the read-only market pipelines (`market.ingest`,
 `market.reconstruct`). They read proprietary quote-level data, write only
 beneath ignored trees, and contribute no snapshot to `docs/results/`: nothing
