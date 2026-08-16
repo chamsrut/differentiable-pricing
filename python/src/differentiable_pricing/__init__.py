@@ -18,6 +18,7 @@ from ._pde import (
     pde_post_dividend_spot,
     pde_price,
     pde_segment_rate,
+    pde_valuation_surface,
 )
 from .stages import ResearchStage
 
@@ -38,6 +39,7 @@ __all__ = [
     "pde_post_dividend_spot",
     "pde_price",
     "pde_segment_rate",
+    "pde_valuation_surface",
 ]
 
 __version__ = "0.1.0"

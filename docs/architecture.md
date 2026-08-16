@@ -26,6 +26,10 @@ flowchart TD
 - the scalar finite-difference PDE oracle for European and American vanillas
   with explicit discrete cash dividends, bound in its own translation unit so
   the CRR and LSM implementation digests stay byte-stable;
+- the valuation-time surface of that same solve: one backward induction
+  returning nodewise price, delta, gamma, exercise classification and
+  structural Greek eligibility, plus many requested spots evaluated against it.
+  Only the final time level is retained, so working memory stays $O(N_S)$;
 - deterministic validation of contract/model inputs;
 - low-overhead model inference;
 - reverse-mode derivatives of the deployed smooth network;
@@ -51,9 +55,15 @@ loops. The CRR boundary accepts typed column vectors and returns price, step
 count, and lattice probability. The scalar LSM boundary returns the raw and
 control-variate estimates, pair-aware uncertainty, exercise counts, memory
 accounting, and regression diagnostics. The `_pde` extension is its own
-translation unit and returns the price together with the grid, time and PSOR
-diagnostics actually used — no sensitivity. A future training-data boundary may
-move to `N x D` float64 arrays when selected input derivatives exist.
+translation unit. `pde_price` returns the price together with the grid, time
+and PSOR diagnostics actually used — no sensitivity. `pde_valuation_surface`
+takes no spot at all: it returns the solved valuation-time slice columnwise —
+spots, values, deltas, gammas, obstacle slacks, LCP residuals, exercise states
+and Greek-eligibility reasons — together with the requested spots evaluated
+against that single solve, in the order they were asked for. Greeks that do not
+exist are `None` rather than a one-sided substitute. A future training-data
+boundary may move to `N x D` float64 arrays when selected input derivatives
+exist.
 
 ## Frozen result snapshots
 
@@ -94,8 +104,10 @@ deliberately so. The task 9C-B runner already emits canonical, timestamp-free
 JSON that a second run reproduces byte for byte, so the reviewed report is
 checked in as-is and pinned by SHA-256 in
 `python/tests/test_pde_label_policy_results_snapshot.py`, which also reconciles
-the configuration and runner digests it records against the current files. It
-carries no figures. Replacing it means rerunning the pilot and updating the
+the configuration and runner digests it records against the current files. The
+PDE source digests it records are **historical** — task 9C-C1 changed the engine
+sources after the pilot ran — and are deliberately not reconciled against HEAD
+nor refreshed to match it. It carries no figures. Replacing it means rerunning the pilot and updating the
 pinned digest in the same reviewed change.
 
 Python owns the read-only market pipelines (`market.ingest`,

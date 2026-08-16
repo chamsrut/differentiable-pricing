@@ -316,7 +316,7 @@ strike set, and fitting variation.
 | PDE four-label policy pilot (task 9C-B) | **Complete, frozen — `no_policy_selected`** | [pilot snapshot](docs/results/american_pde_label_policy_results_v1.json) |
 | Real-market feasibility audit (task 9A) | Complete, local only | scoped capabilities; no artefact staged |
 | Market-state reconstruction (task 9B) | Complete, local only | [reconstruction contract](docs/market-state-reconstruction-contract.md) |
-| Valuation-time surface, internally consistent American Greeks (task 9C-C1) | **Not started — next milestone** | design only |
+| Valuation-time surface, internally consistent American Greeks (task 9C-C1) | Complete | [PDE contract](docs/pde-numerical-contract.md), scalar-identity, analytic-Greek and free-boundary eligibility tests |
 | American label policy v2; American dataset, training, transfer; swaption stages 3–4 | Not started | blocked on 9C-C |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
 | Latency claims; calibrated curves and surfaces; OOD partitions | Not established | benchmarks are evidence, not gates |
@@ -341,8 +341,9 @@ scripts/                        Developer checks and study runners
 
 **C++** owns reference pricing and analytic sensitivities, CRR early-exercise
 pricing with a parallel price-only batch boundary, LSM policy fitting and
-valuation, the finite-difference PDE oracle with discrete cash dividends, input
-validation, and reverse-mode derivatives of the deployed network. **Python**
+valuation, the finite-difference PDE oracle with discrete cash dividends and
+its valuation-time price/delta/gamma surface, input validation, and
+reverse-mode derivatives of the deployed network. **Python**
 owns sampling, partitioning, lineage, training, evaluation, study runners, and
 the read-only market pipelines. Pricing formulas are never duplicated in Python
 to make a test pass. [docs/architecture.md](docs/architecture.md).
@@ -596,6 +597,8 @@ python -m differentiable_pricing.american.lsm_crosscheck \
   --output artifacts/american-lsm-crosscheck-v1.json
 
 python -m differentiable_pricing.american.pde_refinement
+
+python scripts/demo_pde_valuation_surface.py
 ```
 
 The **CRR convergence report** covers named exercise regimes over a step ladder
@@ -619,6 +622,13 @@ accounting: [docs/american-lsm-contract.md](docs/american-lsm-contract.md).
 The **PDE refinement study** reports how the oracle's price moves as the spot
 grid, the time grid, and the truncated domain are refined, one axis at a time
 and then jointly. It selects nothing.
+
+The **valuation-time surface demonstration** asks 32 interior spots of one
+European solve and one American solve, and reports the grid, the query count,
+the single backward induction behind them, the PSOR iterations, the Greek
+eligibility and exercise counts, and the worst difference against Black--Scholes
+or against the CRR engine and a refined grid. It is a correctness
+demonstration, not a throughput claim, and it selects nothing.
 
 Refreeze the LSM evidence and its figures only from a reviewed report:
 
@@ -705,7 +715,7 @@ never stage them, nor any fitted curve or inferred market value.
 | [docs/architecture.md](docs/architecture.md) | Language boundary, snapshot discipline, artifact contract, stage-1 model math |
 | [docs/american-crr-contract.md](docs/american-crr-contract.md) | Lattice, recursion, exercise metadata, complexity, convergence semantics |
 | [docs/american-lsm-contract.md](docs/american-lsm-contract.md) | Estimand, policy/valuation separation, uncertainty, control variate, overflow rejection |
-| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, and the 9C-B pilot design |
+| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, and the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules |
 | [docs/market-state-reconstruction-contract.md](docs/market-state-reconstruction-contract.md) | Parity fitting, identifiability classes, forbidden names, task 9C input contract |
 | [docs/agentic-workflow.md](docs/agentic-workflow.md) | Agent roles, guardrails, review loop |
 | [CLAUDE.md](CLAUDE.md) | Operating contract: commands, numerical non-negotiables, coding rules |
@@ -760,41 +770,62 @@ claims remain decisive
   projections assume ideal scaling and are not feasibility claims.
 - **No production or deployment claim.** C++ artifact loading is not
   implemented; the shipped inference core is `SmoothMlp` alone.
-- **No American Greek, dataset, or neural result yet**, and no Greek validation
-  independent of the analytic reference. The PDE oracle exposes prices only;
-  its pilot Greeks came from external bump-and-reprice.
+- **No American dataset or neural result yet.** The PDE oracle now exposes
+  nodewise delta and gamma from its valuation-time slice, cross-checked against
+  analytic Black--Scholes on European contracts; for American contracts no
+  closed form and no second engine in this repository prices a Greek, so those
+  are validated by structure, obstacle identities and a refinement control
+  rather than against truth. No production label policy exists.
 
 ---
 
-## Next milestone: task 9C-C1
+## Task 9C-C1: the valuation-time surface, and what comes next
 
 The pilot located the cost precisely: four labels per state took thirteen
 scalar solves at one grid — a center plus three symmetric bump pairs per axis —
-and every one of them discards the whole valuation-time solution to keep a
-single number. **Task 9C-C1 is designed and not implemented.** It will:
+and every one of them discarded the whole valuation-time solution to keep a
+single number. **Task 9C-C1 is implemented.** One backward induction now
+returns the valuation-time slice $V(S_i)$ with, per node, delta and gamma read
+off that slice by second-order differences in the actual node coordinates, the
+exercise/continuation classification certified against the solver's own LCP
+residual scale, and a Greek-eligibility rule fixed in code before any surface
+number was inspected: no one-sided boundary derivative, a declared domain-edge
+buffer, a refusal of every node whose own exercise state the solver cannot
+certify, and a five-node regime stencil that refuses any node whose
+neighbourhood crosses the free boundary or a numerically indifferent band. Many requested
+spots are evaluated against that single solve, in the order asked for, with no
+extrapolation outside the solved domain. The scalar API, its results and its
+$O(N_S)$ working memory are unchanged — a surface query at the scalar spot
+reproduces the scalar price bitwise
+([docs/pde-numerical-contract.md](docs/pde-numerical-contract.md)).
 
-- expose the valuation-time value slice $V(S)$ from one PDE solve;
-- derive delta and gamma from that slice, so price and both spatial Greeks come
-  from one internally consistent solution instead of independent solves;
-- expose the exercise/continuation classification already computed by the
-  obstacle solve;
-- predeclare a Greek-eligibility rule around nonsmooth and free-boundary
-  stencils, since the pilot showed the reference Greek itself is unstable
-  exactly there;
-- preserve the existing scalar API and its $O(N_S)$ working memory.
+```bash
+python scripts/demo_pde_valuation_surface.py
+```
 
-The sequence after it, in order and none of it implemented: **9C-C2**, a
-three-surface vega with deterministic batching and parallel throughput;
-**9C-C3**, a predeclared label-policy v2 evaluated on a small remediation set,
-followed only conditionally by a full confirmation run; then American dataset
-generation and the European→American transfer experiment; and only after that,
-evaluation of price, Greek, latency, implied-volatility and surface-calibration
-behaviour against real quotes.
+That demonstration asks 32 interior spots of one European and one American
+solve. It is a correctness demonstration, not a throughput measurement, and its
+wall-clock lines must not be extrapolated to a label budget.
 
-Nothing in that list exists today: no surface extraction, no surface batching,
-no vega surface, no parallel sharding, no faster LCP solver, no American
-training dataset, no American surrogate, no implied-volatility inversion, and
-no volatility-surface calibration.
+**One surface yielding many rows does not make those rows statistically
+independent.** They are correlated outputs of one solve, and the grouped
+partitioning rules that must govern them — assignment by surface group before
+solving, no group straddling a partition, group counts reported beside row
+counts — are recorded in the contract and deliberately *not* implemented here.
+
+Still not implemented, in order: **9C-C2**, a three-surface vega with grouped
+dataset generation, deterministic batching and parallel throughput; **9C-C3**, a
+predeclared label-policy v2 evaluated on a small remediation set, followed only
+conditionally by a full confirmation run; then American dataset generation and
+the European→American transfer experiment; and only after that, evaluation of
+price, Greek, latency, implied-volatility and surface-calibration behaviour
+against real quotes. **Task 9C-B remains `no_policy_selected`**; nothing in
+9C-C1 revisits its thresholds, config or frozen result.
+
+Nothing in that list exists today: no vega surface, no grouped label dataset, no
+parallel sharding, no faster LCP solver, no American training dataset, no
+American surrogate, no implied-volatility inversion, and no volatility-surface
+calibration.
 
 ---
 
