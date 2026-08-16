@@ -105,6 +105,32 @@ The runner may select the cheapest passing candidate in its declared order or
 emit `no_policy_selected`. Its 8/16-worker projections assume ideal scaling and
 are not a production-feasibility claim.
 
+Task 9C-C1 added the valuation-time surface beside the scalar price, in the same
+`_pde` extension: `dp::finite_difference_valuation_surface` and
+`pde_valuation_surface` solve once and return the whole slice with nodewise
+price, delta, gamma, exercise classification and Greek eligibility, plus many
+requested spots evaluated against that one solve. The scalar API, its results
+and its O(N_S) working memory are unchanged, and a surface query at the scalar
+spot reproduces the scalar price bitwise. The derivative, classification and
+eligibility rules are in `docs/pde-numerical-contract.md` and are load-bearing:
+Greeks come from the solved slice and never from a bump, the exercise
+classification is certified against the solver's own LCP residual scale rather
+than a decimal tolerance, a node whose regime that scale cannot certify is
+refused as a Greek label, and the five-node regime stencil and domain-edge
+buffer are fixed rules, not tuning knobs. A query's delta and gamma are
+interpolated nodewise discrete Greeks, never derivatives of the query price
+interpolant. A tiny non-CI demonstration:
+
+```bash
+python scripts/demo_pde_valuation_surface.py
+```
+
+It is a correctness demonstration, not a throughput claim. Vega surfaces,
+grouped dataset generation, parallel execution and label policy v2 are **not**
+implemented, task 9C-B remains `no_policy_selected`, and one surface yielding
+many rows does not make those rows statistically independent — the mandatory
+task 9C-C2 grouping rules are recorded in the contract and unimplemented.
+
 The reviewed cross-check evidence is frozen in
 `docs/results/american_lsm_crosscheck_results_v1.json`. Raw reports stay
 ignored under `artifacts/` and are never committed. Regenerate the snapshot and

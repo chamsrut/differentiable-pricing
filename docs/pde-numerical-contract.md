@@ -306,10 +306,12 @@ Supported:
 
 Not supported in task 9C-A, and not silently approximated:
 
-- Greeks of any kind. The grid carries no sensitivity output and none should be
-  read off it. Task 9C-B derived Greeks *outside* the engine by bumping and
-  repricing; exposing a valuation-time slice and reading delta and gamma off it
-  is task 9C-C1, which is designed and not implemented.
+- Greeks of any kind *from the scalar entry point*. `PdeResult` carries no
+  sensitivity output and none should be read off it. Task 9C-B derived Greeks
+  *outside* the engine by bumping and repricing. Reading delta and gamma off the
+  valuation-time slice is task 9C-C1 and is implemented on a separate entry
+  point, `finite_difference_valuation_surface`, described below; the scalar API
+  is unchanged.
 - Non-constant or state-dependent volatility.
 - Proportional dividends, dividend curves, or any inference of a dividend from
   market data. Task 9B established that the archive carries no independent
@@ -399,6 +401,314 @@ It is exploratory, it selects nothing, and it is not part of CI.
   measured, not eliminated.
 - Nothing here reads, calibrates to, or implies any real market quote.
 
+## Task 9C-C1 valuation-time surface
+
+Backward induction already computes the whole valuation-time vector $V(S_i)$ and
+the scalar API then throws all of it away to keep one interpolated number. Task
+9C-C1 exposes that vector, and nothing else about the solve's history.
+
+`dp::finite_difference_valuation_surface(contract, grid, settings)` returns a
+`PdeValuationSurface`; `dp::evaluate_valuation_surface(surface, spots)` queries
+an already-solved one; `dp::finite_difference_valuation_surface_at(...)` does
+both so the common case cannot accidentally solve per spot. In Python the
+combined form is `pde_valuation_surface(...)`.
+
+### The solved domain does not depend on any requested spot
+
+`PdeSurfaceContract` is the economic state with the spot removed, and
+`PdeContract::surface_state()` is how the scalar path reaches it. The spot grid
+is built from the strike and the grid settings alone. The scalar entry point
+keeps its own domain checks and then interpolates the same slice at its own
+spot, so **the scalar API and its results are unchanged**: a surface query at
+the scalar spot reproduces the scalar price *bitwise*, not to a tolerance,
+because it is the same `monotone_evaluate` call on the same solved vector. Both
+suites assert equality with `==`.
+
+### What one solve returns
+
+Per node: `index`, `spot`, `value`, `obstacle`, `obstacle_slack`,
+`lcp_linear_residual`, `exercise_state`, `delta`, `gamma`, `greek_eligible` and
+`greek_eligibility_reason`. Alongside them the surface carries the whole
+`PdeSolveDiagnostics` block — solver status, discretization-accuracy status,
+actual grid, time and Rannacher counts, PSOR solve and iteration counts,
+residuals, aligned times and dividend events — plus `valuation_time`,
+`exercise_classification_scale`, `boundary_exclusion_nodes`,
+`regime_stencil_radius` and `backward_inductions`. `backward_inductions` is
+always $1$: it is reported so a caller can show that $32$ queries cost one
+solve and not $32$ solves. `PdeValuationSurface::validate()` rejects a node
+vector whose length disagrees with the reported grid or whose index and spot
+order is not ascending.
+
+### Delta and gamma
+
+Both are read off the solved slice. **No additional PDE solve, and no bump, is
+involved.** They are written in the actual node coordinates, with
+$h^-_i=S_i-S_{i-1}$ and $h^+_i=S_{i+1}-S_i$:
+
+$$
+\Delta_i=\frac{(h^-_i)^2V_{i+1}+\left((h^+_i)^2-(h^-_i)^2\right)V_i-(h^+_i)^2V_{i-1}}{h^-_ih^+_i(h^-_i+h^+_i)},
+$$
+
+$$
+\Gamma_i=\frac{2\left(h^-_iV_{i+1}-(h^+_i+h^-_i)V_i+h^+_iV_{i-1}\right)}{h^-_ih^+_i(h^-_i+h^+_i)}.
+$$
+
+On the uniform grid built today these reduce to the centered formulas
+$(V_{i+1}-V_{i-1})/(2h)$ and $(V_{i+1}-2V_i+V_{i-1})/h^2$. They are deliberately
+not written that way: a later nonuniform grid must not be able to inherit a
+uniform-grid formula silently.
+
+`delta` and `gamma` are `std::optional<double>`, engaged exactly when a centered
+stencil exists and every value entering it is finite. **The two domain-boundary
+nodes report no number at all.** A one-sided difference there would look
+plausible and is not the same estimator; offering it would put a different
+quantity in a training column under the same name.
+
+### Exercise classification
+
+The classification is read off the final implicit system, never off a post-hoc
+decimal tolerance. With obstacle $\psi$, solved slice $x$, obstacle slack
+$s=x-\psi$ and linear residual $\rho=Ax-b$ of that final system, the solver's
+own convergence contract bounds the natural LCP residual by
+
+$$
+\varepsilon=\texttt{psor-tolerance}\times\max(1,\lVert b\rVert_\infty),
+$$
+
+reported as `exercise_classification_scale`. A node is classified only when one
+of the two complementary slacks is certified nonzero at that scale:
+
+- `continuation` when $s_i>\varepsilon$;
+- `exercise` when $s_i\le\varepsilon$ and $\rho_i>\varepsilon$;
+- `numerically_indifferent` when both slacks sit inside $\varepsilon$, so
+  strict complementarity cannot be certified;
+- `no_obstacle` for every node of a European contract, where no complementarity
+  problem is posed at all. It is not a quiet `continuation`.
+
+`numerically_indifferent` is a real population, not a rare edge. In the
+reference American put fixture (800 intervals, $S_{\max}=400$, $K=100$) it is
+one contiguous block of 135 nodes at $S\in[333,400]$, that is $S\ge 3.33K$,
+where the value ($\le 9.7\times10^{-10}$), the obstacle and the linear residual
+all sit at or below $\varepsilon\approx 10^{-9}$. It is the truncation tail, 503
+nodes away from the free boundary at $S=81.5$, and its nodes are
+information-free: their computed $\Delta$ is at most $9.6\times10^{-11}$ against
+an analytic European reference of $-9.8\times10^{-11}$ at $S=333$.
+
+That is the observed geometry in one fixture and it is **not** what the rule is
+based on. The rule is based on the meaning of the classification: an uncertified
+regime makes the derivative's interpretation uncertified. Nothing guarantees the
+band stays in the tail — an indifferent band can also open at the free boundary,
+where slack and residual vanish together — and there a regime-uniform interior
+would otherwise be declared eligible. The exclusion is therefore applied to the
+node's own state, before the stencil test. It makes the rule strictly stronger
+and can only remove rows, never add them.
+
+Counts on that fixture, by exercise state and eligibility: continuation
+499 eligible / 4 refused, exercise 157 / 6, numerically indifferent 0 / 135
+(656 of 801 nodes eligible). The refused continuation and exercise nodes are the
+free-boundary band and the domain-edge buffer.
+
+### Structural Greek eligibility
+
+The rule was fixed in code and tests before any surface numbers were inspected.
+A node is ineligible for the first applicable reason in this declared
+precedence order, and the reason is returned as a stable machine-readable name:
+
+1. `centered_stencil_unavailable` — index $0$ or the last index.
+2. `inside_domain_boundary_buffer` — index below `boundary_exclusion_nodes` or
+   above `spot_intervals - boundary_exclusion_nodes`. The buffer is a **node
+   count**, declared by the caller and reported back, and it must be at least
+   the regime stencil radius.
+3. `non_finite_stencil_value` — a stencil value or a resulting derivative is not
+   finite. Defensive: the solver already rejects a non-finite solution.
+4. `unresolved_exercise_state` — the node's own classification is
+   `numerically_indifferent`. The difference quotient there is a well-defined
+   number, but the solver cannot certify which quantity it estimates: the
+   derivative of an obstacle-clamped payoff, or of a free PDE solution. The
+   refusal is structural, not a count-driven exclusion. It must hold wherever an
+   indifferent band appears, including a band wide enough to have a
+   regime-uniform interior *at the free boundary*, which is exactly where the
+   9C-B pilot found the reference Greek least stable. The stencil value is still
+   returned; only its admissibility as a label is denied.
+5. `regime_stencil_not_uniform` — some node of the **five-node** stencil
+   $i-2,\dots,i+2$ carries a different exercise classification. Five nodes is
+   the smallest window that contains the three-node derivative stencil of both
+   immediate neighbours, so a node cannot be eligible while a neighbour whose
+   value entered its own stencil sits in a different regime.
+   `pde_regime_stencil_radius = 2` is a fixed header constant, not a tuning
+   knob.
+
+A pure exercise-region node stays **eligible**: its whole stencil is inside one
+regime, and $V=\Phi$ there makes its price and its intrinsic derivatives
+mathematically valid. In the reference put fixture those nodes return
+$\Delta=-1$ and $\Gamma=0$ to within $10^{-12}$. They are correct and nearly
+information-free, which is a sampling-density question, not an eligibility
+question: `exercise_state` is returned separately so task 9C-C2 can limit their
+density. **No post-hoc sampling quota is implemented here.**
+
+The exclusion around the free boundary is local. If the last exercise node has
+index $t-1$ and the first non-exercise node index $t$, exactly the band
+$[t-2,t+1]$ is refused; $t-3$ and $t+2$ remain eligible.
+
+### Multi-spot evaluation
+
+One solve serves every requested spot. Requested order is preserved; duplicates
+are neither removed nor reordered and each carries `first_occurrence_index`,
+the position of the first bitwise-equal spot, so a consumer can see the
+repetition instead of inferring it. A spot outside the solved domain — not
+finite, not positive, or at or beyond the actual `spot_maximum` — is rejected
+with `std::invalid_argument` naming the offending query index. **Nothing is
+clamped and nothing is extrapolated.** The check runs before the solve in the
+combined entry point, so a bad request never costs one.
+
+A query's price is the same monotone cubic Hermite interpolation the scalar API
+uses. Its `left_node_index` and `right_node_index` come from the same cell
+lookup that produced that price, so a query can never report bracketing nodes
+other than its own.
+
+**A query's delta and gamma are interpolated nodewise discrete Greeks, not
+derivatives of that price interpolant.** They are the linear blend across the
+containing cell of the two bracketing nodes' centered difference quotients,
+returned **only** when both those nodes are Greek-eligible; two eligible
+neighbours necessarily share a regime, so an engaged query Greek never straddles
+the free boundary.
+
+The distinction is measurable, not cosmetic. Differentiating the monotone
+Hermite price interpolant gives a different number: at mid-cell positions on the
+reference fixtures the two estimators disagree by up to $6.0\times10^{-5}$
+(European call) and $8.1\times10^{-5}$ (American put) in delta, about
+$3\times10^{-4}$ relative — larger than the nodewise delta's own agreement with
+Black--Scholes on the same grid. An off-grid $(\text{price},\Delta)$ pair from
+this API is therefore **not** internally consistent to better than that scale,
+and neither estimator is corrected towards the other.
+
+A query placed exactly on a grid node is the consistent case and is exact: the
+blend weight is zero, so its value, delta and gamma are bitwise the node's own.
+Both suites assert that with `==`. Task 9C-C2 should prefer node-aligned
+harvesting where price and Greek must come from one interpolant. Query eligibility carries
+the same reason vocabulary as node eligibility, taken from whichever bracketing
+node is ineligible. `exercise_state` on a query is engaged only when both
+bracketing nodes agree, so a query sitting across the boundary reports no regime
+rather than a guessed one.
+
+### Determinism, complexity and memory
+
+The surface adds no randomness, no reassociated reduction and no parallelism.
+Repeated solves are bitwise identical in every node value, Greek, classification
+and in `exercise_classification_scale`.
+
+**Only the valuation-time level is retained.** The marching loop holds the same
+fixed number of node-length vectors it always did, plus one node-length residual
+vector read off the final system; no space-time array is formed and no time
+history is exposed. Working memory is therefore $O(N_S)$, unchanged by $M$, and
+the returned surface is $O(N_S)$ as well. Both suites assert the structural
+consequence: quadrupling the time steps leaves the returned node count and the
+aligned-time vector unchanged. That is a structural regression test on the
+design, not a memory measurement.
+
+### Not implemented by task 9C-C1
+
+Volatility bumps and vega surfaces; any label dataset, Parquet writer or
+partitioning code; worker pools, threading, multiprocessing or cluster
+execution; progress or checkpoint infrastructure; Richardson label generation; a
+replacement for PSOR; label policy v2; neural training; implied-volatility
+inversion or surface calibration. **Task 9C-B remains `no_policy_selected`** and
+nothing in this section revisits it: no threshold, config or frozen result of
+that pilot is touched, and no grid here is label-grade.
+
+No throughput is claimed. `scripts/demo_pde_valuation_surface.py` is a
+correctness demonstration on two small cases and its wall-clock lines are not a
+production-feasibility measurement and must not be extrapolated to a label
+budget.
+
+### Mandatory rules for the task 9C-C2 dataset contract
+
+These are recorded here now, before any dataset exists, because the leakage they
+prevent is invisible once rows are flattened. **One surface yielding many rows
+does not make those rows statistically independent.**
+
+- All spot rows harvested from the same PDE surface are correlated numerical
+  outputs of one solve.
+- The sigma-minus, base-sigma and sigma-plus surfaces later used for vega belong
+  to the **same surface group**.
+- Train/validation/test assignment happens by surface or economic group
+  **before solving**, never row by row afterwards.
+- No surface group may straddle partitions.
+- Reports must show both raw row counts and independent surface-group counts.
+- Duplicate economic states must be checked at both row level and group level.
+- Learning-curve size is measured primarily in independent non-spot parameter
+  groups, not only in harvested rows.
+- Harvesting must use a predeclared interior window away from the truncation
+  boundary. The `boundary_exclusion_nodes` buffer here is a structural
+  admissibility rule, not that window.
+- Exercise-region rows are correct but low-information, and their sampling
+  density will be controlled by a predeclared task 9C-C2 policy. That policy is
+  separate from the structural refusal of uncertified-regime rows above: those
+  are excluded by the engine and are not a sampling choice.
+- Row counts must be reported broken down by exercise state and eligibility
+  reason, so a partition cannot silently consist of near-intrinsic rows.
+
+A group should eventually contain every output sharing the same underlying
+non-spot economic state and related numerical construction, including call/put
+or volatility-bump relatives wherever the sampling contract determines that
+cross-partition separation could leak information. The final identifier schema
+is deliberately **not** guessed here; the requirement is recorded, not
+implemented.
+
+### Validation
+
+C++ (`cpp/tests/test_main.cpp`) and Python
+(`python/tests/test_pde_surface_binding.py`) cover the same requirements
+independently:
+
+1. The scalar API and its status semantics unchanged, and a surface query at the
+   scalar spot reproducing the scalar price bitwise for European, American,
+   and cash-dividend contracts.
+2. Node vector lengths, ascending order, finite values, node spots at $ih$, and
+   the reported grid, buffer, stencil radius and solve count.
+3. European price, delta and gamma against analytic Black--Scholes at every
+   eligible node in a smooth interior window, on both a fine and a coarser grid.
+4. Call and put monotonicity, convexity of the value slice, and non-negative
+   gamma on eligible nodes, for both exercise styles.
+5. American obstacle dominance at every discrete node.
+6. Pure exercise-region put nodes: value intrinsic to within
+   $\varepsilon$, $\Delta=-1$ and $\Gamma=0$ to $10^{-12}$, classified
+   `exercise`, and structurally eligible.
+7. Continuation-region classification with certified obstacle slack.
+8. The whole classification rule replayed against $s_i$, $\rho_i$ and
+   $\varepsilon$ on every node.
+9. Nodes whose stencil crosses the free boundary ineligible with
+   `regime_stencil_not_uniform`, and the exclusion band exactly $[t-2,t+1]$;
+   every `numerically_indifferent` node ineligible, with
+   `unresolved_exercise_state` on the interior of the band and its difference
+   quotient still returned.
+10. Query delta and gamma equal the linear blend of their bracketing nodewise
+    Greeks bitwise, differ from the derivative of the query price interpolant,
+    and reduce to the node's own Greeks bitwise for a query on a grid node.
+11. Domain-boundary nodes ineligible with `centered_stencil_unavailable` and no
+    delta or gamma at all; buffer nodes ineligible with
+    `inside_domain_boundary_buffer` while their stencil still exists.
+12. A discrete-dividend surface: events recorded, obstacle dominance held, and
+    the scalar identity preserved. No analytic comparator is used, because the
+    cash-dividend jump invalidates Black--Scholes.
+13. Negative rate with positive carry against Black--Scholes; a negative-rate
+    American put having **no** exercise region and collapsing onto its European
+    surface; and a negative-rate carrying American call whose exercise region is
+    the upper spot range.
+14. Thirty-two queries from one solve: `backward_inductions = 1`, and PSOR solve
+    and iteration totals identical to a one-query run of the same contract.
+15. Out-of-domain, non-positive and non-finite queries rejected by index.
+16. Duplicate and unsorted queries preserved in order with correct
+    `first_occurrence_index` and identical values for repeats.
+17. Bitwise-identical repeated solves.
+18. The returned surface unchanged in size by quadrupling the time steps.
+19. Rejected surface requests: undersized and oversized boundary buffers, a
+    domain not containing the strike, an undeclared carry, and the absence of a
+    spot argument on the surface entry point.
+
+Greek bands against Black--Scholes are conservative cross-check bands, not
+accuracy claims and not acceptance gates.
+
 ## Task 9C-B label-policy pilot
 
 Task 9C-B leaves the scalar C++ solver unchanged and derives price, delta,
@@ -463,3 +773,27 @@ extrapolations of that measurement and are not production-feasibility claims.
 
 No production label policy therefore exists, and none of these numbers may be
 reused as an acceptance criterion for a later label-policy study.
+
+### Provenance of the frozen snapshot after task 9C-C1
+
+The snapshot's `source` block records the PDE header, source and composite
+implementation digests **as they were when the pilot ran**. Task 9C-C1 changed
+`cpp/include/dp/finite_difference_pde.hpp` and
+`cpp/src/finite_difference_pde.cpp`, so those three recorded digests no longer
+equal the current files, and that is correct: they are **historical task 9C-B
+evidence**, not a statement about HEAD. They are frozen along with the rest of
+the file by its pinned SHA-256 and must never be refreshed to match a later
+build — doing so would silently transfer provenance the pilot never had.
+`python/tests/test_pde_label_policy_results_snapshot.py` deliberately reconciles
+only the config and runner digests against current files, because those two
+inputs are the ones a rerun would have to reproduce exactly; it makes no claim
+about the PDE digests either way.
+
+Confidence that the current engine still reproduces the pilot's scalar
+behaviour therefore rests on evidence, not on a digest: the scalar entry point
+was shown to be **byte-identical** to the pre-9C-C1 implementation across seven
+contracts covering both exercise styles, zero/one/two cash dividends, a negative
+rate and an upwinded grid — price and every reported diagnostic printed at full
+precision — and on the unchanged task 9C-A regression suites. Rerunning the
+pilot to refresh provenance is not permitted: protocol-wise its partition was
+consumed once, and its outcome is terminal.

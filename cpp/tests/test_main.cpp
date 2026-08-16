@@ -1489,6 +1489,515 @@ void test_pde_american_refinement_ladder_converges() {
     expect_true(previous_error < 5.0e-4, "refined American PDE must agree with the CRR reference");
 }
 
+// --------------------------------------------------------------------------
+// Task 9C-C1: the valuation-time surface
+// --------------------------------------------------------------------------
+
+// The spot passed here is discarded by surface_state(); it exists only because
+// the scalar fixture builder above requires one. That is the point of the
+// refactor: the solved domain cannot depend on a requested spot.
+dp::PdeSurfaceContract pde_surface_contract(const dp::OptionType option_type,
+                                            const dp::ExerciseStyle exercise_style,
+                                            const double strike, const double expiry,
+                                            const double rate, const double carry,
+                                            const double volatility,
+                                            std::vector<dp::CashDividend> dividends) {
+    return pde_contract(option_type, exercise_style, strike, strike, expiry, rate, carry,
+                        volatility, std::move(dividends))
+        .surface_state();
+}
+
+// Four nodes at each end of the domain are declared structurally inadmissible.
+// The value is fixed here and in the Python suite before any surface number was
+// inspected; it is at least the five-node regime stencil's radius.
+constexpr std::size_t pde_boundary_exclusion_nodes = 4U;
+
+dp::PdeSurfaceSettings pde_surface_settings() {
+    return dp::PdeSurfaceSettings{pde_boundary_exclusion_nodes};
+}
+
+void test_pde_surface_reproduces_the_scalar_price() {
+    struct Case {
+        dp::OptionType option_type;
+        dp::ExerciseStyle exercise_style;
+        double spot;
+        std::vector<dp::CashDividend> dividends;
+    };
+    const std::vector<Case> cases{
+        {dp::OptionType::call, dp::ExerciseStyle::european, 100.0, {}},
+        {dp::OptionType::put, dp::ExerciseStyle::american, 103.0, {}},
+        {dp::OptionType::call, dp::ExerciseStyle::european, 97.5, {{0.4, 3.0}}},
+        {dp::OptionType::put, dp::ExerciseStyle::american, 88.0, {{0.4, 3.0}}},
+    };
+    for (const Case& item : cases) {
+        const dp::PdeGrid grid = pde_grid(800U, 400U, 400.0);
+        const auto scalar = pde_contract(item.option_type, item.exercise_style, item.spot, 100.0,
+                                         1.0, 0.05, 0.01, 0.2, item.dividends);
+        const dp::PdeResult reference = dp::finite_difference_price(scalar, grid);
+        const dp::PdeSurfaceEvaluation evaluation = dp::finite_difference_valuation_surface_at(
+            pde_surface_contract(item.option_type, item.exercise_style, 100.0, 1.0, 0.05, 0.01, 0.2,
+                                 item.dividends),
+            grid, pde_surface_settings(), {item.spot});
+        // Same interpolation implementation on the same solved slice, so this is
+        // a bitwise identity and not a tolerance.
+        expect_true(evaluation.queries.at(0).value == reference.price,
+                    "surface query did not reproduce the scalar price bit for bit");
+        expect_true(evaluation.surface.diagnostics.spot_intervals == reference.spot_intervals &&
+                        evaluation.surface.diagnostics.spot_step == reference.spot_step &&
+                        evaluation.surface.diagnostics.time_steps == reference.time_steps,
+                    "surface and scalar grids disagree");
+        expect_true(evaluation.surface.diagnostics.psor_total_iterations ==
+                            reference.psor_total_iterations &&
+                        evaluation.surface.diagnostics.maximum_lcp_residual ==
+                            reference.maximum_lcp_residual,
+                    "surface and scalar solves disagree");
+        expect_true(evaluation.surface.diagnostics.dividend_events.size() ==
+                        reference.dividend_events.size(),
+                    "surface and scalar dividend events disagree");
+    }
+}
+
+void test_pde_surface_structure_and_grid_metadata() {
+    const dp::PdeValuationSurface surface = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0, 1.0, 0.05,
+                             0.0, 0.2, {}),
+        pde_grid(800U, 400U, 400.0), pde_surface_settings());
+
+    expect_true(surface.nodes.size() == surface.diagnostics.spot_intervals + 1U,
+                "surface node count does not match the reported grid");
+    expect_true(surface.backward_inductions == 1U, "surface must report exactly one solve");
+    expect_true(surface.regime_stencil_radius == dp::pde_regime_stencil_radius,
+                "surface must report the regime stencil radius it used");
+    expect_true(surface.boundary_exclusion_nodes == pde_boundary_exclusion_nodes,
+                "surface must report the boundary exclusion buffer it used");
+    expect_true(surface.valuation_time == 0.0, "surface must report its valuation time");
+    expect_true(surface.exercise_classification_scale > 0.0,
+                "surface must report a positive classification scale");
+    for (std::size_t index = 0U; index < surface.nodes.size(); ++index) {
+        const dp::PdeSurfaceNode& node = surface.nodes[index];
+        expect_true(node.index == index, "surface nodes are out of order");
+        expect_near(node.spot, static_cast<double>(index) * surface.diagnostics.spot_step, 1.0e-12,
+                    "surface node spot");
+        expect_true(std::isfinite(node.value), "surface node value is not finite");
+        expect_true(node.exercise_state == dp::PdeExerciseState::no_obstacle,
+                    "a European surface must pose no obstacle");
+        const bool interior = index != 0U && index != surface.diagnostics.spot_intervals;
+        expect_true(node.delta.has_value() == interior && node.gamma.has_value() == interior,
+                    "centered Greeks must exist exactly on interior nodes");
+    }
+    expect_true(surface.nodes.front().greek_eligibility_reason ==
+                        dp::PdeGreekEligibilityReason::centered_stencil_unavailable &&
+                    surface.nodes.back().greek_eligibility_reason ==
+                        dp::PdeGreekEligibilityReason::centered_stencil_unavailable,
+                "domain boundary nodes must report an unavailable stencil");
+    for (std::size_t index = 1U; index < pde_boundary_exclusion_nodes; ++index) {
+        expect_true(!surface.nodes[index].greek_eligible &&
+                        surface.nodes[index].greek_eligibility_reason ==
+                            dp::PdeGreekEligibilityReason::inside_domain_boundary_buffer,
+                    "buffer nodes must be ineligible with the buffer reason");
+    }
+    expect_true(std::string(dp::pde_greek_eligibility_reason_name(
+                    dp::PdeGreekEligibilityReason::eligible)) == "eligible",
+                "eligibility reason names must be stable");
+    expect_true(std::string(dp::pde_exercise_state_name(dp::PdeExerciseState::exercise)) ==
+                    "exercise",
+                "exercise state names must be stable");
+}
+
+void test_pde_surface_european_nodes_match_black_scholes_greeks() {
+    const dp::PdeValuationSurface surface = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0, 1.0, 0.05,
+                             0.0, 0.2, {}),
+        pde_grid(1'600U, 800U, 400.0), pde_surface_settings());
+
+    std::size_t checked = 0U;
+    for (const dp::PdeSurfaceNode& node : surface.nodes) {
+        if (!node.greek_eligible || node.spot < 60.0 || node.spot > 160.0) {
+            continue;
+        }
+        const auto reference = dp::black_scholes(
+            dp::OptionType::call, dp::BlackScholesInput{node.spot, 100.0, 1.0, 0.05, 0.0, 0.2});
+        // Conservative cross-check bands on smooth interior nodes, not accuracy
+        // claims: task 9C-B remains no_policy_selected and no grid here is
+        // label-grade.
+        expect_near(node.value, reference.price, 5.0e-4, "surface node price");
+        expect_near(*node.delta, reference.delta, 1.0e-4, "surface node delta");
+        expect_near(*node.gamma, reference.gamma, 1.0e-5, "surface node gamma");
+        ++checked;
+    }
+    expect_true(checked >= 100U, "too few smooth interior nodes were checked");
+}
+
+void test_pde_surface_values_are_monotone_and_convex() {
+    for (const dp::OptionType option_type : {dp::OptionType::call, dp::OptionType::put}) {
+        for (const dp::ExerciseStyle style :
+             {dp::ExerciseStyle::european, dp::ExerciseStyle::american}) {
+            const dp::PdeValuationSurface surface = dp::finite_difference_valuation_surface(
+                pde_surface_contract(option_type, style, 100.0, 1.0, 0.05, 0.0, 0.2, {}),
+                pde_grid(800U, 400U, 400.0), pde_surface_settings());
+            for (std::size_t index = 1U; index < surface.nodes.size(); ++index) {
+                const double change = surface.nodes[index].value - surface.nodes[index - 1U].value;
+                if (option_type == dp::OptionType::call) {
+                    expect_true(change >= -pde_solver_band, "call surface is not monotone");
+                } else {
+                    expect_true(change <= pde_solver_band, "put surface is not monotone");
+                }
+            }
+            for (const dp::PdeSurfaceNode& node : surface.nodes) {
+                if (node.greek_eligible) {
+                    expect_true(*node.gamma >= -pde_solver_band, "surface gamma turned negative");
+                }
+            }
+        }
+    }
+}
+
+void test_pde_surface_classifies_the_american_exercise_regions() {
+    const dp::PdeValuationSurface surface = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0, 1.0, 0.05,
+                             0.0, 0.2, {}),
+        pde_grid(800U, 400U, 400.0), pde_surface_settings());
+    const double scale = surface.exercise_classification_scale;
+
+    std::size_t exercised = 0U;
+    std::size_t continued = 0U;
+    for (const dp::PdeSurfaceNode& node : surface.nodes) {
+        expect_true(node.value >= node.obstacle, "American node fell below the discrete obstacle");
+        expect_near(node.obstacle_slack, node.value - node.obstacle, 0.0, "obstacle slack");
+        // The classification is the declared complementarity rule at the
+        // solver's own residual scale, never a post-hoc decimal tolerance.
+        switch (node.exercise_state) {
+        case dp::PdeExerciseState::continuation:
+            expect_true(node.obstacle_slack > scale, "continuation node lacks certified slack");
+            break;
+        case dp::PdeExerciseState::exercise:
+            expect_true(node.obstacle_slack <= scale && node.lcp_linear_residual > scale,
+                        "exercise node lacks a certified active constraint");
+            break;
+        case dp::PdeExerciseState::numerically_indifferent:
+            expect_true(node.obstacle_slack <= scale && node.lcp_linear_residual <= scale,
+                        "indifferent node had a certified slack");
+            break;
+        case dp::PdeExerciseState::no_obstacle:
+            throw std::runtime_error("an American surface reported no obstacle");
+        }
+
+        if (node.spot >= 20.0 && node.spot <= 60.0) {
+            expect_true(node.exercise_state == dp::PdeExerciseState::exercise,
+                        "a deep in-the-money put node was not classified as exercise");
+            expect_near(node.value, 100.0 - node.spot, scale, "exercise node is not intrinsic");
+            expect_true(node.greek_eligible,
+                        "a node whose whole stencil is inside one exercise regime must stay "
+                        "structurally eligible");
+            expect_near(*node.delta, -1.0, 1.0e-12, "intrinsic delta");
+            expect_near(*node.gamma, 0.0, 1.0e-12, "intrinsic gamma");
+            ++exercised;
+        }
+        if (node.spot >= 120.0 && node.spot <= 180.0) {
+            expect_true(node.exercise_state == dp::PdeExerciseState::continuation,
+                        "a far out-of-the-money put node was not classified as continuation");
+            expect_true(node.greek_eligible, "a smooth continuation node must be eligible");
+            ++continued;
+        }
+    }
+    expect_true(exercised >= 20U && continued >= 20U, "too few classified nodes were checked");
+
+    // Nodes whose five-node regime stencil spans the free boundary are refused,
+    // and the refusal is local: it must not sterilise the regimes around it.
+    const auto first_non_exercise = std::find_if(
+        surface.nodes.begin(), surface.nodes.end(), [](const dp::PdeSurfaceNode& node) {
+            return node.exercise_state != dp::PdeExerciseState::exercise;
+        });
+    expect_true(first_non_exercise != surface.nodes.end(), "no free boundary was found");
+    const auto transition = static_cast<std::size_t>(
+        std::distance(surface.nodes.begin(), first_non_exercise));
+    for (std::size_t index = transition - dp::pde_regime_stencil_radius;
+         index < transition + dp::pde_regime_stencil_radius; ++index) {
+        expect_true(!surface.nodes[index].greek_eligible &&
+                        surface.nodes[index].greek_eligibility_reason ==
+                            dp::PdeGreekEligibilityReason::regime_stencil_not_uniform,
+                    "a node straddling the free boundary was left Greek-eligible");
+    }
+    expect_true(surface.nodes[transition - dp::pde_regime_stencil_radius - 1U].greek_eligible &&
+                    surface.nodes[transition + dp::pde_regime_stencil_radius].greek_eligible,
+                "the free-boundary exclusion is not local");
+}
+
+void test_pde_surface_refuses_greeks_where_the_regime_is_uncertified() {
+    const dp::PdeValuationSurface surface = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0, 1.0, 0.05,
+                             0.0, 0.2, {}),
+        pde_grid(800U, 400U, 400.0), pde_surface_settings());
+
+    // A numerically indifferent node has an uncertified regime, so which
+    // quantity its difference quotient estimates - the derivative of an
+    // obstacle-clamped payoff or of a free PDE solution - is uncertified with
+    // it. The refusal is structural: it must also hold for an indifferent band
+    // wide enough to have a regime-uniform interior at the free boundary.
+    std::size_t indifferent = 0U;
+    std::size_t interior = 0U;
+    for (const dp::PdeSurfaceNode& node : surface.nodes) {
+        if (node.exercise_state != dp::PdeExerciseState::numerically_indifferent) {
+            continue;
+        }
+        ++indifferent;
+        expect_true(!node.greek_eligible, "an uncertified-regime node was left Greek-eligible");
+        const bool at_edge = node.index < pde_boundary_exclusion_nodes ||
+                             node.index > surface.diagnostics.spot_intervals -
+                                              pde_boundary_exclusion_nodes;
+        if (at_edge) {
+            continue;
+        }
+        ++interior;
+        expect_true(node.greek_eligibility_reason ==
+                        dp::PdeGreekEligibilityReason::unresolved_exercise_state,
+                    "an uncertified-regime node reported the wrong refusal reason");
+        // The stencil still exists; only its interpretation is refused.
+        expect_true(node.delta.has_value() && node.gamma.has_value(),
+                    "an uncertified-regime node lost its difference quotient");
+    }
+    expect_true(indifferent >= 100U && interior >= 100U,
+                "the fixture no longer contains a numerically indifferent band");
+    expect_true(std::string(dp::pde_greek_eligibility_reason_name(
+                    dp::PdeGreekEligibilityReason::unresolved_exercise_state)) ==
+                    "unresolved_exercise_state",
+                "the refusal reason name must be stable");
+}
+
+void test_pde_surface_query_greeks_are_interpolated_nodewise_greeks() {
+    const auto contract = pde_surface_contract(dp::OptionType::call, dp::ExerciseStyle::european,
+                                               100.0, 1.0, 0.05, 0.0, 0.2, {});
+    const dp::PdeGrid grid = pde_grid(800U, 400U, 400.0);
+    const double probe = 100.25;
+    const double step = 1.0e-4;
+    const dp::PdeSurfaceEvaluation evaluation = dp::finite_difference_valuation_surface_at(
+        contract, grid, pde_surface_settings(), {probe, probe - step, probe + step});
+    const dp::PdeSurfaceQuery& query = evaluation.queries.front();
+    const dp::PdeSurfaceNode& left = evaluation.surface.nodes[query.left_node_index];
+    const dp::PdeSurfaceNode& right = evaluation.surface.nodes[query.right_node_index];
+
+    // Documented semantics, pinned so they cannot drift into an implied claim
+    // that a query Greek differentiates the query price interpolant.
+    const double weight = (query.spot - left.spot) / (right.spot - left.spot);
+    expect_true(*query.delta == *left.delta + (weight * (*right.delta - *left.delta)) &&
+                    *query.gamma == *left.gamma + (weight * (*right.gamma - *left.gamma)),
+                "a query Greek is not the linear blend of its bracketing nodewise Greeks");
+
+    // Differentiating the monotone Hermite price interpolant is a different
+    // number. Assert the disagreement rather than pretending the two coincide.
+    const double slope =
+        (evaluation.queries[2].value - evaluation.queries[1].value) / (2.0 * step);
+    expect_true(slope != *query.delta,
+                "the query delta must not be presented as the price interpolant's derivative");
+    expect_true(std::abs(slope - *query.delta) < 1.0e-3,
+                "the two estimators disagree by more than their documented scale");
+
+    // On a grid node the two agree and no blending happens at all.
+    const dp::PdeSurfaceEvaluation on_node = dp::finite_difference_valuation_surface_at(
+        contract, grid, pde_surface_settings(), {100.0});
+    const dp::PdeSurfaceQuery& exact = on_node.queries.front();
+    const dp::PdeSurfaceNode& node = on_node.surface.nodes[exact.left_node_index];
+    expect_true(node.spot == exact.spot && exact.value == node.value &&
+                    *exact.delta == *node.delta && *exact.gamma == *node.gamma,
+                "a query on a grid node did not reproduce that node exactly");
+}
+
+void test_pde_surface_serves_many_queries_from_one_solve() {
+    const auto contract = pde_surface_contract(dp::OptionType::put, dp::ExerciseStyle::american,
+                                               100.0, 1.0, 0.05, 0.0, 0.2, {});
+    const dp::PdeGrid grid = pde_grid(800U, 400U, 400.0);
+    std::vector<double> spots;
+    for (std::size_t index = 0U; index < 32U; ++index) {
+        spots.push_back(60.0 + (2.5 * static_cast<double>(index)));
+    }
+
+    const dp::PdeSurfaceEvaluation many =
+        dp::finite_difference_valuation_surface_at(contract, grid, pde_surface_settings(), spots);
+    const dp::PdeSurfaceEvaluation one = dp::finite_difference_valuation_surface_at(
+        contract, grid, pde_surface_settings(), {spots.front()});
+
+    expect_true(many.queries.size() == 32U, "every requested spot must be returned");
+    expect_true(many.surface.backward_inductions == 1U, "32 queries must report one solve");
+    // Thirty-two independent solves could not share one iteration total.
+    expect_true(many.surface.diagnostics.psor_total_iterations ==
+                        one.surface.diagnostics.psor_total_iterations &&
+                    many.surface.diagnostics.psor_solves == one.surface.diagnostics.psor_solves,
+                "query count changed the solve");
+    expect_true(many.queries.front().value == one.queries.front().value,
+                "query count changed a queried value");
+
+    std::size_t eligible = 0U;
+    for (std::size_t index = 0U; index < many.queries.size(); ++index) {
+        const dp::PdeSurfaceQuery& query = many.queries[index];
+        expect_true(query.query_index == index && query.spot == spots[index],
+                    "query order was not preserved");
+        expect_true(query.first_occurrence_index == index, "distinct spots reported a duplicate");
+        expect_true(query.right_node_index == query.left_node_index + 1U,
+                    "query cell is not a single grid cell");
+        expect_true(query.greek_eligible == query.delta.has_value() &&
+                        query.greek_eligible == query.gamma.has_value(),
+                    "query Greeks were returned without eligibility");
+        if (query.greek_eligible) {
+            ++eligible;
+        }
+    }
+    expect_true(eligible >= 16U, "one solve must supply at least 16 eligible interior labels");
+
+    // The two-phase form must agree exactly with the one-call form.
+    const std::vector<dp::PdeSurfaceQuery> again =
+        dp::evaluate_valuation_surface(many.surface, spots);
+    for (std::size_t index = 0U; index < again.size(); ++index) {
+        expect_true(again[index].value == many.queries[index].value &&
+                        again[index].greek_eligible == many.queries[index].greek_eligible,
+                    "re-evaluating a solved surface changed a query");
+    }
+}
+
+void test_pde_surface_handles_duplicate_and_unsorted_queries() {
+    const dp::PdeSurfaceEvaluation evaluation = dp::finite_difference_valuation_surface_at(
+        pde_surface_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0, 1.0, 0.05,
+                             0.0, 0.2, {}),
+        pde_grid(800U, 400U, 400.0), pde_surface_settings(), {130.0, 70.0, 100.0, 70.0, 100.0});
+    const std::vector<double> expected_spots{130.0, 70.0, 100.0, 70.0, 100.0};
+    const std::vector<std::size_t> expected_first{0U, 1U, 2U, 1U, 2U};
+    for (std::size_t index = 0U; index < expected_spots.size(); ++index) {
+        expect_true(evaluation.queries[index].spot == expected_spots[index],
+                    "unsorted queries were reordered");
+        expect_true(evaluation.queries[index].first_occurrence_index == expected_first[index],
+                    "duplicate queries were not reported as duplicates");
+    }
+    expect_true(evaluation.queries[3].value == evaluation.queries[1].value &&
+                    evaluation.queries[4].value == evaluation.queries[2].value,
+                "duplicate queries produced different values");
+}
+
+void test_pde_surface_rejects_out_of_domain_and_invalid_requests() {
+    const auto contract = pde_surface_contract(dp::OptionType::call, dp::ExerciseStyle::european,
+                                               100.0, 1.0, 0.05, 0.0, 0.2, {});
+    const dp::PdeGrid grid = pde_grid(800U, 400U, 400.0);
+    for (const double spot : {0.0, -1.0, 400.0, 1.0e6}) {
+        expect_invalid_argument_contains(
+            [&]() {
+                static_cast<void>(dp::finite_difference_valuation_surface_at(
+                    contract, grid, pde_surface_settings(), {100.0, spot}));
+            },
+            "surface query spot 1", "an out-of-domain query was accepted");
+    }
+    expect_invalid_argument_contains(
+        [&]() {
+            static_cast<void>(dp::finite_difference_valuation_surface(
+                contract, grid, dp::PdeSurfaceSettings{dp::pde_regime_stencil_radius - 1U}));
+        },
+        "at least the regime stencil radius", "an undersized boundary buffer was accepted");
+    expect_invalid_argument_contains(
+        [&]() {
+            static_cast<void>(dp::finite_difference_valuation_surface(
+                contract, grid, dp::PdeSurfaceSettings{600U}));
+        },
+        "leaves no Greek-eligible interior node", "an oversized boundary buffer was accepted");
+    expect_invalid_argument_contains(
+        [&]() {
+            static_cast<void>(dp::finite_difference_valuation_surface(
+                contract, pde_grid(800U, 400U, 100.0), pde_surface_settings()));
+        },
+        "must exceed the strike", "a domain that does not contain the strike was accepted");
+    dp::PdeSurfaceContract invalid = contract;
+    invalid.continuous_carry = std::nullopt;
+    expect_invalid_argument(
+        [&]() {
+            static_cast<void>(dp::finite_difference_valuation_surface(invalid, grid,
+                                                                      pde_surface_settings()));
+        },
+        "an undeclared carry was accepted by the surface entry point");
+}
+
+void test_pde_surface_is_deterministic_and_one_time_slice() {
+    const auto contract = pde_surface_contract(dp::OptionType::put, dp::ExerciseStyle::american,
+                                               100.0, 1.0, 0.04, 0.01, 0.28, {{0.35, 1.25}});
+    const dp::PdeGrid grid = pde_grid(400U, 200U, 400.0);
+    const dp::PdeValuationSurface first =
+        dp::finite_difference_valuation_surface(contract, grid, pde_surface_settings());
+    const dp::PdeValuationSurface again =
+        dp::finite_difference_valuation_surface(contract, grid, pde_surface_settings());
+    for (std::size_t index = 0U; index < first.nodes.size(); ++index) {
+        expect_true(again.nodes[index].value == first.nodes[index].value &&
+                        again.nodes[index].delta == first.nodes[index].delta &&
+                        again.nodes[index].gamma == first.nodes[index].gamma &&
+                        again.nodes[index].exercise_state == first.nodes[index].exercise_state,
+                    "repeated surface solves were not bitwise identical");
+    }
+    expect_true(again.exercise_classification_scale == first.exercise_classification_scale,
+                "the classification scale was not reproduced");
+
+    // Structural regression on the O(N_S) design: what comes back is one time
+    // slice, so its size is set by the spot grid and is unmoved by taking four
+    // times as many time steps.
+    const dp::PdeValuationSurface longer = dp::finite_difference_valuation_surface(
+        contract, pde_grid(400U, 800U, 400.0), pde_surface_settings());
+    expect_true(longer.nodes.size() == first.nodes.size(),
+                "the returned surface grew with the time grid");
+    expect_true(longer.diagnostics.time_steps > first.diagnostics.time_steps,
+                "the longer time grid did not take more steps");
+    expect_true(longer.diagnostics.aligned_times.size() ==
+                    first.diagnostics.aligned_times.size(),
+                "the aligned time vector grew with the time grid");
+}
+
+void test_pde_surface_covers_dividends_negative_rates_and_carry() {
+    // A cash dividend invalidates the analytic comparator, so this asserts the
+    // obstacle structure and the recorded events only.
+    const dp::PdeValuationSurface dividend_surface = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::put, dp::ExerciseStyle::american, 100.0, 1.0, 0.05,
+                             0.01, 0.2, {{0.35, 2.0}, {0.8, 1.5}}),
+        pde_grid(800U, 400U, 400.0), pde_surface_settings());
+    expect_true(dividend_surface.diagnostics.dividend_events.size() == 2U,
+                "the surface lost a dividend event");
+    for (const dp::PdeSurfaceNode& node : dividend_surface.nodes) {
+        expect_true(node.value >= node.obstacle,
+                    "a dividend-paying American node fell below its obstacle");
+    }
+
+    // Negative rate with a positive carry, against Black-Scholes.
+    const dp::PdeValuationSurface negative_rate = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::call, dp::ExerciseStyle::european, 100.0, 1.0, -0.01,
+                             0.03, 0.2, {}),
+        pde_grid(1'600U, 800U, 400.0), pde_surface_settings());
+    std::size_t checked = 0U;
+    for (const dp::PdeSurfaceNode& node : negative_rate.nodes) {
+        if (!node.greek_eligible || node.spot < 70.0 || node.spot > 140.0) {
+            continue;
+        }
+        const auto reference = dp::black_scholes(
+            dp::OptionType::call, dp::BlackScholesInput{node.spot, 100.0, 1.0, -0.01, 0.03, 0.2});
+        expect_near(node.value, reference.price, 5.0e-4, "negative-rate surface price");
+        expect_near(*node.delta, reference.delta, 1.0e-4, "negative-rate surface delta");
+        expect_near(*node.gamma, reference.gamma, 1.0e-5, "negative-rate surface gamma");
+        ++checked;
+    }
+    expect_true(checked >= 100U, "too few negative-rate nodes were checked");
+
+    // A carry above the rate is what gives an American call an exercise region,
+    // and it must sit above the continuation region in spot.
+    const dp::PdeValuationSurface carried = dp::finite_difference_valuation_surface(
+        pde_surface_contract(dp::OptionType::call, dp::ExerciseStyle::american, 100.0, 1.0, -0.01,
+                             0.06, 0.2, {}),
+        pde_grid(800U, 400U, 400.0), pde_surface_settings());
+    double highest_continuation = 0.0;
+    double lowest_exercise = std::numeric_limits<double>::infinity();
+    for (const dp::PdeSurfaceNode& node : carried.nodes) {
+        if (node.exercise_state == dp::PdeExerciseState::continuation) {
+            highest_continuation = std::max(highest_continuation, node.spot);
+        }
+        if (node.exercise_state == dp::PdeExerciseState::exercise) {
+            lowest_exercise = std::min(lowest_exercise, node.spot);
+        }
+    }
+    expect_true(std::isfinite(lowest_exercise) && highest_continuation > 0.0,
+                "a carrying American call had no exercise or no continuation region");
+    expect_true(lowest_exercise > highest_continuation,
+                "the American call exercise region is not the upper spot range");
+}
+
 }  // namespace
 
 int main() {
@@ -1556,6 +2065,22 @@ int main() {
         {"PDE determinism", test_pde_is_deterministic_and_multiplier_free},
         {"European PDE refinement ladder", test_pde_refinement_ladder_converges},
         {"American PDE refinement ladder", test_pde_american_refinement_ladder_converges},
+        {"PDE surface scalar identity", test_pde_surface_reproduces_the_scalar_price},
+        {"PDE surface structure", test_pde_surface_structure_and_grid_metadata},
+        {"PDE surface European Greeks", test_pde_surface_european_nodes_match_black_scholes_greeks},
+        {"PDE surface shape", test_pde_surface_values_are_monotone_and_convex},
+        {"PDE surface exercise regions", test_pde_surface_classifies_the_american_exercise_regions},
+        {"PDE surface uncertified regime refusal",
+         test_pde_surface_refuses_greeks_where_the_regime_is_uncertified},
+        {"PDE surface query Greek semantics",
+         test_pde_surface_query_greeks_are_interpolated_nodewise_greeks},
+        {"PDE surface one solve many queries", test_pde_surface_serves_many_queries_from_one_solve},
+        {"PDE surface duplicate queries", test_pde_surface_handles_duplicate_and_unsorted_queries},
+        {"PDE surface rejected requests",
+         test_pde_surface_rejects_out_of_domain_and_invalid_requests},
+        {"PDE surface determinism and slice", test_pde_surface_is_deterministic_and_one_time_slice},
+        {"PDE surface dividends and carry",
+         test_pde_surface_covers_dividends_negative_rates_and_carry},
     };
 
     int failures = 0;

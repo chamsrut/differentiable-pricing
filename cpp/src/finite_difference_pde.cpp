@@ -4,9 +4,13 @@
 #include <cmath>
 #include <cstddef>
 #include <iomanip>
+#include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace dp {
@@ -80,13 +84,11 @@ void monotone_slopes(const std::vector<double>& values, const double step,
     }
 }
 
-// Cubic Hermite evaluation on the uniform grid the slopes were built for.
-// `position` must lie inside [0, step * (values.size() - 1)]; every caller
-// clamps beforehand, so this never extrapolates.
-[[nodiscard]] double monotone_evaluate(const std::vector<double>& values,
-                                       const std::vector<double>& slopes, const double step,
-                                       const double position) {
-    const std::size_t intervals = values.size() - 1U;
+// Index of the cell [cell, cell + 1] containing `position`. Shared by the
+// interpolation and by surface queries so a query can never report bracketing
+// nodes that differ from the ones its own price came from.
+[[nodiscard]] std::size_t locate_cell(const double position, const double step,
+                                      const std::size_t intervals) {
     const double raw_cell = std::floor(position / step);
     std::size_t cell = 0U;
     if (raw_cell > 0.0) {
@@ -95,6 +97,16 @@ void monotone_slopes(const std::vector<double>& values, const double step,
     if (cell >= intervals) {
         cell = intervals - 1U;
     }
+    return cell;
+}
+
+// Cubic Hermite evaluation on the uniform grid the slopes were built for.
+// `position` must lie inside [0, step * (values.size() - 1)]; every caller
+// clamps beforehand, so this never extrapolates.
+[[nodiscard]] double monotone_evaluate(const std::vector<double>& values,
+                                       const std::vector<double>& slopes, const double step,
+                                       const double position) {
+    const std::size_t cell = locate_cell(position, step, values.size() - 1U);
 
     const double local = (position - (static_cast<double>(cell) * step)) / step;
     const double local_squared = local * local;
@@ -121,15 +133,17 @@ struct SpotDiscretization {
 // arbitrary point inside a cell makes the observed convergence order oscillate
 // with the grid. `spot_intervals` and `spot_maximum` are therefore targets, and
 // the values actually used are reported back.
-[[nodiscard]] SpotDiscretization build_spot_grid(const PdeContract& contract,
-                                                 const PdeGrid& grid) {
+//
+// The domain depends on the strike and the grid alone. No requested spot enters
+// it, which is what lets one solve serve every spot in the domain.
+[[nodiscard]] SpotDiscretization build_spot_grid(const double strike, const PdeGrid& grid) {
     const double target_step = grid.spot_maximum / static_cast<double>(grid.spot_intervals);
-    const double raw_strike_intervals = contract.strike / target_step;
+    const double raw_strike_intervals = strike / target_step;
     auto strike_index = static_cast<std::size_t>(std::llround(raw_strike_intervals));
     if (strike_index == 0U) {
         strike_index = 1U;
     }
-    const double step = contract.strike / static_cast<double>(strike_index);
+    const double step = strike / static_cast<double>(strike_index);
     require_finite(step, "spot step became non-finite");
 
     auto intervals = static_cast<std::size_t>(std::ceil((grid.spot_maximum / step) - 1.0e-9));
@@ -143,10 +157,16 @@ struct SpotDiscretization {
 
     const double maximum = static_cast<double>(intervals) * step;
     require_finite(maximum, "spot domain maximum became non-finite");
-    if (contract.spot >= maximum) {
+    return {intervals, step, maximum, strike_index};
+}
+
+// A spot is admissible only strictly inside the solved domain. Both the scalar
+// API and every surface query go through this, so neither extrapolates and both
+// refuse the same set of spots.
+void require_inside_spot_domain(const double spot, const double maximum) {
+    if (spot >= maximum) {
         throw std::invalid_argument("spot must lie strictly inside the truncated spot domain");
     }
-    return {intervals, step, maximum, strike_index};
 }
 
 struct TimeDiscretization {
@@ -158,7 +178,7 @@ struct TimeDiscretization {
 // Every dividend ex-time and every interior curve knot becomes an endpoint of a
 // uniformly stepped segment, so no time step ever straddles a rate change or a
 // jump.
-[[nodiscard]] TimeDiscretization build_time_grid(const PdeContract& contract,
+[[nodiscard]] TimeDiscretization build_time_grid(const PdeSurfaceContract& contract,
                                                  const PdeGrid& grid) {
     const double tolerance = time_tolerance_for(contract.expiry_time);
     std::vector<double> candidates;
@@ -465,6 +485,32 @@ void PdeContract::validate() const {
     if (!std::isfinite(spot) || spot <= 0.0) {
         throw std::invalid_argument("spot must be finite and positive");
     }
+    surface_state().validate();
+}
+
+PdeSurfaceContract PdeContract::surface_state() const {
+    return PdeSurfaceContract{
+        option_type,
+        exercise_style,
+        strike,
+        valuation_time,
+        expiry_time,
+        volatility,
+        continuous_carry,
+        discount_curve,
+        dividends,
+        settlement,
+        contract_multiplier,
+    };
+}
+
+void PdeSurfaceContract::validate() const {
+    if (option_type != OptionType::call && option_type != OptionType::put) {
+        throw std::invalid_argument("unsupported option type");
+    }
+    if (exercise_style != ExerciseStyle::european && exercise_style != ExerciseStyle::american) {
+        throw std::invalid_argument("unsupported exercise style");
+    }
     if (!std::isfinite(strike) || strike <= 0.0) {
         throw std::invalid_argument("strike must be finite and positive");
     }
@@ -537,6 +583,63 @@ void PdeGrid::validate() const {
     }
 }
 
+void PdeSurfaceSettings::validate() const {
+    if (boundary_exclusion_nodes < pde_regime_stencil_radius) {
+        throw std::invalid_argument(
+            "boundary exclusion buffer must be at least the regime stencil radius so every "
+            "surviving node has a complete regime stencil");
+    }
+    if (boundary_exclusion_nodes > maximum_pde_spot_intervals) {
+        throw std::invalid_argument("boundary exclusion buffer exceeds the node limit");
+    }
+}
+
+std::string_view pde_exercise_state_name(const PdeExerciseState state) {
+    switch (state) {
+    case PdeExerciseState::continuation:
+        return "continuation";
+    case PdeExerciseState::exercise:
+        return "exercise";
+    case PdeExerciseState::numerically_indifferent:
+        return "numerically_indifferent";
+    case PdeExerciseState::no_obstacle:
+        return "no_obstacle";
+    }
+    throw std::logic_error("unhandled PDE exercise state");
+}
+
+std::string_view pde_greek_eligibility_reason_name(const PdeGreekEligibilityReason reason) {
+    switch (reason) {
+    case PdeGreekEligibilityReason::eligible:
+        return "eligible";
+    case PdeGreekEligibilityReason::centered_stencil_unavailable:
+        return "centered_stencil_unavailable";
+    case PdeGreekEligibilityReason::inside_domain_boundary_buffer:
+        return "inside_domain_boundary_buffer";
+    case PdeGreekEligibilityReason::non_finite_stencil_value:
+        return "non_finite_stencil_value";
+    case PdeGreekEligibilityReason::unresolved_exercise_state:
+        return "unresolved_exercise_state";
+    case PdeGreekEligibilityReason::regime_stencil_not_uniform:
+        return "regime_stencil_not_uniform";
+    }
+    throw std::logic_error("unhandled PDE Greek eligibility reason");
+}
+
+void PdeValuationSurface::validate() const {
+    if (nodes.size() != diagnostics.spot_intervals + 1U) {
+        throw std::logic_error("valuation surface node count does not match the reported grid");
+    }
+    for (std::size_t index = 0U; index < nodes.size(); ++index) {
+        if (nodes[index].index != index) {
+            throw std::logic_error("valuation surface nodes are not in ascending index order");
+        }
+        if (index != 0U && !(nodes[index].spot > nodes[index - 1U].spot)) {
+            throw std::logic_error("valuation surface spots are not strictly ascending");
+        }
+    }
+}
+
 PdePsorFailure::PdePsorFailure(const std::string& message, const std::size_t aligned_segment,
                                const std::size_t iterations, const double residual,
                                const double tolerance)
@@ -551,15 +654,21 @@ double post_dividend_spot(const double spot, const double amount) {
 // Solver
 // --------------------------------------------------------------------------
 
-PdeResult finite_difference_price(const PdeContract& contract, const PdeGrid& grid) {
-    contract.validate();
-    grid.validate();
-    if (grid.spot_maximum <= std::max(contract.spot, contract.strike)) {
-        throw std::invalid_argument(
-            "spot domain maximum must exceed both the spot and the strike");
-    }
+namespace {
 
-    const SpotDiscretization spot_grid = build_spot_grid(contract, grid);
+// The valuation-time slice and the final implicit system that produced it.
+// Nothing here refers to a requested spot: the scalar price and every surface
+// query are interpolations of `values`, computed after this returns.
+struct CoreSolve {
+    PdeSolveDiagnostics diagnostics;
+    std::vector<double> values;
+    std::vector<double> obstacle;
+    std::vector<double> linear_residual;
+    double classification_scale;
+};
+
+CoreSolve solve_core(const PdeSurfaceContract& contract, const PdeGrid& grid) {
+    const SpotDiscretization spot_grid = build_spot_grid(contract.strike, grid);
     const TimeDiscretization time_grid = build_time_grid(contract, grid);
     const bool is_american = contract.exercise_style == ExerciseStyle::american;
     const bool is_call = contract.option_type == OptionType::call;
@@ -632,7 +741,7 @@ PdeResult finite_difference_price(const PdeContract& contract, const PdeGrid& gr
         return value;
     };
 
-    PdeResult result{};
+    PdeSolveDiagnostics result{};
     result.solver_status = PdeSolverStatus::discrete_system_converged;
     result.discretization_accuracy = PdeDiscretizationAccuracy::not_assessed;
     result.spot_intervals = spot_grid.intervals;
@@ -792,10 +901,304 @@ PdeResult finite_difference_price(const PdeContract& contract, const PdeGrid& gr
 
     std::reverse(result.dividend_events.begin(), result.dividend_events.end());
 
-    monotone_slopes(values, spot_grid.step, slopes);
-    result.price = monotone_evaluate(values, slopes, spot_grid.step, contract.spot);
-    require_finite(result.price, "finite-difference price left double precision");
+    // The loop above always finishes with a time step into the valuation time:
+    // dividend jumps are applied at aligned segment boundaries and segment 0
+    // begins at the valuation time. The system still held in (lower, diagonal,
+    // upper, right_hand_side) is therefore the one whose solution is `values`,
+    // and its per-node linear residual is the second complementary slack the
+    // exercise classification needs. It is read off here because no caller can
+    // reconstruct it later.
+    std::vector<double> linear_residual(nodes, 0.0);
+    double right_hand_side_scale = 1.0;
+    for (std::size_t index = 0U; index < nodes; ++index) {
+        right_hand_side_scale = std::max(right_hand_side_scale, std::abs(right_hand_side[index]));
+    }
+    for (std::size_t index = 0U; index < nodes; ++index) {
+        const double below = (index == 0U) ? 0.0 : values[index - 1U];
+        const double above = (index + 1U == nodes) ? 0.0 : values[index + 1U];
+        linear_residual[index] = (lower[index] * below) + (diagonal[index] * values[index]) +
+                                 (upper[index] * above) - right_hand_side[index];
+    }
+
+    return CoreSolve{
+        std::move(result),
+        std::move(values),
+        std::move(obstacle),
+        std::move(linear_residual),
+        grid.psor_tolerance * right_hand_side_scale,
+    };
+}
+
+// Copy the solve metadata into the flat scalar result. The scalar API keeps its
+// layout, so this crossing is written once here rather than pushed onto callers.
+[[nodiscard]] PdeResult scalar_result_from(const PdeSolveDiagnostics& diagnostics,
+                                           const double price) {
+    PdeResult result{};
+    result.price = price;
+    result.solver_status = diagnostics.solver_status;
+    result.discretization_accuracy = diagnostics.discretization_accuracy;
+    result.spot_intervals = diagnostics.spot_intervals;
+    result.spot_maximum = diagnostics.spot_maximum;
+    result.spot_step = diagnostics.spot_step;
+    result.strike_node_index = diagnostics.strike_node_index;
+    result.time_steps = diagnostics.time_steps;
+    result.rannacher_steps = diagnostics.rannacher_steps;
+    result.damped_half_steps = diagnostics.damped_half_steps;
+    result.crank_nicolson_steps = diagnostics.crank_nicolson_steps;
+    result.upwinded_rows = diagnostics.upwinded_rows;
+    result.linear_solves = diagnostics.linear_solves;
+    result.psor_solves = diagnostics.psor_solves;
+    result.psor_total_iterations = diagnostics.psor_total_iterations;
+    result.psor_maximum_iterations_used = diagnostics.psor_maximum_iterations_used;
+    result.psor_tolerance = diagnostics.psor_tolerance;
+    result.psor_relaxation = diagnostics.psor_relaxation;
+    result.maximum_lcp_residual = diagnostics.maximum_lcp_residual;
+    result.maximum_relative_lcp_residual = diagnostics.maximum_relative_lcp_residual;
+    result.aligned_times = diagnostics.aligned_times;
+    result.dividend_events = diagnostics.dividend_events;
     return result;
+}
+
+// Second-order three-point derivatives written in the actual node coordinates.
+// On the uniform grid built here they reduce to the centered formulas
+// (V_{i+1} - V_{i-1}) / (2h) and (V_{i+1} - 2 V_i + V_{i-1}) / h^2, but they are
+// not written that way: a later nonuniform grid must not be able to inherit a
+// uniform-grid formula silently.
+struct NodeDerivatives {
+    std::optional<double> delta;
+    std::optional<double> gamma;
+};
+
+[[nodiscard]] NodeDerivatives centered_derivatives(const double left_spot, const double spot,
+                                                   const double right_spot, const double left_value,
+                                                   const double value, const double right_value) {
+    const double left_width = spot - left_spot;
+    const double right_width = right_spot - spot;
+    const double denominator = left_width * right_width * (left_width + right_width);
+    const double delta = ((left_width * left_width * right_value) +
+                          (((right_width * right_width) - (left_width * left_width)) * value) -
+                          (right_width * right_width * left_value)) /
+                         denominator;
+    const double gamma = 2.0 *
+                         ((left_width * right_value) - ((left_width + right_width) * value) +
+                          (right_width * left_value)) /
+                         denominator;
+    if (!std::isfinite(delta) || !std::isfinite(gamma)) {
+        return {std::nullopt, std::nullopt};
+    }
+    return {delta, gamma};
+}
+
+void require_domain_contains_strike(const PdeGrid& grid, const double strike) {
+    if (grid.spot_maximum <= strike) {
+        throw std::invalid_argument("spot domain maximum must exceed the strike");
+    }
+}
+
+// Every requested spot is checked before any work is spent, so a bad request
+// never costs a solve and never reaches an interpolation.
+void validate_query_spots(const std::vector<double>& spots, const double maximum) {
+    for (std::size_t index = 0U; index < spots.size(); ++index) {
+        const double spot = spots[index];
+        if (!std::isfinite(spot) || spot <= 0.0) {
+            throw std::invalid_argument("surface query spot " + std::to_string(index) +
+                                        " must be finite and positive");
+        }
+        if (spot >= maximum) {
+            throw std::invalid_argument(
+                "surface query spot " + std::to_string(index) +
+                " lies outside the solved spot domain; extrapolation is refused");
+        }
+    }
+}
+
+}  // namespace
+
+PdeResult finite_difference_price(const PdeContract& contract, const PdeGrid& grid) {
+    contract.validate();
+    grid.validate();
+    if (grid.spot_maximum <= std::max(contract.spot, contract.strike)) {
+        throw std::invalid_argument(
+            "spot domain maximum must exceed both the spot and the strike");
+    }
+    require_inside_spot_domain(contract.spot, build_spot_grid(contract.strike, grid).maximum);
+
+    const CoreSolve solved = solve_core(contract.surface_state(), grid);
+    std::vector<double> slopes;
+    monotone_slopes(solved.values, solved.diagnostics.spot_step, slopes);
+    const double price =
+        monotone_evaluate(solved.values, slopes, solved.diagnostics.spot_step, contract.spot);
+    require_finite(price, "finite-difference price left double precision");
+    return scalar_result_from(solved.diagnostics, price);
+}
+
+PdeValuationSurface finite_difference_valuation_surface(const PdeSurfaceContract& contract,
+                                                        const PdeGrid& grid,
+                                                        const PdeSurfaceSettings& settings) {
+    contract.validate();
+    grid.validate();
+    settings.validate();
+    require_domain_contains_strike(grid, contract.strike);
+
+    CoreSolve solved = solve_core(contract, grid);
+    const std::size_t intervals = solved.diagnostics.spot_intervals;
+    if (2U * settings.boundary_exclusion_nodes > intervals) {
+        throw std::invalid_argument(
+            "boundary exclusion buffer leaves no Greek-eligible interior node");
+    }
+
+    const std::size_t node_count = intervals + 1U;
+    const double step = solved.diagnostics.spot_step;
+    const bool has_obstacle = contract.exercise_style == ExerciseStyle::american;
+    const double scale = solved.classification_scale;
+
+    std::vector<PdeSurfaceNode> nodes(node_count);
+    for (std::size_t index = 0U; index < node_count; ++index) {
+        PdeSurfaceNode& node = nodes[index];
+        node.index = index;
+        node.spot = static_cast<double>(index) * step;
+        node.value = solved.values[index];
+        node.obstacle = solved.obstacle[index];
+        node.obstacle_slack = node.value - node.obstacle;
+        node.lcp_linear_residual = solved.linear_residual[index];
+        if (!has_obstacle) {
+            node.exercise_state = PdeExerciseState::no_obstacle;
+        } else if (node.obstacle_slack > scale) {
+            node.exercise_state = PdeExerciseState::continuation;
+        } else if (node.lcp_linear_residual > scale) {
+            node.exercise_state = PdeExerciseState::exercise;
+        } else {
+            node.exercise_state = PdeExerciseState::numerically_indifferent;
+        }
+    }
+
+    for (std::size_t index = 0U; index < node_count; ++index) {
+        PdeSurfaceNode& node = nodes[index];
+        if (index != 0U && index != intervals) {
+            const NodeDerivatives derivatives = centered_derivatives(
+                nodes[index - 1U].spot, node.spot, nodes[index + 1U].spot, nodes[index - 1U].value,
+                node.value, nodes[index + 1U].value);
+            node.delta = derivatives.delta;
+            node.gamma = derivatives.gamma;
+        }
+
+        // Declared precedence: no stencil, then the boundary buffer, then a
+        // non-finite stencil, then an uncertified own regime, then regime
+        // consistency across the stencil. The buffer is at least the regime
+        // radius, so the five-node window of every node reaching the last test
+        // is inside the domain.
+        if (index == 0U || index == intervals) {
+            node.greek_eligibility_reason = PdeGreekEligibilityReason::centered_stencil_unavailable;
+        } else if (index < settings.boundary_exclusion_nodes ||
+                   index > intervals - settings.boundary_exclusion_nodes) {
+            node.greek_eligibility_reason =
+                PdeGreekEligibilityReason::inside_domain_boundary_buffer;
+        } else if (!node.delta.has_value() || !node.gamma.has_value()) {
+            node.greek_eligibility_reason = PdeGreekEligibilityReason::non_finite_stencil_value;
+        } else if (node.exercise_state == PdeExerciseState::numerically_indifferent) {
+            // The regime is uncertified, so what the difference quotient
+            // estimates is uncertified with it. This refusal is structural: it
+            // must hold wherever an indifferent band appears, including a band
+            // wide enough to have a regime-uniform interior at the free
+            // boundary, which is exactly where a Greek label is most dangerous.
+            node.greek_eligibility_reason = PdeGreekEligibilityReason::unresolved_exercise_state;
+        } else {
+            node.greek_eligibility_reason = PdeGreekEligibilityReason::eligible;
+            for (std::size_t offset = 1U; offset <= pde_regime_stencil_radius; ++offset) {
+                if (nodes[index - offset].exercise_state != node.exercise_state ||
+                    nodes[index + offset].exercise_state != node.exercise_state) {
+                    node.greek_eligibility_reason =
+                        PdeGreekEligibilityReason::regime_stencil_not_uniform;
+                    break;
+                }
+            }
+        }
+        node.greek_eligible = node.greek_eligibility_reason == PdeGreekEligibilityReason::eligible;
+    }
+
+    PdeValuationSurface surface{};
+    surface.diagnostics = std::move(solved.diagnostics);
+    surface.backward_inductions = 1U;
+    surface.valuation_time = contract.valuation_time;
+    surface.exercise_classification_scale = scale;
+    surface.boundary_exclusion_nodes = settings.boundary_exclusion_nodes;
+    surface.regime_stencil_radius = pde_regime_stencil_radius;
+    surface.nodes = std::move(nodes);
+    surface.validate();
+    return surface;
+}
+
+std::vector<PdeSurfaceQuery> evaluate_valuation_surface(const PdeValuationSurface& surface,
+                                                        const std::vector<double>& spots) {
+    surface.validate();
+    const double step = surface.diagnostics.spot_step;
+    const std::size_t intervals = surface.diagnostics.spot_intervals;
+    validate_query_spots(spots, surface.diagnostics.spot_maximum);
+
+    // The price interpolant is rebuilt once per call and is the same
+    // implementation the scalar API uses, so a query at the scalar spot
+    // reproduces the scalar price bit for bit.
+    std::vector<double> values(surface.nodes.size(), 0.0);
+    for (std::size_t index = 0U; index < surface.nodes.size(); ++index) {
+        values[index] = surface.nodes[index].value;
+    }
+    std::vector<double> slopes;
+    monotone_slopes(values, step, slopes);
+
+    std::map<double, std::size_t> first_occurrence;
+    std::vector<PdeSurfaceQuery> queries(spots.size());
+    for (std::size_t index = 0U; index < spots.size(); ++index) {
+        PdeSurfaceQuery& query = queries[index];
+        query.query_index = index;
+        query.spot = spots[index];
+        const auto [position, inserted] = first_occurrence.emplace(spots[index], index);
+        query.first_occurrence_index = position->second;
+        static_cast<void>(inserted);
+
+        query.value = monotone_evaluate(values, slopes, step, query.spot);
+        require_finite(query.value, "surface query value left double precision");
+
+        const std::size_t cell = locate_cell(query.spot, step, intervals);
+        const PdeSurfaceNode& left = surface.nodes[cell];
+        const PdeSurfaceNode& right = surface.nodes[cell + 1U];
+        query.left_node_index = left.index;
+        query.right_node_index = right.index;
+        if (left.exercise_state == right.exercise_state) {
+            query.exercise_state = left.exercise_state;
+        }
+
+        if (!left.greek_eligible) {
+            query.greek_eligibility_reason = left.greek_eligibility_reason;
+        } else if (!right.greek_eligible) {
+            query.greek_eligibility_reason = right.greek_eligibility_reason;
+        } else {
+            query.greek_eligibility_reason = PdeGreekEligibilityReason::eligible;
+            // Two eligible neighbours share a regime by construction, so this
+            // linear interpolation never straddles the free boundary.
+            const double weight = (query.spot - left.spot) / (right.spot - left.spot);
+            query.delta = *left.delta + (weight * (*right.delta - *left.delta));
+            query.gamma = *left.gamma + (weight * (*right.gamma - *left.gamma));
+        }
+        query.greek_eligible =
+            query.greek_eligibility_reason == PdeGreekEligibilityReason::eligible;
+    }
+    return queries;
+}
+
+PdeSurfaceEvaluation finite_difference_valuation_surface_at(const PdeSurfaceContract& contract,
+                                                            const PdeGrid& grid,
+                                                            const PdeSurfaceSettings& settings,
+                                                            const std::vector<double>& spots) {
+    // The same checks the surface entry point applies, in the same order, so a
+    // malformed request reports the same reason whichever form was called.
+    contract.validate();
+    grid.validate();
+    settings.validate();
+    require_domain_contains_strike(grid, contract.strike);
+    validate_query_spots(spots, build_spot_grid(contract.strike, grid).maximum);
+    PdeValuationSurface surface = finite_difference_valuation_surface(contract, grid, settings);
+    std::vector<PdeSurfaceQuery> queries = evaluate_valuation_surface(surface, spots);
+    return {std::move(surface), std::move(queries)};
 }
 
 }  // namespace dp
