@@ -125,11 +125,50 @@ interpolant. A tiny non-CI demonstration:
 python scripts/demo_pde_valuation_surface.py
 ```
 
-It is a correctness demonstration, not a throughput claim. Vega surfaces,
-grouped dataset generation, parallel execution and label policy v2 are **not**
-implemented, task 9C-B remains `no_policy_selected`, and one surface yielding
-many rows does not make those rows statistically independent — the mandatory
-task 9C-C2 grouping rules are recorded in the contract and unimplemented.
+It is a correctness demonstration, not a throughput claim.
+
+Task 9C-C2a turns those surfaces into dataset rows without pretending they are
+independent, in `differentiable_pricing.american.pde_surface_harvest` with the
+versioned design `configs/pde_surface_harvest_demo_v1.toml`. It is **exploratory
+infrastructure**, not a production dataset. Its rules are load-bearing and are
+in `docs/pde-numerical-contract.md`: three versioned SHA-256 canonical
+identities over sorted-key JSON with `.17g` floats and negative zero normalized
+to positive zero (`partition_group_id` for the base non-spot state, which
+deliberately excludes spot, node index, option type, exercise style, bump role,
+grid and the reporting-only `contract_multiplier`; `solver_input_id`, also used
+as `surface_id`, for the complete actual pricing/numerical call while excluding
+group, role, name and multiplier provenance; `row_id` for one exact node);
+actual-solve aliases are rejected before assignment, and `plan_harvest` takes
+**no solver argument**, so
+partition assignment into `train`/`validation`/`interpolation_test` provably
+precedes every solve and no group can straddle a partition; duplicate economic
+states fail before the first solve; harvesting uses **exact grid nodes only**,
+never the off-grid query API, inside a predeclared interior window and outside
+the structural boundary buffer; `exercise_state` and Greek eligibility are
+copied, never relaxed, so a `numerically_indifferent` node keeps its price row
+and can never become an eligible Greek label; per-regime quotas are applied only
+after assignment, by a predeclared outcome-independent rule, with every
+shortfall reported; and raw rows, independent **design** groups and planned,
+attempted, successful, failed, retained and discarded surface counts are
+reported separately, with `raw_rows_per_group` (dataset expansion) and
+`raw_rows_per_attempted_surface_solve` (numerical-work reuse)
+published side by side, each carrying its own integer numerator and denominator.
+Rows per group is never the computational multiplier: in the shipped design each
+group emits four surfaces, so the two differ by a factor of four.
+
+```bash
+python scripts/demo_pde_surface_harvest.py
+
+python -m differentiable_pricing.american.pde_surface_harvest \
+  --config configs/pde_surface_harvest_demo_v1.toml \
+  --output-directory artifacts/pde-surface-harvest-demo-v1
+```
+
+The group count is a design count and is never to be called a statistical
+effective sample size. Vega surfaces, parallel execution, production dataset
+generation and label policy v2 are still **not** implemented, and task 9C-B
+remains `no_policy_selected`: its frozen evidence is never edited, rerun or
+reinterpreted.
 
 The reviewed cross-check evidence is frozen in
 `docs/results/american_lsm_crosscheck_results_v1.json`. Raw reports stay

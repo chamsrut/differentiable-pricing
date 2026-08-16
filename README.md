@@ -317,6 +317,8 @@ strike set, and fitting variation.
 | Real-market feasibility audit (task 9A) | Complete, local only | scoped capabilities; no artefact staged |
 | Market-state reconstruction (task 9B) | Complete, local only | [reconstruction contract](docs/market-state-reconstruction-contract.md) |
 | Valuation-time surface, internally consistent American Greeks (task 9C-C1) | Complete | [PDE contract](docs/pde-numerical-contract.md), scalar-identity, analytic-Greek and free-boundary eligibility tests |
+| Grouped spot-row harvesting from surfaces (task 9C-C2a) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), identity, pre-solve partitioning, quota and determinism tests |
+| Vega surfaces, parallelism, production American dataset (rest of 9C-C2) | Not started | no dataset is generated today |
 | American label policy v2; American dataset, training, transfer; swaption stages 3–4 | Not started | blocked on 9C-C |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
 | Latency claims; calibrated curves and surfaces; OOD partitions | Not established | benchmarks are evidence, not gates |
@@ -715,7 +717,7 @@ never stage them, nor any fitted curve or inferred market value.
 | [docs/architecture.md](docs/architecture.md) | Language boundary, snapshot discipline, artifact contract, stage-1 model math |
 | [docs/american-crr-contract.md](docs/american-crr-contract.md) | Lattice, recursion, exercise metadata, complexity, convergence semantics |
 | [docs/american-lsm-contract.md](docs/american-lsm-contract.md) | Estimand, policy/valuation separation, uncertainty, control variate, overflow rejection |
-| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, and the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules |
+| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules, and the 9C-C2a identity, grouped-partitioning and exact-node harvesting contract |
 | [docs/market-state-reconstruction-contract.md](docs/market-state-reconstruction-contract.md) | Parity fitting, identifiability classes, forbidden names, task 9C input contract |
 | [docs/agentic-workflow.md](docs/agentic-workflow.md) | Agent roles, guardrails, review loop |
 | [CLAUDE.md](CLAUDE.md) | Operating contract: commands, numerical non-negotiables, coding rules |
@@ -779,7 +781,7 @@ claims remain decisive
 
 ---
 
-## Task 9C-C1: the valuation-time surface, and what comes next
+## Tasks 9C-C1 and 9C-C2a: the valuation-time surface, its rows, and what comes next
 
 The pilot located the cost precisely: four labels per state took thirteen
 scalar solves at one grid — a center plus three symmetric bump pairs per axis —
@@ -808,22 +810,54 @@ solve. It is a correctness demonstration, not a throughput measurement, and its
 wall-clock lines must not be extrapolated to a label budget.
 
 **One surface yielding many rows does not make those rows statistically
-independent.** They are correlated outputs of one solve, and the grouped
-partitioning rules that must govern them — assignment by surface group before
-solving, no group straddling a partition, group counts reported beside row
-counts — are recorded in the contract and deliberately *not* implemented here.
+independent.** They are correlated outputs of one solve. **Task 9C-C2a** now
+implements the machinery that keeps that structural: three versioned canonical
+SHA-256 identities (base economic state, canonical actual solver input, harvested node); partition
+assignment by economic group *before* any solve, from group identities alone, so
+a call/put pair or a future sigma-down/base/sigma-up triple cannot straddle
+`train`, `validation` and `interpolation_test`; harvesting of **exact grid
+nodes** only, inside a predeclared interior window and outside the structural
+boundary buffer, with `exercise_state` and Greek eligibility copied through
+untouched and numerically indifferent rows kept for price but never for Greeks;
+predeclared per-regime density quotas applied only after a group's partition is
+fixed, with every shortfall reported; and a report that states raw rows,
+independent design groups and explicit surface-work counts.
 
-Still not implemented, in order: **9C-C2**, a three-surface vega with grouped
-dataset generation, deterministic batching and parallel throughput; **9C-C3**, a
+The actual-solve identity excludes group and role provenance and includes every
+pricing and numerical solver input. Any cross-group or cross-role alias is
+rejected before partition assignment; C2a performs no solve reuse. Execution
+binds the semantic configuration and returned grid/surface diagnostics back to
+that planned identity. Reports separate planned, attempted, successful, failed,
+retained and discarded surface counts and recompute membership and partition
+integrity before publication.
+
+Rows per *group* and rows per *attempted solve* are reported side by side and are not
+interchangeable. In the shipped design each group emits four surfaces, so the
+512 rows are 42.67 per design group but only **10.67 per PDE solve** — the
+second is the numerical-work multiplier, the first is dataset expansion, and
+neither is a statistical effective sample size.
+
+```bash
+python scripts/demo_pde_surface_harvest.py
+```
+
+That demonstration is exploratory infrastructure on a small synthetic design —
+not a production dataset, not a throughput measurement, and not a validation of
+any label policy. The group count it reports is a design count, deliberately not
+called a statistical effective sample size.
+
+Still not implemented, in order: the rest of **9C-C2**, a three-surface vega with
+production dataset generation, deterministic batching and parallel throughput;
+**9C-C3**, a
 predeclared label-policy v2 evaluated on a small remediation set, followed only
 conditionally by a full confirmation run; then American dataset generation and
 the European→American transfer experiment; and only after that, evaluation of
 price, Greek, latency, implied-volatility and surface-calibration behaviour
-against real quotes. **Task 9C-B remains `no_policy_selected`**; nothing in
-9C-C1 revisits its thresholds, config or frozen result.
+against real quotes. **Task 9C-B remains `no_policy_selected`**; neither 9C-C1
+nor 9C-C2a revisits its thresholds, config or frozen result.
 
-Nothing in that list exists today: no vega surface, no grouped label dataset, no
-parallel sharding, no faster LCP solver, no American training dataset, no
+Nothing in that list exists today: no vega surface, no generated label dataset,
+no parallel sharding, no faster LCP solver, no American training dataset, no
 American surrogate, no implied-volatility inversion, and no volatility-surface
 calibration.
 

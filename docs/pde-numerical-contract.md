@@ -439,6 +439,16 @@ solve and not $32$ solves. `PdeValuationSurface::validate()` rejects a node
 vector whose length disagrees with the reported grid or whose index and spot
 order is not ascending.
 
+The Python result additionally always carries a **mandatory** `surface_input`
+section: the normalized pricing and numerical inputs the solver accepted, taken
+from the constructed contract, grid and surface settings rather than from the
+caller's arguments. It lets a consumer reconstruct the identity of the call that
+produced a result instead of trusting its own record of what it asked for. It
+binds the result to its declared inputs and is **not** evidence that the
+algorithm used them correctly. The field list, the reporting-only fields excluded
+from that identity, and how task 9C-C2a enforces it are in the 9C-C2a section
+below. The scalar API is unchanged and carries no echo.
+
 ### Delta and gamma
 
 Both are read off the solved slice. **No additional PDE solve, and no bump, is
@@ -621,6 +631,386 @@ correctness demonstration on two small cases and its wall-clock lines are not a
 production-feasibility measurement and must not be extrapolated to a label
 budget.
 
+### Task 9C-C2a: harvesting correlated spot rows under grouped partitioning
+
+The rules recorded in the next section were written before any dataset existed.
+Task 9C-C2a implements the structural half of them:
+`differentiable_pricing.american.pde_surface_harvest`, driven by a versioned
+TOML design such as `configs/pde_surface_harvest_demo_v1.toml`. It is
+**exploratory infrastructure**. It generates no production dataset, computes no
+vega, runs no worker pool, replaces no LCP solver, trains nothing, and selects
+no label policy.
+
+```bash
+python scripts/demo_pde_surface_harvest.py
+```
+
+#### Three counts, never one
+
+A flattened dataset conflates three different numbers, so all three are reported
+globally and per partition:
+
+- **raw harvested row count** — one row per harvested node;
+- **independent design-group count** — distinct base economic states that
+  produced rows. It is a *design* count. It is deliberately **not** called a
+  statistical effective sample size, and no estimator has been fitted to it;
+- **surface-work counts** — planned, attempted, successful, failed, retained and
+  discarded surfaces are separate integers. Attempted increments immediately
+  before the solver call, so raising and invalid-return calls remain visible.
+
+Every report carries the statement that rows sharing a `surface_id` are
+correlated outputs of one backward induction, and rows sharing a
+`partition_group_id` are correlated outputs of shared numerical work.
+
+#### Two different yields, always reported together
+
+Rows per *group* and rows per *solve* answer different questions and differ by
+however many surfaces a group emits — a factor of four in the shipped design,
+which declares two option types and two exercise styles. Quoting the first as a
+computational multiplier would overstate the numerical-work reuse by exactly
+that factor, so all three ratios below are always published side by side, each
+carrying its own integer numerator and denominator:
+
+- `raw_rows_per_group` = rows / independent design groups. **Dataset expansion
+  per design point.** It is not work saved and must never be quoted as a
+  computational speedup.
+- `raw_rows_per_attempted_surface_solve` = rows / every solver call attempted,
+  including raising calls, invalid returned surfaces and successful solves later
+  discarded with a failed group. This is the honest **rows-per-solve
+  multiplier** and the conservative denominator.
+- `raw_rows_per_retained_surface` = rows / solves whose rows were kept. It
+  equals the previous ratio when nothing was discarded and exceeds it otherwise;
+  it is published beside the attempted-solve figure so the flattering
+  denominator can never appear alone.
+
+Each ratio is an object with `numerator`, `denominator` and `value`. Both terms
+are integer counts that appear elsewhere in the same scope, `value` is exactly
+their float64 quotient, and a zero denominator gives `0.0` rather than a
+non-finite number. `reconcile_report` verifies every one of these against the
+scope's own counts, and separately that
+`planned_surface_count == attempted_surface_solve_count`,
+`attempted_surface_solve_count == successful_surface_solve_count +
+failed_surface_solve_count`, and `successful_surface_solve_count ==
+retained_surface_count + discarded_surface_count`.
+The definitions travel inside the report under `interpretation.yield_definitions`.
+**Neither ratio is a statistical effective sample size.**
+
+#### Versioned canonical identities
+
+Each identity is `sha256` over a canonical JSON payload: sorted keys, compact
+separators, and every float rendered as a `.17g` tagged string rather than left
+to a JSON float writer. Nothing depends on Python's `hash()`, on dictionary or
+insertion order, on locale, on platform float `repr`, or on any path. The
+identity scheme version is inside the hashed payload, so changing the scheme
+changes every digest.
+
+**Negative zero is normalized to positive zero before serialization.** IEEE-754
+makes $-0.0 = 0.0$ true while `.17g` prints them differently, so without the
+normalization two states that compare equal everywhere — and price identically —
+would receive different identities and could land in different partitions. It is
+not a hypothetical: a flat curve's log discount is $-r(T-t_0)$, which is exactly
+`-0.0` at a zero rate, and a declared zero carry can arrive signed either way.
+The normalization applies at every depth, so nested curve and dividend inputs are
+covered, and it touches nothing else: `value == 0.0` is true for the two signed
+zeros and for no other magnitude, subnormals included. Non-finite values remain
+rejected outright.
+
+- **`partition_group_id`** identifies the base non-spot economic state: strike,
+  valuation and expiry times, **base volatility**, continuous carry, the whole
+  discount curve, the cash-dividend schedule and settlement. It excludes the
+  queried spot, the harvested node index, the option type, the exercise style,
+  the volatility-bump role, the numerical grid and solver settings, and the
+  contract multiplier. It also excludes the scenario's *name*: a name is
+  documentation, and admitting it would let two identical economic states claim
+  to be different design points and defeat duplicate detection.
+
+  **`contract_multiplier` is excluded because this document already states that
+  it never enters pricing arithmetic**: prices are per share, and a regression
+  test asserts that changing the multiplier leaves the price and every reported
+  diagnostic bitwise unchanged. Two candidates differing only in it are the same
+  pricing state, so they are rejected as a duplicate economic group before any
+  solve. Letting a reporting convention split them would manufacture a second
+  design point out of nothing and could place two identical pricing states in
+  different partitions. The multiplier stays in row and report metadata, where it
+  is a reporting fact rather than an identity. `settlement` is deliberately *not*
+  excluded even though the current engine does not use it either: it names a
+  genuinely different contract term whose economic content a later engine may
+  price, whereas a multiplier can only ever scale a reported number.
+
+  Option type and exercise style are excluded as the **conservative** choice. A
+  call and a put on one base state are linked by put--call parity, and a
+  European contract is the natural dominance control of the American one on the
+  same state — the same pairing task 9C-B's shape checks used. Those are solver
+  siblings of one scenario, so they are kept together rather than allowed to
+  straddle partitions. The grid is excluded because one economic state solved on
+  two grids is still one state; excluding it can only merge groups, never split
+  them, so it cannot create a leak.
+- **`solver_input_id`**, also used as **`surface_id`**, identifies the actual PDE
+  call. Its canonical descriptor contains strike, option type, exercise style,
+  valuation and expiry, the discount curve, dividends, continuous carry,
+  settlement, volatility **actually passed**, and every numerical grid and
+  solver setting. It excludes `partition_group_id`, scenario name, surface role,
+  the reporting-only multiplier and descriptive metadata. A role is provenance,
+  not pricing identity, so identical calls cannot acquire different IDs.
+- **`row_id`** identifies one harvested node: the `surface_id` and the node
+  index. The grid is already pinned inside `surface_id`, so the index determines
+  the spot exactly and no float enters the digest.
+
+`SURFACE_ROLES` is `base`, `sigma_down`, `sigma_up`. Before partition assignment,
+the planner constructs every actual solver descriptor. If two groups, two roles
+in one group, or repeated candidates claim the same `solver_input_id`, C2a
+rejects the design before assignment or solving. It does not merge components or
+reuse solves. Task 9C-C2b may later introduce explicit solve reuse. **No vega is
+computed.**
+
+#### Partitioning, before any solve
+
+`plan_harvest(config)` takes **no solver argument and calls none**. Assignment
+consumes only candidate group identities, the algorithm version and the seed, so
+an outcome-dependent assignment is structurally impossible rather than a matter
+of statement ordering.
+
+The algorithm is `grouped_quota_by_sorted_digest/1`. Candidate groups and every
+actual solver input are canonicalized and duplicate-checked; a repeated economic
+state or actual PDE call is an error raised **before partition assignment and the
+first solve**. Survivors are sorted by their own seeded
+assignment digest and sliced contiguously into `train`, `validation` and
+`interpolation_test` — the repository's established partition names, asserted
+equal to `data.config.SPLIT_NAMES` — using largest-remainder counts from the
+config-versioned weights, with ties broken by declared partition order and a
+deterministic repair pass enforcing `minimum_groups_per_partition`.
+
+Consequences, each covered by a test: every row of a group lands in exactly one
+partition; a future base/sigma-down/sigma-up triple cannot cross partitions;
+reordering candidates inside an already parsed configuration changes no
+assignment or output; and the chunk size changes nothing either, because chunking
+only groups the loop.
+The rule is deliberately **not incremental**: adding a candidate re-derives every
+assignment, which is why the design is versioned with the configuration.
+
+#### Exact-node harvesting
+
+Harvesting uses **exact grid nodes only**. `harvest.node_source` must be
+`exact_grid_nodes` and any other value is rejected; `query_spots` is always
+empty, so the task 9C-C1 off-grid query API is untouched and unused. Task
+9C-C1's own measurement is the reason: an off-grid price and an off-grid delta
+come from two different estimators and are not internally consistent to better
+than about $3\times10^{-4}$ relative.
+
+Rejection precedence is fixed and first-applicable, so every node is counted
+exactly once and the counters reconcile against the node total:
+
+1. `truncation_endpoint` — index $0$ or the last index;
+2. `boundary_buffer` — inside the surface contract's declared
+   `boundary_exclusion_nodes`, which must be at least the regime stencil radius;
+3. `outside_moneyness_window` — outside the predeclared interior window. That
+   window is a *sampling* choice and is separate from the structural buffer
+   above;
+4. `non_finite_price`;
+5. `quota` — an admissible node its regime's quota did not select.
+
+The structural admissibility fields are **copied, never recomputed or relaxed**.
+`exercise_state`, `greek_eligible` and `greek_eligibility_reason` come through as
+the engine reported them, the numerical `delta` and `gamma` are exposed
+*separately* from `delta_label_eligible` and `gamma_label_eligible`, and three
+invariants are asserted live rather than assumed: a `numerically_indifferent`
+node reported as Greek-eligible, an eligible node with reason other than
+`eligible` or with a missing or non-finite derivative, and an ineligible node
+with reason `eligible` are all errors. A `numerically_indifferent` row is
+therefore **retained for price and refused for Greeks**, with its stencil number
+still visible.
+
+#### Regime density and shortfalls
+
+Pure exercise-region rows are correct but information-light, and numerically
+indifferent rows are diagnostic only, so `[harvest.quota]` declares a per-surface
+cap for each regime. Selection runs **only after** the group's partition is
+already fixed and follows one predeclared, outcome-independent rule,
+`evenly_spaced_by_ascending_node_index/1`: it looks at positions, never at
+prices, Greeks or errors. With a quota no larger than the population the spacing
+is at least one position, so the selected indices strictly increase and no
+duplicate can be produced; a duplicate would still be counted and removed, and a
+repeated `row_id` anywhere is a hard failure.
+
+A regime the contract style cannot produce — `exercise` for a European contract,
+`no_obstacle` for an American one — is *inapplicable*, not a shortfall. Genuine
+shortfalls report requested, achieved, the admissible population and the deficit,
+per surface and summed per partition and globally.
+
+The shipped demonstration values are exploratory. **They are not a production
+sampling policy.**
+
+#### Output, failure and determinism
+
+`report.json` and `rows.csv` are published atomically, then `manifest.json`
+**last**, carrying the SHA-256 and byte length of both. A run interrupted
+mid-publication therefore leaves a directory `verify_publication` rejects rather
+than one that reads as a completed dataset. Every published list is emitted in
+canonical order, and no deterministic file contains a hostname, an absolute path,
+a timestamp or a runtime measurement; the demonstration prints elapsed time to
+the terminal only. Provenance carries both `raw_config_sha256`, the exact TOML
+bytes, and `semantic_config_sha256`, canonical parsed semantics with scenario and
+set-like declaration ordering normalized.
+
+**Byte identity is claimed only under stated preconditions**, published in the
+report as `determinism.byte_identity_preconditions`:
+
+- identical configuration TOML bytes;
+- identical source-name provenance, that is the same `config_name`;
+- identical runner code and compiled engine;
+- differences confined to harmless candidate ordering or chunk size.
+
+The source *name* is a precondition, not a detail. `config_name` is recorded
+provenance, so **identical bytes loaded under a different filename** keep the
+semantic digest, the raw digest, every identity, every partition assignment and
+`rows.csv` byte for byte — while `report.json` differs in that one field, and the
+manifest differs because it pins the report's hash. That is a provenance
+difference, not non-determinism, and it has its own check:
+`verify_semantic_identity` compares the two publications with `config_name` set
+aside and still requires `rows.csv` to match exactly.
+`verify_byte_identity` remains the stricter check and is valid only when every
+precondition above holds. Semantically equivalent *reordered* TOML is the other
+case: it preserves the semantic digest, identities, assignments and `rows.csv`,
+while its raw digest intentionally differs.
+
+#### The mandatory `surface_input` echo
+
+The task 9C-C1 surface result carries a **mandatory** `surface_input` section
+built from the constructed `dp::PdeSurfaceContract`, `dp::PdeGrid` and
+`dp::PdeSurfaceSettings` — the normalized inputs the solver actually accepted,
+not the caller's own strings. It is additive; the scalar API is untouched and
+carries no echo.
+
+Its nineteen identity fields are option type, exercise style, strike, valuation
+and expiry time, volatility, continuous carry, curve times, curve log discounts,
+dividends, settlement, spot intervals, time steps, spot maximum, Rannacher steps,
+PSOR tolerance, relaxation and iteration ceiling, and the boundary exclusion
+buffer. Two further fields are reporting metadata that must never enter the
+identity: `contract_multiplier`, which does not enter pricing arithmetic, and
+`dividends_declared`, which distinguishes a declared empty schedule from an
+undeclared one and is checked rather than hashed.
+
+The echo reports **requested** grid targets. The adjusted grid the solver used
+stays in the diagnostics, so the two remain distinguishable and the actual-solve
+identity is defined by the inputs that select the solve.
+
+**Task 9C-C2a treats the echo as mandatory and there is no optional-echo success
+path.** Before any row is harvested, the harvester rebuilds the canonical solver
+descriptor from the returned echo and requires its digest to equal the planned
+`solver_input_id`; it compares field by field first so a mismatch names the
+offending input, and it rejects a missing section, a missing field or an unknown
+field. A missing or mismatched echo counts as one attempted and failed solve,
+produces a failure record with full group and surface identity, produces no rows,
+and prevents its group from being retained.
+
+The echo **binds the API result to the declared solver inputs. It is not
+independent evidence that the numerical algorithm used them correctly.**
+Numerical correctness remains established by the task 9C-C1 validation suite.
+
+A raising solver or returned surface that fails plan/result binding is isolated
+and recorded with its full group and surface identity, stage, error type and
+message. The result binder verifies the mandatory input echo, the adjusted spot
+and time grid diagnostics, solver tolerance, stencil buffer, vector length and
+exact uniform spot node against the planned actual-solver descriptor. Its group
+is marked `failed` and contributes
+**no** rows: a partially solved group is not a coherent design point, and
+admitting one would put a silently thinner state into a partition. The solves
+that did complete are still reported as solves, with `retained = false`, so the
+solve count never quietly shrinks.
+
+#### One derivation, used to write and to reconcile
+
+`expected_surface_metadata` and `expected_row_metadata` derive the immutable
+metadata of a surface record and of a row from the planned solver descriptor,
+the planned partition and group, and — for a row — the exact node index. The
+same two functions build the records when writing and rebuild them when
+reconciling, so a published field is never compared against itself.
+
+Every surface record's identity-linked metadata is compared as a whole:
+`surface_id`, `solver_input_id`, group, partition, scenario name, role, option
+type, exercise style, strike, actual volatility, settings digest and the full
+solver descriptor, plus its solved status and its retention against its group's
+status. Every row's immutable columns are rebuilt and compared likewise:
+partition, group, surface and row IDs, role, option and exercise type, strike and
+actual volatility, valuation and expiry time, carry, rate, settlement, dividend
+count, contract multiplier as reporting metadata, settings digest, grid, and the
+spot derived from the exact planned grid rather than copied from the row.
+
+The counts are **recomputed from the actual rows**, never trusted: rows per
+partition, group and surface; selected rows per surface and per regime; counts by
+exercise state; counts by price, delta and gamma eligibility; counts by
+ineligibility reason; and duplicate and cross-partition intersections. Each is
+compared against the report. Numerical row invariants are checked too: a finite
+price whenever price-eligible, finite eligible Greeks, eligibility agreeing with
+its reason, and `numerically_indifferent` never Greek-eligible.
+
+One limit is stated rather than overclaimed. The **rejected-node tallies cannot
+be independently reconstructed from published data**: the nodes they count were
+discarded and are not republished, so only the recorded surface audit supplies
+those facts. They are reconciled as integer accounting — selected plus rejected
+equals the node count — while the *selected* side is reconciled directly against
+the rows that actually belong to that surface, per regime, together with their
+node indices and per-regime quota ceilings.
+
+`reconcile_report` is a live invariant, not a test helper, and
+`verify_publication` runs the full semantic comparison after hash verification.
+Semantic reconciliation rejects **single-sided mutations and inconsistent
+report/plan/row combinations even when ordinary file hashes have been
+regenerated** to match the edited files: a changed row volatility, strike, option
+type, node index, spot, settings digest, eligibility or exercise state; a changed
+surface-record volatility, settings or solver descriptor; and a changed
+classification or eligibility count in the report are each rejected, because each
+is rebuilt from the published plan or recomputed from the actual rows rather than
+read back from the field under test.
+
+#### What that reconciliation does not yet cover
+
+That guarantee is about *consistency*, not authenticity, and the gap is recorded
+here rather than left for a reader to discover. Five plan fields carry no digest
+of their own, so a **coordinated rewrite that changes the published plan and
+every corresponding row in the same way currently passes `verify_publication`
+undetected**:
+
+- `scenario_metadata.rate`
+- `scenario_metadata.contract_multiplier`
+- `scenario_name`
+- `surface_role`
+- `settings_digest`
+
+Three of them are in fact derivable from data that *is* anchored —
+`settings_digest` from the solver descriptor's own grid and solver settings,
+`rate` from `curve_log_discounts` and `expiry_time`, and a `base` role from the
+actual volatility equalling the group's base volatility — and are simply not
+recomputed today. `scenario_name` and `contract_multiplier` are free reporting
+text and would need a plan-level digest instead.
+
+The scope of the gap, stated exactly:
+
+- It does **not** affect `solver_input_id`, `surface_id` or `row_id`, each of
+  which is a digest of its own payload; nor partition assignment; nor any pricing
+  label; nor the current exploratory demonstration, which publishes nothing that
+  is consumed.
+- Published task 9C-C2a harvests must therefore **not yet be treated as
+  authoritative downstream training inputs.**
+- Anchoring or recomputing these five fields is a **required first step of task
+  9C-C2b**, before any published harvest is read as an input rather than as a
+  demonstration.
+
+Finally, `_expected_spot_grid_payload` and `_expected_time_grid_payload`
+reconstruct the solver's node placement and time alignment in Python. That
+duplication is intentional: it is the cross-check that binds a returned surface
+to its planned grid, and a divergence fails loudly as a validation error rather
+than silently. It is **not** an independent implementation, and it must be
+updated in the same change as any future alteration of the C++ grid rule.
+
+#### Not implemented by task 9C-C2a
+
+Vega surfaces and the sigma-bump solves themselves beyond the role identity;
+parallel or batched execution; Parquet output; production dataset generation;
+label policy v2; neural training; checkpointing or resumption; any acceptance
+gate. **Task 9C-B remains `no_policy_selected`** and nothing here reads, reruns,
+edits or reinterprets its frozen evidence.
+
 ### Mandatory rules for the task 9C-C2 dataset contract
 
 These are recorded here now, before any dataset exists, because the leakage they
@@ -651,9 +1041,15 @@ does not make those rows statistically independent.**
 A group should eventually contain every output sharing the same underlying
 non-spot economic state and related numerical construction, including call/put
 or volatility-bump relatives wherever the sampling contract determines that
-cross-partition separation could leak information. The final identifier schema
-is deliberately **not** guessed here; the requirement is recorded, not
-implemented.
+cross-partition separation could leak information.
+
+Task 9C-C2a implements every rule above and fixes that identifier schema; see
+the preceding section. The rules are kept here in their original form because
+they were declared before any dataset existed, and a later implementation must
+be readable against what was required rather than against itself. What 9C-C2a
+does **not** supply is the rest of task 9C-C2: no vega triple is solved, no
+production dataset is generated, and learning-curve measurement in independent
+groups remains future work.
 
 ### Validation
 

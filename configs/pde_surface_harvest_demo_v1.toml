@@ -1,0 +1,218 @@
+# Task 9C-C2a surface-harvesting demonstration.
+#
+# This configuration exists to exercise the grouped-partitioning and harvesting
+# machinery on a small synthetic design. It is EXPLORATORY INFRASTRUCTURE. It is
+# not a production dataset, not a label policy, and not a validation of task
+# 9C-B, which remains `no_policy_selected` and is not revisited here. No vega is
+# computed anywhere: the volatility-bump surface roles exist so that a future
+# three-surface group cannot straddle a partition, and this design declares only
+# the `base` role.
+
+schema_version = "pde-surface-harvest/2"
+
+[study]
+name = "pde-surface-harvest-demo-v1"
+status = "exploratory_infrastructure_demonstration"
+engine = "dp::finite_difference_valuation_surface/v1"
+price_units = "currency_per_share"
+greek_method = "nodewise_discrete_derivatives_of_one_solved_slice"
+curve_construction = "flat_continuously_compounded_from_scenario_rate"
+
+[identity]
+version = "pde-surface-harvest-identity/2"
+digest = "sha256_over_canonical_json"
+# Declared here so a reader cannot miss what a partition group deliberately
+# ignores. The parser rejects a configuration that changes or drops any entry:
+# these are contract statements, not tuning knobs.
+partition_group_excludes = [
+    "queried_spot",
+    "harvested_node_index",
+    "option_type",
+    "exercise_style",
+    "volatility_bump_role",
+    "numerical_grid_and_solver_settings",
+    # Carried for the task 9B input interface and never used in pricing
+    # arithmetic, so it cannot distinguish a pricing state. It stays in row and
+    # report metadata.
+    "reporting_only_contract_multiplier",
+]
+
+[partitioning]
+# Candidate groups are canonicalized, duplicate-checked, sorted by their own
+# seeded assignment digest, and sliced contiguously into the declared partitions
+# using largest-remainder counts. Assignment consumes only partition group IDs
+# and therefore happens before any PDE solve. The rule is deliberately not
+# incremental: adding a candidate group to this design re-derives every
+# assignment, which is why the design is versioned with the configuration.
+# Every actual solver-input descriptor is also canonicalized and duplicate-
+# checked before this assignment. C2a rejects aliases rather than merging or
+# reusing them; explicit solve reuse is deferred to C2b.
+algorithm = "grouped_quota_by_sorted_digest/1"
+seed = 20260816
+minimum_groups_per_partition = 1
+
+[partitioning.weights]
+train = 0.5
+validation = 0.25
+interpolation_test = 0.25
+
+[solver]
+spot_maximum_strike_multiple = 4.0
+rannacher_steps = 2
+psor_tolerance = 1.0e-11
+psor_relaxation = 1.2
+psor_maximum_iterations = 200000
+settlement = "cash"
+contract_multiplier = 100.0
+
+[grid]
+spot_intervals = 800
+time_steps = 400
+boundary_exclusion_nodes = 4
+
+[surfaces]
+# One group emits every combination below. Call/put and the European control of
+# an American contract are solver siblings of one base scenario, so they share a
+# partition group by construction and cannot straddle partitions.
+roles = ["base"]
+option_types = ["call", "put"]
+exercise_styles = ["american", "european"]
+
+[harvest]
+status = "exploratory_demonstration_values"
+# Exact interior grid nodes only. No off-grid interpolation is used for
+# harvesting; the task 9C-C1 query API is untouched and unused here.
+node_source = "exact_grid_nodes"
+moneyness_window_low = 0.7
+moneyness_window_high = 1.4
+selection_rule = "evenly_spaced_by_ascending_node_index/1"
+
+[harvest.quota]
+# Per surface, per exercise regime. Exercise-region rows are correct but
+# information-light and numerically indifferent rows are diagnostic only, so
+# both are capped well below the continuation density. These numbers are
+# exploratory demonstration values and are NOT a production sampling policy.
+continuation = 10
+exercise = 4
+numerically_indifferent = 2
+no_obstacle = 10
+
+[[scenarios]]
+name = "atm_one_year"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "atm_one_year_high_vol"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.35
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "atm_one_year_low_vol"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.12
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "atm_half_year_carry"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 0.5
+rate = 0.04
+base_volatility = 0.25
+continuous_carry = 0.06
+dividends = []
+
+[[scenarios]]
+name = "low_strike_two_year"
+strike = 80.0
+valuation_time = 0.0
+expiry_time = 2.0
+rate = 0.03
+base_volatility = 0.22
+continuous_carry = 0.01
+dividends = []
+
+[[scenarios]]
+name = "high_strike_two_year"
+strike = 120.0
+valuation_time = 0.0
+expiry_time = 2.0
+rate = 0.03
+base_volatility = 0.18
+continuous_carry = 0.01
+dividends = []
+
+[[scenarios]]
+name = "one_cash_dividend"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = [[0.5, 2.0]]
+
+[[scenarios]]
+name = "two_cash_dividends"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = [[0.3, 1.5], [0.8, 1.5]]
+
+[[scenarios]]
+name = "negative_rate_carry"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = -0.01
+base_volatility = 0.2
+continuous_carry = 0.03
+dividends = []
+
+[[scenarios]]
+name = "short_expiry_quarter"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 0.25
+rate = 0.05
+base_volatility = 0.3
+continuous_carry = 0.02
+dividends = []
+
+[[scenarios]]
+name = "deferred_valuation_time"
+strike = 100.0
+valuation_time = 0.1
+expiry_time = 1.1
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "high_carry_three_year"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 3.0
+rate = 0.02
+base_volatility = 0.28
+continuous_carry = 0.05
+dividends = []

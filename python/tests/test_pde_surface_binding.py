@@ -694,3 +694,177 @@ def test_the_surface_has_no_spot_argument() -> None:
             boundary_exclusion_nodes=4,
             query_spots=[],
         )
+
+
+# ---------------------------------------------------------------------------
+# The mandatory normalized input echo
+# ---------------------------------------------------------------------------
+
+_ECHO_IDENTITY_FIELDS = (
+    "option_type",
+    "exercise_style",
+    "strike",
+    "valuation_time",
+    "expiry_time",
+    "volatility",
+    "continuous_carry",
+    "curve_times",
+    "curve_log_discounts",
+    "dividends",
+    "settlement",
+    "spot_intervals",
+    "time_steps",
+    "spot_maximum",
+    "rannacher_steps",
+    "psor_tolerance",
+    "psor_relaxation",
+    "psor_maximum_iterations",
+    "boundary_exclusion_nodes",
+)
+_ECHO_METADATA_FIELDS = ("contract_multiplier", "dividends_declared")
+
+
+def test_every_surface_result_carries_the_mandatory_input_echo() -> None:
+    # The echo is mandatory, so a consumer never has to treat it as optional and
+    # never has an "absent, therefore fine" success path.
+    for style in ("european", "american"):
+        for option_type in ("call", "put"):
+            surface = _surface(option_type=option_type, exercise_style=style)
+            assert "surface_input" in surface
+            echo = surface["surface_input"]
+            assert set(echo) == set(_ECHO_IDENTITY_FIELDS) | set(_ECHO_METADATA_FIELDS)
+
+
+def test_the_input_echo_reports_the_normalized_inputs_the_solver_accepted() -> None:
+    dividends = [(0.25, 1.5), (0.75, 2.0)]
+    surface = _surface(
+        option_type="put",
+        exercise_style="american",
+        strike=120.0,
+        valuation_time=0.1,
+        expiry_time=1.6,
+        volatility=0.27,
+        continuous_carry=0.03,
+        curve_times=[0.0, 0.8, 1.6],
+        curve_log_discounts=[0.0, -0.032, -0.064],
+        dividends=dividends,
+        settlement="physical",
+        contract_multiplier=50.0,
+        spot_intervals=400,
+        time_steps=200,
+        spot_maximum=480.0,
+        rannacher_steps=3,
+        psor_tolerance=1.0e-10,
+        psor_relaxation=1.1,
+        psor_maximum_iterations=40_000,
+        boundary_exclusion_nodes=5,
+    )
+    echo = surface["surface_input"]
+    assert echo["option_type"] == "put"
+    assert echo["exercise_style"] == "american"
+    assert echo["strike"] == 120.0
+    assert echo["valuation_time"] == 0.1
+    assert echo["expiry_time"] == 1.6
+    assert echo["volatility"] == 0.27
+    assert echo["continuous_carry"] == 0.03
+    assert echo["curve_times"] == [0.0, 0.8, 1.6]
+    assert echo["curve_log_discounts"] == [0.0, -0.032, -0.064]
+    assert echo["dividends"] == [[0.25, 1.5], [0.75, 2.0]]
+    assert echo["dividends_declared"] is True
+    assert echo["settlement"] == "physical"
+    assert echo["contract_multiplier"] == 50.0
+    assert echo["spot_intervals"] == 400
+    assert echo["time_steps"] == 200
+    assert echo["spot_maximum"] == 480.0
+    assert echo["rannacher_steps"] == 3
+    assert echo["psor_tolerance"] == 1.0e-10
+    assert echo["psor_relaxation"] == 1.1
+    assert echo["psor_maximum_iterations"] == 40_000
+    assert echo["boundary_exclusion_nodes"] == 5
+
+
+def test_the_echo_reports_requested_grid_targets_not_the_adjusted_grid() -> None:
+    # `spot_intervals` and `spot_maximum` are targets: the solver moves a node
+    # onto the strike. The echo reports what was *accepted*, the diagnostics
+    # report what was *used*, and the two are deliberately distinguishable.
+    surface = _surface(strike=99.0, spot_intervals=300, spot_maximum=400.0)
+    echo = surface["surface_input"]
+    assert echo["spot_intervals"] == 300
+    assert echo["spot_maximum"] == 400.0
+    assert surface["spot_intervals"] != 300 or surface["spot_maximum"] != 400.0
+    # The node lands on the strike to rounding, which is the placement rule; the
+    # exact float is the accumulated product of the adjusted step.
+    assert surface["spot_nodes"][surface["strike_node_index"]] == pytest.approx(99.0, abs=1e-9)
+
+
+def test_an_empty_declared_dividend_schedule_still_reports_declared() -> None:
+    echo = _surface(dividends=[])["surface_input"]
+    assert echo["dividends"] == []
+    assert echo["dividends_declared"] is True
+
+
+def test_the_echo_is_bitwise_stable_across_repeated_solves() -> None:
+    first = _surface(option_type="put", exercise_style="american")["surface_input"]
+    second = _surface(option_type="put", exercise_style="american")["surface_input"]
+    assert first == second
+
+
+def test_the_echo_distinguishes_every_identity_bearing_input() -> None:
+    base = _surface(option_type="put", exercise_style="american")["surface_input"]
+    variations = {
+        "option_type": _surface(option_type="call", exercise_style="american"),
+        "exercise_style": _surface(option_type="put", exercise_style="european"),
+        "volatility": _surface(option_type="put", exercise_style="american", volatility=0.25),
+        "settlement": _surface(
+            option_type="put", exercise_style="american", settlement="physical"
+        ),
+        "curve_log_discounts": _surface(
+            option_type="put", exercise_style="american", rate=0.02
+        ),
+        "boundary_exclusion_nodes": _surface(
+            option_type="put", exercise_style="american", boundary_exclusion_nodes=6
+        ),
+    }
+    for field, surface in variations.items():
+        assert surface["surface_input"][field] != base[field], field
+
+
+def test_the_multiplier_is_echoed_but_changes_no_solved_value() -> None:
+    # Reporting metadata: present in the echo, absent from the arithmetic.
+    first = _surface(option_type="put", exercise_style="american", contract_multiplier=1.0)
+    second = _surface(option_type="put", exercise_style="american", contract_multiplier=250.0)
+    assert first["surface_input"]["contract_multiplier"] == 1.0
+    assert second["surface_input"]["contract_multiplier"] == 250.0
+    assert first["values"] == second["values"]
+    assert first["deltas"] == second["deltas"]
+    assert first["exercise_states"] == second["exercise_states"]
+
+
+def test_the_scalar_api_is_unchanged_and_carries_no_echo() -> None:
+    # The echo is additive to the surface result only. The scalar entry point is
+    # untouched, including its exact key set.
+    scalar = pde_price(
+        option_type="put",
+        exercise_style="american",
+        spot=95.0,
+        strike=100.0,
+        valuation_time=0.0,
+        expiry_time=1.0,
+        volatility=0.2,
+        continuous_carry=0.0,
+        curve_times=[0.0, 1.0],
+        curve_log_discounts=[0.0, -0.05],
+        dividends=[],
+        settlement="cash",
+        contract_multiplier=100.0,
+        spot_intervals=800,
+        time_steps=400,
+        spot_maximum=400.0,
+        rannacher_steps=2,
+        psor_tolerance=1.0e-11,
+        psor_relaxation=1.2,
+        psor_maximum_iterations=50_000,
+    )
+    assert "surface_input" not in scalar
+    surface = _surface(option_type="put", exercise_style="american", query_spots=[95.0])
+    assert scalar["price"] == surface["queries"][0]["value"]
