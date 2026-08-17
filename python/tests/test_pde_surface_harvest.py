@@ -169,6 +169,7 @@ def _regimes(spot_intervals: int, exercise_style: str) -> list[str]:
 
 def _synthetic_surface(
     *,
+    volatility_sensitivity: float = 0.0,
     spot_intervals: int = 200,
     spot_maximum: float = 400.0,
     exercise_style: str = "american",
@@ -199,7 +200,14 @@ def _synthetic_surface(
     step = spot_maximum / spot_intervals
     spots = [index * step for index in range(spot_intervals + 1)]
     states = _regimes(spot_intervals, exercise_style) if states is None else states
-    values = [max(STRIKE - spot, 0.0) + 1.0 for spot in spots] if values is None else values
+    if values is None:
+        # A price that is exactly linear in volatility, so the centered vega of
+        # the triple is `volatility_sensitivity * spot` in closed form and the
+        # published formula can be checked against a known answer.
+        values = [
+            max(STRIKE - spot, 0.0) + 1.0 + volatility_sensitivity * volatility * spot
+            for spot in spots
+        ]
 
     deltas: list[float | None] = []
     gammas: list[float | None] = []
@@ -304,8 +312,11 @@ def _synthetic_surface(
     }
 
 
-def _surface_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+def _surface_from_kwargs(
+    kwargs: dict[str, Any], *, volatility_sensitivity: float = 0.0
+) -> dict[str, Any]:
     return _synthetic_surface(
+        volatility_sensitivity=volatility_sensitivity,
         spot_intervals=int(kwargs["spot_intervals"]),
         spot_maximum=float(kwargs["spot_maximum"]),
         exercise_style=str(kwargs["exercise_style"]),
@@ -332,15 +343,30 @@ def _surface_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
 class _SyntheticSolver:
     """A solver stand-in that records every call it receives."""
 
-    def __init__(self, *, failing_surface: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        failing_surface: int | None = None,
+        volatility_sensitivity: float = 0.0,
+        non_finite_at: tuple[str, int] | None = None,
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self.failing_surface = failing_surface
+        self.volatility_sensitivity = volatility_sensitivity
+        self.non_finite_at = non_finite_at
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(dict(kwargs))
         if self.failing_surface is not None and len(self.calls) - 1 == self.failing_surface:
             raise RuntimeError("synthetic solve failure")
-        return _surface_from_kwargs(kwargs)
+        surface = _surface_from_kwargs(
+            kwargs, volatility_sensitivity=self.volatility_sensitivity
+        )
+        if self.non_finite_at is not None:
+            role_volatility, index = self.non_finite_at
+            if repr(float(kwargs["volatility"])) == role_volatility:
+                surface["values"][index] = math.nan
+        return surface
 
 
 # ---------------------------------------------------------------------------
@@ -684,8 +710,10 @@ def test_mismatched_returned_surface_is_a_failed_attempt_with_no_rows(
     report, rows = harvest.execute_plan(plan, config, solver=solver)
     failed_group = plan.groups[0]
     assert calls == len(plan.surfaces)
-    assert report["totals"]["attempted_surface_solve_count"] == len(plan.surfaces)
-    assert report["totals"]["failed_surface_solve_count"] == 1
+    assert report["totals"]["attempted_surface_count"] == len(plan.surfaces)
+    assert report["totals"]["solver_returned_surface_count"] == len(plan.surfaces)
+    assert report["totals"]["solver_failed_surface_count"] == 0
+    assert report["totals"]["post_solve_pipeline_failed_surface_count"] == 1
     assert report["failures"][0]["stage"] == "surface_validation"
     assert field in report["failures"][0]["error_message"]
     assert all(row["partition_group_id"] != failed_group.partition_group_id for row in rows)
@@ -696,8 +724,9 @@ def test_matching_returned_surface_is_bound_and_accepted() -> None:
     plan = harvest.plan_harvest(config)
     report, rows = harvest.execute_plan(plan, config, solver=_SyntheticSolver())
     assert rows
-    assert report["totals"]["successful_surface_solve_count"] == len(plan.surfaces)
-    assert report["totals"]["failed_surface_solve_count"] == 0
+    assert report["totals"]["pipeline_successful_surface_count"] == len(plan.surfaces)
+    assert report["totals"]["solver_failed_surface_count"] == 0
+    assert report["totals"]["post_solve_pipeline_failed_surface_count"] == 0
 
 
 def test_assignment_ignores_input_order_and_batch_size() -> None:
@@ -748,7 +777,7 @@ def test_cross_group_actual_solve_alias_is_rejected_before_assignment_or_solving
             _scenario("group_b", base_volatility=0.25),
             _scenario("group_c", base_volatility=0.40),
         ],
-        roles=["base", "sigma_up"],
+        roles=["base", "sigma_down", "sigma_up"],
         volatility_bump=0.05,
     )
     config = _config(document)
@@ -1179,6 +1208,63 @@ def test_a_tampered_published_file_fails_its_manifest_digest(tmp_path: Path) -> 
         harvest.verify_publication(directory)
 
 
+@pytest.mark.parametrize(
+    ("field", "old_value", "message"),
+    [
+        ("schema_version", "pde-surface-harvest-report/2", "report schema_version"),
+        ("row_schema_version", "pde-surface-harvest-row/2", "report row_schema_version"),
+    ],
+)
+def test_regenerated_hashes_cannot_legitimize_old_report_schema_declarations(
+    tmp_path: Path, field: str, old_value: str, message: str
+) -> None:
+    config = _config(_vega_document())
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    broken = copy.deepcopy(report)
+    broken[field] = old_value
+    directory = tmp_path / field
+    _republish(directory, broken, copy.deepcopy(rows))
+    manifest = json.loads((directory / harvest.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == harvest.MANIFEST_SCHEMA_VERSION
+    with pytest.raises(harvest.HarvestError, match=message):
+        harvest.verify_publication(directory)
+    with pytest.raises(harvest.HarvestError, match=message):
+        harvest.verify_publication_authoritatively(directory, expected_config=config)
+
+
+def test_regenerated_hashes_cannot_legitimize_an_old_row_schema_declaration(
+    tmp_path: Path,
+) -> None:
+    config = _config(_vega_document())
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    broken_rows = copy.deepcopy(rows)
+    broken_rows[0]["schema_version"] = "pde-surface-harvest-row/2"
+    directory = tmp_path / "row-schema"
+    _republish(directory, copy.deepcopy(report), broken_rows)
+    manifest = json.loads((directory / harvest.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == harvest.MANIFEST_SCHEMA_VERSION
+    with pytest.raises(harvest.HarvestError, match="published row 0 schema_version"):
+        harvest.verify_publication(directory)
+    with pytest.raises(harvest.HarvestError, match="published row 0 schema_version"):
+        harvest.verify_publication_authoritatively(directory, expected_config=config)
+
+
+def test_a_genuine_old_manifest_schema_is_rejected_clearly(tmp_path: Path) -> None:
+    config, directory, _report, _rows = _publish_vega_run(tmp_path)
+    manifest_path = directory / harvest.MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = "pde-surface-harvest-manifest/2"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    with pytest.raises(harvest.HarvestError, match=r"manifest\.json.*wrong schema version"):
+        harvest.verify_publication(directory)
+    with pytest.raises(harvest.HarvestError, match=r"manifest\.json.*wrong schema version"):
+        harvest.verify_publication_authoritatively(directory, expected_config=config)
+
+
 def test_regenerated_hashes_cannot_legitimize_semantically_inconsistent_rows(
     tmp_path: Path,
 ) -> None:
@@ -1215,7 +1301,7 @@ def _republish(
         "rows.csv": harvest.rows_csv(rows).encode("utf-8"),
     }
     manifest = {
-        "schema_version": "pde-surface-harvest-manifest/2",
+        "schema_version": harvest.MANIFEST_SCHEMA_VERSION,
         "publication_complete": True,
         "row_count": len(rows),
         "files": {
@@ -1466,12 +1552,14 @@ def test_report_counts_reconcile_exactly() -> None:
     assert totals["candidate_group_count"] == len(config.scenarios)
     assert totals["assigned_group_count"] == len(config.scenarios)
     assert totals["planned_surface_count"] == len(config.scenarios) * 4
-    assert totals["attempted_surface_solve_count"] == len(config.scenarios) * 4
-    assert totals["successful_surface_solve_count"] == len(config.scenarios) * 4
-    assert totals["failed_surface_solve_count"] == 0
+    assert totals["attempted_surface_count"] == len(config.scenarios) * 4
+    assert totals["solver_returned_surface_count"] == len(config.scenarios) * 4
+    assert totals["solver_failed_surface_count"] == 0
+    assert totals["pipeline_successful_surface_count"] == len(config.scenarios) * 4
+    assert totals["post_solve_pipeline_failed_surface_count"] == 0
     assert totals["raw_row_count"] == len(rows)
     assert totals["raw_row_count"] > totals["independent_design_group_count"]
-    assert totals["backward_induction_count"] == totals["successful_surface_solve_count"]
+    assert totals["backward_induction_count"] == totals["solver_returned_surface_count"]
     assert sum(totals["counts_by_exercise_state"].values()) == totals["raw_row_count"]
     eligibility = totals["counts_by_greek_eligibility"]
     assert eligibility["eligible"] + eligibility["ineligible"] == totals["raw_row_count"]
@@ -1506,7 +1594,7 @@ def test_yield_ratios_carry_their_own_integer_numerator_and_denominator() -> Non
     for scope in scopes:
         for name, denominator_key in (
             ("raw_rows_per_group", "independent_design_group_count"),
-            ("raw_rows_per_attempted_surface_solve", "attempted_surface_solve_count"),
+            ("raw_rows_per_attempted_surface", "attempted_surface_count"),
             ("raw_rows_per_retained_surface", "retained_surface_count"),
         ):
             ratio = scope[name]
@@ -1531,7 +1619,7 @@ def test_rows_per_surface_solve_is_the_work_multiplier_not_rows_per_group() -> N
     report, _rows = harvest.run_harvest(config, solver=_SyntheticSolver())
     totals = report["totals"]
     per_group = totals["raw_rows_per_group"]
-    per_solve = totals["raw_rows_per_attempted_surface_solve"]
+    per_solve = totals["raw_rows_per_attempted_surface"]
     assert per_solve["denominator"] == 4 * per_group["denominator"]
     assert per_group["value"] == pytest.approx(4.0 * per_solve["value"])
     assert per_solve["value"] < per_group["value"]
@@ -1551,15 +1639,17 @@ def test_discarded_solves_stay_in_the_attempted_denominator() -> None:
     totals = report["totals"]
     assert totals["failed_group_count"] == 1
     assert totals["planned_surface_count"] == 8
-    assert totals["attempted_surface_solve_count"] == 8
-    assert totals["successful_surface_solve_count"] == 7
-    assert totals["failed_surface_solve_count"] == 1
+    assert totals["attempted_surface_count"] == 8
+    assert totals["solver_returned_surface_count"] == 7
+    assert totals["solver_failed_surface_count"] == 1
+    assert totals["pipeline_successful_surface_count"] == 7
+    assert totals["post_solve_pipeline_failed_surface_count"] == 0
     assert totals["discarded_surface_count"] == 1
     assert totals["retained_surface_count"] == 6
-    per_solve = totals["raw_rows_per_attempted_surface_solve"]
+    per_solve = totals["raw_rows_per_attempted_surface"]
     per_retained = totals["raw_rows_per_retained_surface"]
     # Attempted-solve yield is the conservative one and is reported beside it.
-    assert per_solve["denominator"] == totals["attempted_surface_solve_count"]
+    assert per_solve["denominator"] == totals["attempted_surface_count"]
     assert per_retained["denominator"] == totals["retained_surface_count"]
     assert per_solve["value"] < per_retained["value"]
     harvest.reconcile_report(report, rows)
@@ -1589,7 +1679,7 @@ def test_reconciliation_rejects_a_row_partition_mutation_with_zero_integrity_cou
     "mutate",
     [
         lambda report: report["failures"].pop(),
-        lambda report: report["totals"].__setitem__("failed_surface_solve_count", 99),
+        lambda report: report["totals"].__setitem__("solver_failed_surface_count", 99),
         lambda report: report["totals"].__setitem__("planned_surface_count", 99),
         lambda report: next(
             surface for surface in report["surfaces"] if not surface["retained"]
@@ -1640,10 +1730,10 @@ def test_a_tampered_yield_ratio_fails_reconciliation() -> None:
     config = _config()
     report, rows = harvest.run_harvest(config, solver=_SyntheticSolver())
     for mutate in (
-        lambda doc: doc["totals"]["raw_rows_per_attempted_surface_solve"].__setitem__(
+        lambda doc: doc["totals"]["raw_rows_per_attempted_surface"].__setitem__(
             "value", 42.0
         ),
-        lambda doc: doc["totals"]["raw_rows_per_attempted_surface_solve"].__setitem__(
+        lambda doc: doc["totals"]["raw_rows_per_attempted_surface"].__setitem__(
             "denominator", 1
         ),
         lambda doc: doc["totals"]["raw_rows_per_group"].__setitem__("numerator", 0),
@@ -1817,7 +1907,7 @@ def test_real_run_reconciles_and_repeats_bitwise(tmp_path: Path) -> None:
     harvest.write_outputs(first_report, first_rows, tmp_path / "a")
     harvest.write_outputs(second_report, second_rows, tmp_path / "b")
     harvest.verify_byte_identity(tmp_path / "a", tmp_path / "b")
-    assert first_report["totals"]["attempted_surface_solve_count"] == 3
+    assert first_report["totals"]["attempted_surface_count"] == 3
     assert first_report["totals"]["raw_row_count"] > 3
 
 
@@ -1882,3 +1972,1137 @@ def _toml(document: dict[str, Any]) -> str:
         lines.append("\n[[scenarios]]")
         lines.extend(f"{key} = {scalar(value)}" for key, value in entry.items())
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Task 9C-C2b1 A. Authoritative verification against an expected configuration
+# ---------------------------------------------------------------------------
+
+VEGA_CONFIG_PATH = (
+    Path(__file__).resolve().parents[2] / "configs" / "pde_surface_vega_harvest_demo_v1.toml"
+)
+
+_UNANCHORED_PLAN_FIELDS = (
+    "scenario_metadata.rate",
+    "scenario_metadata.contract_multiplier",
+    "scenario_name",
+    "surface_role",
+    "settings_digest",
+)
+"""The five fields task 9C-C2a recorded as carrying no digest of their own."""
+
+
+def _vega_document(**kwargs: Any) -> dict[str, Any]:
+    document = _document(
+        roles=["base", "sigma_down", "sigma_up"], volatility_bump=0.01, **kwargs
+    )
+    return document
+
+
+def _rows_of_group(rows: list[dict[str, Any]], group_id: str) -> list[dict[str, Any]]:
+    return [row for row in rows if row["partition_group_id"] == group_id]
+
+
+def _mutate_rate(report: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    group = report["plan"]["groups"][0]
+    group["scenario_metadata"]["rate"] = 0.4242
+    for row in _rows_of_group(rows, group["partition_group_id"]):
+        row["rate"] = 0.4242
+
+
+def _mutate_contract_multiplier(report: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    group = report["plan"]["groups"][0]
+    group["scenario_metadata"]["contract_multiplier"] = 7.0
+    for row in _rows_of_group(rows, group["partition_group_id"]):
+        row["contract_multiplier"] = 7.0
+
+
+def _mutate_scenario_name(report: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    group = report["plan"]["groups"][0]
+    group_id = group["partition_group_id"]
+    group["scenario_name"] = "renamed_state"
+    group["scenario_metadata"]["scenario_name"] = "renamed_state"
+    for record in report["surfaces"]:
+        if record["partition_group_id"] == group_id:
+            record["scenario_name"] = "renamed_state"
+    for record in report["groups"]:
+        if record["partition_group_id"] == group_id:
+            record["scenario_name"] = "renamed_state"
+    for row in _rows_of_group(rows, group_id):
+        row["scenario_name"] = "renamed_state"
+
+
+def _mutate_settings_digest(report: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    group = report["plan"]["groups"][0]
+    group_id = group["partition_group_id"]
+    forged = "st-" + "9" * 64
+    ids = set()
+    for surface in group["surfaces"]:
+        surface["settings_digest"] = forged
+        ids.add(surface["surface_id"])
+    for record in report["surfaces"]:
+        if record["surface_id"] in ids:
+            record["settings_digest"] = forged
+    for row in _rows_of_group(rows, group_id):
+        row["settings_digest"] = forged
+
+
+def _mutate_surface_role(report: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    """Swap one group's two bumped role labels, leaving every volatility alone."""
+    group = report["plan"]["groups"][0]
+    swap = {"sigma_down": "sigma_up", "sigma_up": "sigma_down"}
+    ids = {}
+    for surface in group["surfaces"]:
+        if surface["surface_role"] in swap:
+            surface["surface_role"] = swap[surface["surface_role"]]
+            ids[surface["surface_id"]] = surface["surface_role"]
+    for record in report["surfaces"]:
+        if record["surface_id"] in ids:
+            record["surface_role"] = ids[record["surface_id"]]
+
+
+_COORDINATED_MUTATIONS: dict[str, Any] = {
+    "scenario_metadata.rate": _mutate_rate,
+    "scenario_metadata.contract_multiplier": _mutate_contract_multiplier,
+    "scenario_name": _mutate_scenario_name,
+    "surface_role": _mutate_surface_role,
+    "settings_digest": _mutate_settings_digest,
+}
+
+
+def _publish_vega_run(
+    tmp_path: Path, name: str = "run", **document_kwargs: Any
+) -> tuple[harvest.HarvestConfig, Path, dict[str, Any], list[dict[str, Any]]]:
+    config = _config(_vega_document(**document_kwargs))
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    directory = tmp_path / name
+    harvest.write_outputs(report, rows, directory, overwrite=True)
+    return config, directory, report, rows
+
+
+def _nonlinear_volatility_solver(**kwargs: Any) -> dict[str, Any]:
+    """A deterministic surface whose centered vega changes with eta."""
+    surface = _surface_from_kwargs(kwargs)
+    volatility = float(kwargs["volatility"])
+    surface["values"] = [
+        max(float(kwargs["strike"]) - spot, 0.0) + 1.0 + volatility**3 * spot
+        for spot in surface["spot_nodes"]
+    ]
+    return surface
+
+
+def test_the_five_recorded_plan_fields_are_still_the_ones_under_test() -> None:
+    # The list is the contract's, not this test's: if the contract ever adds a
+    # sixth unanchored field, this assertion is where it has to be declared.
+    assert set(_COORDINATED_MUTATIONS) == set(_UNANCHORED_PLAN_FIELDS)
+
+
+def test_authoritative_verification_accepts_an_untouched_publication(tmp_path: Path) -> None:
+    config, directory, _report, _rows = _publish_vega_run(tmp_path)
+    harvest.verify_publication(directory)
+    harvest.verify_publication_authoritatively(directory, expected_config=config)
+
+
+def test_authoritative_verification_replans_without_solving(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, directory, _report, _rows = _publish_vega_run(tmp_path)
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("authoritative verification must not price anything")
+
+    monkeypatch.setattr(harvest, "pde_valuation_surface", forbidden)
+    monkeypatch.setattr(harvest, "_solve_surface", forbidden)
+    harvest.verify_publication_authoritatively(directory, expected_config=config)
+
+
+def test_authoritative_verification_requires_the_expected_configuration(
+    tmp_path: Path,
+) -> None:
+    config, directory, _report, _rows = _publish_vega_run(tmp_path)
+    other = dataclasses.replace(
+        config,
+        partitioning=dataclasses.replace(config.partitioning, seed=config.partitioning.seed + 1),
+    )
+    with pytest.raises(harvest.HarvestError, match="semantic_config_sha256 does not match"):
+        harvest.verify_publication_authoritatively(directory, expected_config=other)
+
+
+def test_authoritative_verification_accepts_a_configuration_path(tmp_path: Path) -> None:
+    source = tmp_path / "design.toml"
+    source.write_text(_toml(_vega_document()), encoding="utf-8")
+    directory = tmp_path / "run"
+    assert harvest.main(["--config", str(source), "--output-directory", str(directory)]) == 0
+    harvest.verify_publication_authoritatively(directory, expected_config=source)
+
+
+def test_eta_changes_only_the_vega_label_identity_and_requires_its_own_config(
+    tmp_path: Path,
+) -> None:
+    first = _config(_vega_document())
+    second = dataclasses.replace(
+        first, surfaces=dataclasses.replace(first.surfaces, volatility_bump=0.02)
+    )
+    publications = []
+    for name, config in (("eta-001", first), ("eta-002", second)):
+        report, rows = harvest.run_harvest(config, solver=_nonlinear_volatility_solver)
+        directory = tmp_path / name
+        harvest.write_outputs(report, rows, directory)
+        harvest.verify_publication_authoritatively(directory, expected_config=config)
+        publications.append((directory, report, rows, harvest.plan_harvest(config)))
+
+    (_first_dir, first_report, first_rows, first_plan), (
+        _second_dir,
+        second_report,
+        second_rows,
+        second_plan,
+    ) = publications
+    first_groups = {group.partition_group_id: group for group in first_plan.groups}
+    second_groups = {group.partition_group_id: group for group in second_plan.groups}
+    assert set(first_groups) == set(second_groups)
+    for group_id in first_groups:
+        first_base = next(
+            surface for surface in first_groups[group_id].surfaces if surface.surface_role == "base"
+        )
+        second_base = next(
+            surface
+            for surface in second_groups[group_id].surfaces
+            if surface.surface_role == "base"
+        )
+        assert first_base.solver_input_id == second_base.solver_input_id
+        assert first_base.surface_id == second_base.surface_id
+
+    first_by_row = {row["row_id"]: row for row in first_rows}
+    second_by_row = {row["row_id"]: row for row in second_rows}
+    assert set(first_by_row) == set(second_by_row)
+    for row_id in first_by_row:
+        left, right = first_by_row[row_id], second_by_row[row_id]
+        assert left["partition_group_id"] == right["partition_group_id"]
+        assert left["surface_id"] == right["surface_id"]
+        assert left["row_id"] == right["row_id"]
+        assert left["vega"] != right["vega"]
+        assert left["vega_convention_id"] != right["vega_convention_id"]
+        assert left["vega_label_record_id"] != right["vega_label_record_id"]
+
+    assert (
+        first_report["vega_identity"]["vega_convention_id"]
+        != second_report["vega_identity"]["vega_convention_id"]
+    )
+    with pytest.raises(harvest.HarvestError, match="semantic_config_sha256"):
+        harvest.verify_publication_authoritatively(
+            publications[0][0], expected_config=second
+        )
+    with pytest.raises(harvest.HarvestError, match="semantic_config_sha256"):
+        harvest.verify_publication_authoritatively(
+            publications[1][0], expected_config=first
+        )
+
+
+def test_vega_convention_payload_and_cross_publication_semantics_are_explicit() -> None:
+    payload = harvest.vega_convention_payload(0.01)
+    assert payload == {
+        "version": harvest.VEGA_CONVENTION_VERSION,
+        "kind": "vega_convention",
+        "centered_formula": "[V(sigma + eta) - V(sigma - eta)] / (2 eta)",
+        "eta": 0.01,
+        "unit": "per_unit_absolute_volatility",
+        "reporting_conversion": {
+            "operation": "divide_by",
+            "divisor": 100.0,
+            "result": "vega_per_volatility_point",
+        },
+        "required_roles": [
+            {"role": "sigma_down", "canonical_meaning": "V(sigma - eta)"},
+            {"role": "base", "canonical_meaning": "V(sigma)"},
+            {"role": "sigma_up", "canonical_meaning": "V(sigma + eta)"},
+        ],
+        "exact_node_matching_requirement": "exact_node_index_and_bitwise_equal_spot",
+    }
+    report, _rows = harvest.run_harvest(
+        _config(_vega_document()), solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    identity = report["vega_identity"]
+    assert identity["vega_convention_payload"] == payload
+    assert identity["vega_convention_id"] == harvest.vega_convention_identity(0.01)
+    assert identity["stored_digest_is_authenticity_evidence"] is False
+    semantics = identity["cross_publication_duplicate_semantics"]
+    assert "same base economic and numerical pricing node" in semantics["row_id"]
+    assert "not an identical vega label record" in semantics["same_row_different_convention"]
+
+
+@pytest.mark.parametrize("field", ["vega_convention_id", "vega_label_record_id"])
+def test_regenerated_hashes_cannot_legitimize_mutated_vega_label_identities(
+    tmp_path: Path, field: str
+) -> None:
+    config, _directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    broken_rows = copy.deepcopy(rows)
+    broken_rows[0][field] = ("vc-" if field == "vega_convention_id" else "vl-") + "f" * 64
+    tampered = tmp_path / field
+    _republish(tampered, copy.deepcopy(report), broken_rows)
+    with pytest.raises(harvest.HarvestError, match=field):
+        harvest.verify_publication(tampered)
+    with pytest.raises(harvest.HarvestError, match=field):
+        harvest.verify_publication_authoritatively(tampered, expected_config=config)
+
+
+@pytest.mark.parametrize("field", _UNANCHORED_PLAN_FIELDS)
+def test_authoritative_verification_rejects_coordinated_metadata_mutations(
+    tmp_path: Path, field: str
+) -> None:
+    config, _directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    broken_report = copy.deepcopy(report)
+    broken_rows = copy.deepcopy(rows)
+    _COORDINATED_MUTATIONS[field](broken_report, broken_rows)
+    tampered = tmp_path / "tampered"
+    # Every ordinary file hash is regenerated, so hash verification passes and
+    # only the verification semantics stand between this and acceptance.
+    _republish(tampered, broken_report, broken_rows)
+    leaf = field.rsplit(".", 1)[-1]
+    with pytest.raises(harvest.HarvestError, match=leaf):
+        harvest.verify_publication_authoritatively(tampered, expected_config=config)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "scenario_metadata.rate",
+        "scenario_metadata.contract_multiplier",
+        "scenario_name",
+        "settings_digest",
+    ],
+)
+def test_consistency_only_verification_cannot_see_the_unanchored_plan_fields(
+    tmp_path: Path, field: str
+) -> None:
+    """The gap is real, so the authoritative path is not redundant.
+
+    Four of the five recorded fields carry no digest of their own and are
+    consistent with everything else in the publication once the plan and the
+    rows are rewritten together. ``verify_publication`` therefore accepts them,
+    exactly as task 9C-C2a recorded, and only the authoritative path rejects
+    them.
+    """
+    _unused, _directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    broken_report = copy.deepcopy(report)
+    broken_rows = copy.deepcopy(rows)
+    _COORDINATED_MUTATIONS[field](broken_report, broken_rows)
+    tampered = tmp_path / "tampered"
+    _republish(tampered, broken_report, broken_rows)
+    harvest.verify_publication(tampered)
+
+
+def test_the_vega_role_invariant_also_closes_the_surface_role_gap(tmp_path: Path) -> None:
+    """``surface_role`` is the one of the five that consistency now sees too.
+
+    Task 9C-C2b1 pins each role to the volatility its group actually solves, and
+    a solved volatility lives inside ``solver_input`` and therefore inside the
+    surface's own digest. Relabelling the two bumped roles is consequently
+    detectable without an external configuration. The asymmetry is recorded here
+    so it is not read later as an untested field.
+    """
+    config, _directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    broken_report = copy.deepcopy(report)
+    broken_rows = copy.deepcopy(rows)
+    _COORDINATED_MUTATIONS["surface_role"](broken_report, broken_rows)
+    tampered = tmp_path / "tampered"
+    _republish(tampered, broken_report, broken_rows)
+    with pytest.raises(harvest.HarvestError, match="sigma_down"):
+        harvest.verify_publication(tampered)
+    with pytest.raises(harvest.HarvestError, match="surface_role"):
+        harvest.verify_publication_authoritatively(tampered, expected_config=config)
+
+
+def test_the_two_verification_guarantees_are_named_and_distinct(tmp_path: Path) -> None:
+    _unused, _directory, report, _rows = _publish_vega_run(tmp_path)
+    guarantees = report["verification"]
+    assert set(guarantees) == {
+        harvest.CONSISTENCY_VERIFICATION,
+        harvest.AUTHORITATIVE_VERIFICATION,
+        "training_input_gate",
+    }
+    consistency = guarantees[harvest.CONSISTENCY_VERIFICATION]
+    assert "agrees with ITSELF" in consistency
+    assert "NOT an authenticity check" in consistency
+    # The publication never claims one of its own digests makes it authentic.
+    assert "cannot make that publication" in consistency
+    authoritative = guarantees[harvest.AUTHORITATIVE_VERIFICATION]
+    assert "EXTERNALLY supplied" in authoritative
+    for field in _UNANCHORED_PLAN_FIELDS:
+        assert field.rsplit(".", 1)[-1] in authoritative
+
+
+def test_training_input_verification_requires_the_authoritative_path(tmp_path: Path) -> None:
+    config, directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    # No status is approved, so even a perfect publication is refused.
+    assert not harvest.APPROVED_TRAINING_INPUT_STATUSES
+    with pytest.raises(harvest.HarvestError, match="not an approved training input"):
+        harvest.verify_training_input_publication(directory, expected_config=config)
+
+    # A publication that passes consistency-only verification but fails
+    # authoritative verification is refused for the authoritative reason, which
+    # proves the gate runs the stronger check rather than the weaker one.
+    broken_report = copy.deepcopy(report)
+    broken_rows = copy.deepcopy(rows)
+    _COORDINATED_MUTATIONS["scenario_metadata.rate"](broken_report, broken_rows)
+    tampered = tmp_path / "tampered"
+    _republish(tampered, broken_report, broken_rows)
+    harvest.verify_publication(tampered)
+    with pytest.raises(harvest.HarvestError, match=r"scenario_metadata\.rate"):
+        harvest.verify_training_input_publication(tampered, expected_config=config)
+
+
+def test_settings_digest_is_recomputed_from_the_solver_descriptor(tmp_path: Path) -> None:
+    _unused, _directory, report, _rows = _publish_vega_run(tmp_path)
+    for group in report["plan"]["groups"]:
+        for surface in group["surfaces"]:
+            assert surface["settings_digest"] == harvest.settings_digest_from_solver_input(
+                surface["solver_input"]
+            )
+    descriptor = dict(report["plan"]["groups"][0]["surfaces"][0]["solver_input"])
+    descriptor["time_steps"] = descriptor["time_steps"] + 1
+    assert harvest.settings_digest_from_solver_input(descriptor) != (
+        report["plan"]["groups"][0]["surfaces"][0]["settings_digest"]
+    )
+    descriptor.pop("psor_relaxation")
+    with pytest.raises(harvest.HarvestError, match="missing"):
+        harvest.settings_digest_from_solver_input(descriptor)
+
+
+def test_authoritative_verification_rejects_a_mutated_configuration_section(
+    tmp_path: Path,
+) -> None:
+    config, _directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    broken = copy.deepcopy(report)
+    broken["harvest_rules"]["vega"]["absolute_volatility_bump"] = 0.5
+    tampered = tmp_path / "tampered"
+    _republish(tampered, broken, copy.deepcopy(rows))
+    harvest.verify_publication(tampered)
+    with pytest.raises(harvest.HarvestError, match="harvest_rules"):
+        harvest.verify_publication_authoritatively(tampered, expected_config=config)
+
+
+# ---------------------------------------------------------------------------
+# Task 9C-C2b1 B. Three-surface vega
+# ---------------------------------------------------------------------------
+
+
+def test_roles_must_be_base_only_or_the_complete_triple() -> None:
+    assert harvest.DECLARABLE_ROLE_SETS == (("base",), harvest.SURFACE_ROLES)
+    for partial in (["base", "sigma_up"], ["base", "sigma_down"], ["sigma_down", "sigma_up"]):
+        document = _document(roles=partial, volatility_bump=0.01)
+        with pytest.raises(harvest.HarvestError, match="three-surface vega triple"):
+            _config(document)
+    # Both legal designs parse.
+    assert _config(_document()).surfaces.computes_vega is False
+    assert _config(_vega_document()).surfaces.computes_vega is True
+    # An unused bump on a base-only design is rejected, not ignored.
+    with pytest.raises(harvest.HarvestError, match="computes no vega"):
+        _config(_document(volatility_bump=0.01))
+
+
+def test_a_non_positive_sigma_down_is_rejected_before_any_solver_call() -> None:
+    document = _vega_document(
+        scenarios=[
+            _scenario("a"),
+            _scenario("b", base_volatility=0.3),
+            _scenario("thin_vol", base_volatility=0.01, expiry_time=2.0),
+        ]
+    )
+    document["surfaces"]["volatility_bump"] = 0.01
+    with pytest.raises(harvest.HarvestError, match="sigma_down volatility that is not positive"):
+        _config(document)
+    # The rejection is a parse-time contract failure, so no plan and therefore
+    # no solver call can exist at all.
+    document["scenarios"][2]["base_volatility"] = 0.02
+    config = _config(document)
+    solver = _SyntheticSolver()
+    harvest.run_harvest(config, solver=solver)
+    assert len(solver.calls) == 9
+
+
+def test_vega_uses_the_exact_predeclared_centered_formula() -> None:
+    assert harvest.VEGA_CONVENTION == "vega = (V(sigma + eta) - V(sigma - eta)) / (2 * eta)"
+    assert harvest.VEGA_UNITS == "per_unit_absolute_volatility"
+    assert harvest.VOLATILITY_POINTS_PER_UNIT == 100.0
+    sensitivity = 0.5
+    config = _config(_vega_document())
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=sensitivity)
+    )
+    assert rows
+    bump = config.surfaces.volatility_bump
+    assert bump is not None
+    for row in rows:
+        assert row["vega_numerically_available"] is True
+        assert row["vega_bump"] == bump
+        # Bitwise: the published number is exactly the formula applied to the
+        # published inputs.
+        assert row["vega"] == harvest.centered_vega(
+            price_up=row["price_sigma_up"],
+            price_down=row["price_sigma_down"],
+            bump=row["vega_bump"],
+        )
+        # Per unit ABSOLUTE volatility, with the point conversion as reporting
+        # only. The synthetic price is exactly linear in sigma with slope
+        # `sensitivity * spot`, so the closed-form answer is known.
+        assert row["vega"] == pytest.approx(sensitivity * row["spot"], rel=1.0e-12, abs=1.0e-12)
+        assert row["vega_per_volatility_point"] == row["vega"] / 100.0
+    totals = report["totals"]["counts_by_vega_numerical_availability"]
+    assert totals["available"] == len(rows)
+    assert totals["unavailable"] == 0
+
+
+def test_a_base_only_design_publishes_no_vega_quantity_at_all() -> None:
+    report, rows = harvest.run_harvest(_config(), solver=_SyntheticSolver())
+    assert rows
+    for row in rows:
+        assert row["vega_numerically_available"] is False
+        for column in (
+            "vega",
+            "vega_per_volatility_point",
+            "vega_bump",
+            "vega_convention_id",
+            "vega_label_record_id",
+            "price_sigma_down",
+            "price_sigma_up",
+            "exercise_state_sigma_down",
+            "exercise_state_sigma_up",
+        ):
+            assert row[column] is None
+    assert report["harvest_rules"]["vega"]["computed"] is False
+    assert report["vega_identity"] == {
+        "status": "absent_base_only_design",
+        "vega_convention_id": None,
+        "vega_convention_payload": None,
+        "vega_label_record_identity_version": None,
+        "cross_publication_duplicate_semantics": dict(
+            harvest.CROSS_PUBLICATION_DUPLICATE_SEMANTICS
+        ),
+        "stored_digest_is_authenticity_evidence": False,
+    }
+    assert report["totals"]["counts_by_vega_numerical_availability"] == {
+        "available": 0,
+        "unavailable": len(rows),
+    }
+
+
+def test_price_delta_and_gamma_come_only_from_the_base_surface() -> None:
+    config = _config(_vega_document())
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    base_ids = {
+        record["surface_id"] for record in report["surfaces"] if record["surface_role"] == "base"
+    }
+    bumped = [record for record in report["surfaces"] if record["surface_role"] != "base"]
+    assert bumped
+    for row in rows:
+        assert row["surface_role"] == "base"
+        assert row["surface_id"] in base_ids
+        # The row's own volatility is the base volatility, never a bumped one.
+        assert row["volatility"] == row["base_volatility"]
+    for record in bumped:
+        assert record["is_row_source"] is False
+        assert record["harvested_row_count"] == 0
+        assert record["retained_row_count"] == 0
+        assert record["vega_available_row_count"] == 0
+        # Its whole node vector is accounted for as rejected, so the per-surface
+        # identity selected + rejected == node_count still holds.
+        assert record["rejected"]["non_base_role"] == record["node_count"]
+        assert record["retained"] is True
+
+
+def test_the_three_surfaces_share_one_grid_and_match_by_exact_node_index() -> None:
+    config = _config(_vega_document())
+    plan = harvest.plan_harvest(config)
+    solver = _SyntheticSolver(volatility_sensitivity=0.25)
+    report, rows = harvest.execute_plan(plan, config, solver=solver)
+    by_group: dict[str, set[str]] = {}
+    for record in report["surfaces"]:
+        by_group.setdefault(record["partition_group_id"], set()).add(record["surface_role"])
+    assert by_group
+    assert all(roles == set(harvest.SURFACE_ROLES) for roles in by_group.values())
+
+    # Every leg's three calls used one grid and three different volatilities.
+    grids = {
+        (call["spot_intervals"], call["spot_maximum"], call["time_steps"])
+        for call in solver.calls
+    }
+    assert len(grids) == 1
+    base_volatilities = {scenario.base_volatility for scenario in config.scenarios}
+    assert len({call["volatility"] for call in solver.calls}) == 3 * len(base_volatilities)
+    for row in rows:
+        assert row["spot"] == row["node_index"] * row["spot_step"]
+
+
+def test_a_misaligned_bumped_grid_is_refused_rather_than_differenced() -> None:
+    base = {
+        "spot_intervals": 4,
+        "spot_maximum": 8.0,
+        "spot_step": 2.0,
+        "strike_node_index": 2,
+        "boundary_exclusion_nodes": 2,
+        "spot_nodes": [0.0, 2.0, 4.0, 6.0, 8.0],
+        "values": [1.0, 2.0, 3.0, 4.0, 5.0],
+    }
+    down = copy.deepcopy(base)
+    up = copy.deepcopy(base)
+    harvest.require_aligned_vega_grids(
+        {"base": base, "sigma_down": down, "sigma_up": up}, leg="put/american"
+    )
+    shifted = copy.deepcopy(base)
+    shifted["spot_nodes"] = [0.0, 2.0, 4.0, 6.000000000000001, 8.0]
+    with pytest.raises(harvest.HarvestError, match="bitwise the same spot nodes"):
+        harvest.require_aligned_vega_grids(
+            {"base": base, "sigma_down": shifted, "sigma_up": up}, leg="put/american"
+        )
+    coarser = copy.deepcopy(base)
+    coarser["spot_step"] = 1.0
+    with pytest.raises(harvest.HarvestError, match="'spot_step'"):
+        harvest.require_aligned_vega_grids(
+            {"base": base, "sigma_down": coarser, "sigma_up": up}, leg="put/american"
+        )
+    # And the per-row restatement of the same requirement.
+    row = {"node_index": 1, "spot": 2.0, "row_id": "rw-x"}
+    moved = copy.deepcopy(base)
+    moved["spot_nodes"] = [0.0, 2.5, 4.0, 6.0, 8.0]
+    with pytest.raises(harvest.HarvestError, match="may not combine two different spots"):
+        harvest.attach_leg_vega(
+            [row], down_surface=moved, up_surface=up, bump=0.01, leg="put/american"
+        )
+
+
+def test_a_non_finite_bumped_price_publishes_no_vega_and_keeps_the_price_row() -> None:
+    config = _config(_vega_document(scenarios=[_scenario("a"), _scenario("b"), _scenario("c")]))
+    config = dataclasses.replace(
+        config,
+        scenarios=(
+            config.scenarios[0],
+            dataclasses.replace(config.scenarios[1], base_volatility=0.3),
+            dataclasses.replace(config.scenarios[2], expiry_time=2.0),
+        ),
+    )
+    solver = _SyntheticSolver(
+        volatility_sensitivity=0.25, non_finite_at=(repr(0.2 + 0.01), 60)
+    )
+    report, rows = harvest.run_harvest(config, solver=solver)
+    harvest.reconcile_report(report, rows)
+    spoiled = [row for row in rows if not row["vega_numerically_available"]]
+    assert spoiled, "the injected non-finite bumped price must reach a harvested node"
+    for row in spoiled:
+        assert row["node_index"] == 60
+        assert math.isfinite(row["price"])
+        assert row["price_label_eligible"] is True
+        assert row["vega"] is None
+        assert row["price_sigma_up"] is None and row["price_sigma_down"] is None
+        # The bump is design metadata and stays published; the vega does not.
+        assert row["vega_bump"] == 0.01
+    assert report["totals"]["counts_by_vega_numerical_availability"]["unavailable"] == len(
+        spoiled
+    )
+
+
+def test_one_failed_bumped_surface_discards_the_complete_group() -> None:
+    config = _config(_vega_document())
+    plan = harvest.plan_harvest(config)
+    # Solve order inside a leg is sigma_down, sigma_up, base, so index 0 is the
+    # first group's sigma_down surface.
+    report, rows = harvest.execute_plan(
+        plan, config, solver=_SyntheticSolver(volatility_sensitivity=0.5, failing_surface=0)
+    )
+    failed_group = next(record for record in report["groups"] if record["status"] == "failed")
+    assert failed_group["planned_surface_count"] == 3
+    assert failed_group["attempted_surface_count"] == 3
+    assert failed_group["solver_returned_surface_count"] == 2
+    assert failed_group["solver_failed_surface_count"] == 1
+    assert failed_group["pipeline_successful_surface_count"] == 1
+    assert failed_group["post_solve_pipeline_failed_surface_count"] == 1
+    assert failed_group["retained_surface_count"] == 0
+    assert failed_group["discarded_surface_count"] == 1
+    assert failed_group["harvested_row_count"] == 0
+    assert all(row["partition_group_id"] != failed_group["partition_group_id"] for row in rows)
+    stages = {failure["stage"] for failure in report["failures"]}
+    assert stages == {"pde_solve", "surface_harvest"}
+    assert any("cannot assemble a vega" in f["error_message"] for f in report["failures"])
+    assert report["totals"]["backward_induction_count"] == 11
+    failed_group_backward_inductions = sum(
+        record["backward_inductions"]
+        for record in report["surfaces"]
+        if record["partition_group_id"] == failed_group["partition_group_id"]
+    ) + sum(
+        failure["returned_solver_diagnostics"].get("backward_inductions", 0)
+        for failure in report["failures"]
+        if failure["partition_group_id"] == failed_group["partition_group_id"]
+    )
+    assert failed_group_backward_inductions == 2
+    harvest.reconcile_report(report, rows, plan)
+
+
+def test_vega_solve_accounting_is_exact() -> None:
+    config = _config(_vega_document())
+    groups = len(config.scenarios)
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    totals = report["totals"]
+    assert totals["planned_surface_count"] == 3 * groups
+    assert totals["attempted_surface_count"] == 3 * groups
+    assert totals["solver_returned_surface_count"] == 3 * groups
+    assert totals["solver_failed_surface_count"] == 0
+    assert totals["pipeline_successful_surface_count"] == 3 * groups
+    assert totals["post_solve_pipeline_failed_surface_count"] == 0
+    assert totals["retained_surface_count"] == 3 * groups
+    assert totals["discarded_surface_count"] == 0
+    assert totals["independent_design_group_count"] == groups
+    # Rows per group and rows per attempted surface differ by exactly the three
+    # surfaces a vega costs, so the first is never the work multiplier.
+    per_group = totals["raw_rows_per_group"]
+    per_solve = totals["raw_rows_per_attempted_surface"]
+    assert per_solve["denominator"] == 3 * per_group["denominator"]
+    assert per_group["value"] == pytest.approx(3.0 * per_solve["value"])
+    assert report["harvest_rules"]["vega"]["surfaces_per_contract_leg"] == 3
+    harvest.reconcile_report(report, rows)
+
+
+def test_a_vega_triple_never_crosses_a_partition() -> None:
+    config = _config(_vega_document(option_types=["call", "put"]))
+    plan = harvest.plan_harvest(config)
+    for group in plan.groups:
+        assert len(group.surfaces) == 6
+        assert {surface.partition for surface in group.surfaces} == {group.partition}
+        for _leg, roles in harvest.leg_plans(group):
+            assert set(roles) == set(harvest.SURFACE_ROLES)
+            assert len({surface.partition for surface in roles.values()}) == 1
+            assert len({surface.surface_id for surface in roles.values()}) == 3
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    partitions: dict[str, set[str]] = {}
+    for record in report["surfaces"]:
+        partitions.setdefault(record["partition_group_id"], set()).add(record["partition"])
+    assert all(len(values) == 1 for values in partitions.values())
+    integrity = report["integrity"]
+    assert integrity["groups_in_more_than_one_partition"] == []
+    assert integrity["cross_partition_group_intersection_count"] == 0
+    assert integrity["cross_partition_row_intersection_count"] == 0
+    assert len({row["partition"] for row in rows}) == len(harvest.PARTITION_NAMES)
+
+
+def test_actual_volatility_gives_all_three_solves_distinct_identities() -> None:
+    config = _config(_vega_document())
+    plan = harvest.plan_harvest(config)
+    all_ids = [surface.surface_id for surface in plan.surfaces]
+    assert len(set(all_ids)) == len(all_ids)
+    for group in plan.groups:
+        for _leg, roles in harvest.leg_plans(group):
+            volatilities = {role: roles[role].solver_input.volatility for role in roles}
+            assert volatilities["sigma_down"] < volatilities["base"] < volatilities["sigma_up"]
+            for role, surface in roles.items():
+                # The identity is a digest of the volatility actually passed.
+                assert surface.surface_id == harvest.solver_input_identity(surface.solver_input)
+                assert surface.solver_input.volatility == volatilities[role]
+
+
+def test_vega_is_not_called_supervision_eligible() -> None:
+    # A window wide enough to reach the numerically indifferent truncation tail.
+    config = _config(_vega_document(window=(0.5, 3.9)))
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5)
+    )
+    assert "vega_label_eligible" not in harvest.ROW_COLUMNS
+    assert "vega_numerically_available" in harvest.ROW_COLUMNS
+    vega_rules = report["harvest_rules"]["vega"]
+    assert vega_rules["supervision_eligibility_decided_here"] is False
+    assert vega_rules["gamma_supervision_policy_decided_here"] is False
+    assert "NOT a supervision-eligibility flag" in vega_rules["availability_flag_meaning"]
+    # A numerically indifferent node keeps its price and its vega input, and
+    # still never becomes an eligible Greek label.
+    indifferent = [row for row in rows if row["exercise_state"] == "numerically_indifferent"]
+    assert indifferent
+    for row in indifferent:
+        assert row["greek_eligible"] is False
+        assert row["delta_label_eligible"] is False
+        assert row["gamma_label_eligible"] is False
+        assert row["price_label_eligible"] is True
+    # Every input task 9C-C3 needs to judge stability travels with the row.
+    for row in rows:
+        if row["vega_numerically_available"]:
+            assert row["vega_bump"] is not None
+            assert row["price_sigma_down"] is not None
+            assert row["price_sigma_up"] is not None
+            # The regime each bumped surface saw, so a bump that crosses the
+            # free boundary is visible without re-solving.
+            assert row["exercise_state_sigma_down"] in harvest.EXERCISE_STATES
+            assert row["exercise_state_sigma_up"] in harvest.EXERCISE_STATES
+
+
+def _rescale_first_row_bump(rows: list[dict[str, Any]], bump: float) -> None:
+    """Edit a row's convention-dependent fields so it stays self-consistent."""
+    row = rows[0]
+    row["vega_bump"] = bump
+    row["vega"] = harvest.centered_vega(
+        price_up=row["price_sigma_up"], price_down=row["price_sigma_down"], bump=bump
+    )
+    row["vega_per_volatility_point"] = row["vega"] / 100.0
+    row["vega_convention_id"] = harvest.vega_convention_identity(bump)
+    row["vega_label_record_id"] = harvest.vega_label_record_identity(
+        row_id=row["row_id"],
+        vega_convention_id=row["vega_convention_id"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        pytest.param(
+            lambda report, rows: _mutate_first_row(rows, "vega", 42.0),
+            "vega does not equal",
+            id="row-vega",
+        ),
+        pytest.param(
+            lambda report, rows: _mutate_first_row(rows, "price_sigma_up", 42.0),
+            "vega does not equal",
+            id="row-bumped-price",
+        ),
+        pytest.param(
+            lambda report, rows: _mutate_first_row(rows, "vega_bump", 0.02),
+            "vega_convention_id",
+            id="row-vega-bump",
+        ),
+        pytest.param(
+            # A bump edited *consistently* with its own vega: the formula still
+            # closes, so only the plan-anchored volatilities can reject it.
+            lambda report, rows: _rescale_first_row_bump(rows, 0.02),
+            "does not reproduce its planned sigma_down",
+            id="row-vega-bump-self-consistent",
+        ),
+        pytest.param(
+            lambda report, rows: _mutate_first_row(rows, "vega_per_volatility_point", 1.0),
+            "not its vega divided by",
+            id="row-vega-point",
+        ),
+        pytest.param(
+            lambda report, rows: _mutate_first_row(rows, "vega_numerically_available", False),
+            "while its vega is not numerically available",
+            id="row-availability-flag",
+        ),
+        pytest.param(
+            lambda report, rows: _mutate_first_row(rows, "exercise_state_sigma_up", ""),
+            "unknown or missing exercise_state_sigma_up",
+            id="row-bumped-regime",
+        ),
+        pytest.param(
+            lambda report, rows: report["totals"][
+                "counts_by_vega_bump_exercise_regime"
+            ].__setitem__("changed_across_the_bump", 99),
+            "totals do not match recomputed totals",
+            id="report-bump-regime-count",
+        ),
+        pytest.param(
+            lambda report, rows: report["totals"][
+                "counts_by_vega_numerical_availability"
+            ].__setitem__("available", 0),
+            "totals do not match recomputed totals",
+            id="report-vega-count",
+        ),
+        pytest.param(
+            lambda report, rows: next(
+                record for record in report["surfaces"] if record["is_row_source"]
+            ).__setitem__("vega_available_row_count", 0),
+            "vega_available_row_count does not match its rows",
+            id="surface-vega-count",
+        ),
+        pytest.param(
+            lambda report, rows: next(
+                record for record in report["surfaces"] if not record["is_row_source"]
+            ).__setitem__("is_row_source", True),
+            "misreports whether its role is the row source",
+            id="surface-row-source",
+        ),
+    ],
+)
+def test_vega_mutations_are_rejected_even_with_regenerated_hashes(
+    tmp_path: Path, mutate: Any, message: str
+) -> None:
+    _unused, _directory, report, rows = _publish_vega_run(tmp_path, name="original")
+    broken_report = copy.deepcopy(report)
+    broken_rows = copy.deepcopy(rows)
+    mutate(broken_report, broken_rows)
+    tampered = tmp_path / "tampered"
+    _republish(tampered, broken_report, broken_rows)
+    with pytest.raises(harvest.HarvestError, match=message):
+        harvest.verify_publication(tampered)
+
+
+def test_a_vega_run_is_byte_identical_under_harmless_reordering(tmp_path: Path) -> None:
+    document = _vega_document()
+    shuffled = copy.deepcopy(document)
+    shuffled["scenarios"] = [document["scenarios"][index] for index in (2, 0, 3, 1)]
+    first = _publish_vega_bytes(_config(document), tmp_path / "forward")
+    second = _publish_vega_bytes(_config(shuffled), tmp_path / "shuffled")
+    assert first == second
+    for index, chunk_size in enumerate((1, 3, 97)):
+        chunked = _publish_vega_bytes(
+            _config(document), tmp_path / f"chunk{index}", chunk_size=chunk_size
+        )
+        assert chunked == first
+
+
+def _publish_vega_bytes(
+    config: harvest.HarvestConfig, directory: Path, **kwargs: Any
+) -> dict[str, bytes]:
+    report, rows = harvest.run_harvest(
+        config, solver=_SyntheticSolver(volatility_sensitivity=0.5), **kwargs
+    )
+    harvest.write_outputs(report, rows, directory, overwrite=True)
+    harvest.verify_publication(directory)
+    return {
+        name: (directory / name).read_bytes()
+        for name in (*harvest.PUBLISHED_FILES, harvest.MANIFEST_NAME)
+    }
+
+
+def test_the_shipped_vega_configuration_parses_and_plans_three_surfaces_per_group() -> None:
+    config = harvest.load_harvest_config(VEGA_CONFIG_PATH)
+    assert config.raw_config_sha256 == hashlib.sha256(VEGA_CONFIG_PATH.read_bytes()).hexdigest()
+    assert config.surfaces.computes_vega is True
+    assert config.surfaces.vega_bump == 0.01
+    plan = harvest.plan_harvest(config)
+    assert len(plan.groups) == len(config.scenarios)
+    for group in plan.groups:
+        assert len(group.surfaces) == 3
+        assert {surface.surface_role for surface in group.surfaces} == set(harvest.SURFACE_ROLES)
+    for scenario in config.scenarios:
+        assert scenario.base_volatility - config.surfaces.volatility_bump > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Task 9C-C2b1 B. Vega against independent references, on the compiled engine
+# ---------------------------------------------------------------------------
+
+EUROPEAN_VEGA_BAND_VS_ANALYTIC_DERIVATIVE = 1.0e-1
+"""Conservative cross-check band, per unit absolute volatility.
+
+It is deliberately loose because it bounds two different errors at once: the
+grid's discretization error *and* the predeclared centered convention's own
+:math:`O(\\eta^2)` truncation against the true derivative. It is a cross-check
+band, not an accuracy claim and not an acceptance gate, and no number from the
+frozen task 9C-B pilot is reused here.
+"""
+
+EUROPEAN_VEGA_BAND_VS_ANALYTIC_CENTERED_DIFFERENCE = 2.0e-2
+"""Band against the analytic centered difference at the *same* bump.
+
+This isolates the PDE's own error: the comparator uses the identical
+convention, so the convention's truncation cancels and only discretization is
+left. It is therefore much tighter than the band above, which is the point.
+"""
+
+AMERICAN_VEGA_BAND_VS_REFINED_CONTROL = 5.0e-1
+"""Conservative band between a harvested vega and a twice-refined PDE control.
+
+Both sides carry discretization error and neither is truth for the other. The
+band is loose because it covers the free-boundary rows too, where the exercise
+boundary itself moves between the two grids.
+"""
+
+AMERICAN_VEGA_BAND_ON_GREEK_ELIGIBLE_NODES = 1.0e-1
+"""The same comparison restricted to nodes the engine accepts as Greek labels.
+
+It is several times tighter, and that is the finding: the worst vega
+disagreement sits on exactly the free-boundary band the surface contract
+already refuses for delta and gamma. Vega is *not* gated by that flag -- it
+comes from prices, not from a stencil -- so this is evidence for task 9C-C3's
+stability decision rather than a decision taken here.
+"""
+
+
+def _vega_scenarios() -> list[dict[str, Any]]:
+    return [
+        _scenario("atm"),
+        _scenario("high_vol", base_volatility=0.35),
+        _scenario("low_vol", base_volatility=0.12),
+    ]
+
+
+def _analytic_references(row: Mapping[str, Any]) -> tuple[float, float]:
+    """Return (analytic vega, analytic centered difference at the row's own bump)."""
+    from differentiable_pricing import black_scholes
+
+    arguments = {
+        "option_type": str(row["option_type"]),
+        "spot": float(row["spot"]),
+        "strike": float(row["strike"]),
+        "maturity": float(row["expiry_time"]) - float(row["valuation_time"]),
+        "rate": float(row["rate"]),
+        "dividend_yield": float(row["continuous_carry"]),
+    }
+    bump = float(row["vega_bump"])
+    sigma = float(row["volatility"])
+    up = black_scholes(volatility=sigma + bump, **arguments)["price"]
+    down = black_scholes(volatility=sigma - bump, **arguments)["price"]
+    return black_scholes(volatility=sigma, **arguments)["vega"], (up - down) / (2.0 * bump)
+
+
+def test_european_vega_matches_black_scholes_across_interior_nodes() -> None:
+    config = _config(
+        _vega_document(
+            scenarios=_vega_scenarios(),
+            option_types=["call"],
+            exercise_styles=["european"],
+            spot_intervals=800,
+            time_steps=400,
+            quota={
+                "continuation": 10,
+                "exercise": 4,
+                "numerically_indifferent": 2,
+                "no_obstacle": 12,
+            },
+        )
+    )
+    report, rows = harvest.run_harvest(config)
+    harvest.reconcile_report(report, rows)
+    assert len(rows) >= 20, "the analytic comparison needs several interior nodes"
+
+    worst_derivative = 0.0
+    worst_centered = 0.0
+    for row in rows:
+        assert row["exercise_state"] == "no_obstacle"
+        assert row["vega_numerically_available"] is True
+        analytic_vega, analytic_centered = _analytic_references(row)
+        # A European call's vega is strictly positive away from the boundary.
+        assert row["vega"] > 0.0
+        worst_derivative = max(worst_derivative, abs(row["vega"] - analytic_vega))
+        worst_centered = max(worst_centered, abs(row["vega"] - analytic_centered))
+    assert worst_derivative <= EUROPEAN_VEGA_BAND_VS_ANALYTIC_DERIVATIVE
+    assert worst_centered <= EUROPEAN_VEGA_BAND_VS_ANALYTIC_CENTERED_DIFFERENCE
+    # The convention's own truncation, not the grid, dominates the gap to the
+    # true derivative: the same-convention comparator agrees far more closely.
+    assert worst_centered < worst_derivative
+
+
+def _refined_american_control(
+    row: Mapping[str, Any], *, refinement: int
+) -> tuple[float, float]:
+    """Return (control vega, control spot) from a twice-refined centered pair.
+
+    The refined grid places a node on the strike exactly as the coarse one does,
+    and its step is the coarse step divided by ``refinement``, so every coarse
+    node is a refined node at ``refinement * index``. The spot equality is
+    asserted bitwise rather than assumed.
+    """
+    expiry = float(row["expiry_time"])
+    bump = float(row["vega_bump"])
+    sigma = float(row["volatility"])
+    prices: dict[float, float] = {}
+    for signed in (-bump, bump):
+        surface = pde_valuation_surface(
+            option_type=str(row["option_type"]),
+            exercise_style=str(row["exercise_style"]),
+            strike=float(row["strike"]),
+            valuation_time=float(row["valuation_time"]),
+            expiry_time=expiry,
+            volatility=sigma + signed,
+            continuous_carry=float(row["continuous_carry"]),
+            curve_times=[0.0, expiry],
+            curve_log_discounts=[0.0, -float(row["rate"]) * expiry],
+            dividends=[],
+            settlement=str(row["settlement"]),
+            contract_multiplier=float(row["contract_multiplier"]),
+            spot_intervals=int(row["spot_intervals"]) * refinement,
+            time_steps=int(row["time_steps"]) * refinement,
+            spot_maximum=float(row["spot_maximum"]),
+            rannacher_steps=2,
+            psor_tolerance=1.0e-11,
+            psor_relaxation=1.2,
+            psor_maximum_iterations=200000,
+            boundary_exclusion_nodes=int(row["boundary_exclusion_nodes"]),
+            query_spots=[],
+        )
+        index = int(row["node_index"]) * refinement
+        assert surface["spot_nodes"][index] == row["spot"]
+        prices[signed] = surface["values"][index]
+    return (prices[bump] - prices[-bump]) / (2.0 * bump), float(row["spot"])
+
+
+def test_american_vega_matches_a_finer_grid_centered_pde_control() -> None:
+    config = _config(
+        _vega_document(
+            scenarios=_vega_scenarios(),
+            option_types=["put"],
+            exercise_styles=["american"],
+            spot_intervals=400,
+            time_steps=200,
+        )
+    )
+    report, rows = harvest.run_harvest(config)
+    harvest.reconcile_report(report, rows)
+    continuation = [row for row in rows if row["exercise_state"] == "continuation"]
+    assert len(continuation) >= 6
+
+    worst = 0.0
+    worst_greek_eligible = 0.0
+    for row in continuation:
+        control, spot = _refined_american_control(row, refinement=2)
+        assert spot == row["spot"]
+        difference = abs(row["vega"] - control)
+        worst = max(worst, difference)
+        if row["greek_eligible"]:
+            worst_greek_eligible = max(worst_greek_eligible, difference)
+    assert worst <= AMERICAN_VEGA_BAND_VS_REFINED_CONTROL
+    assert worst_greek_eligible <= AMERICAN_VEGA_BAND_ON_GREEK_ELIGIBLE_NODES
+
+    # In the pure exercise region an American put is its intrinsic value, which
+    # does not depend on volatility at all -- but only while BOTH bumped
+    # surfaces are still in that region at the same node. A node that exercises
+    # at sigma and continues at sigma + eta has a centered vega that straddles a
+    # regime change and is not zero, which is exactly why the two bumped regimes
+    # are published rather than assumed to match the base one.
+    exercise = [row for row in rows if row["exercise_state"] == "exercise"]
+    assert exercise
+    stable = [
+        row
+        for row in exercise
+        if row["exercise_state_sigma_down"] == row["exercise_state_sigma_up"] == "exercise"
+    ]
+    crossing = [row for row in exercise if row not in stable]
+    assert stable
+    for row in stable:
+        assert abs(row["vega"]) <= 1.0e-6
+    assert crossing, "the low-volatility fixture must expose a bump-crossing node"
+    for row in crossing:
+        assert row["exercise_state_sigma_up"] == "continuation"
+        assert row["vega"] > 1.0e-6
+    counts = report["totals"]["counts_by_vega_bump_exercise_regime"]
+    assert counts["changed_across_the_bump"] == sum(
+        1
+        for row in rows
+        if not (
+            row["exercise_state_sigma_down"]
+            == row["exercise_state"]
+            == row["exercise_state_sigma_up"]
+        )
+    )
+    assert counts["no_vega_triple"] == 0
+
+
+def test_the_frozen_task_9c_b_snapshot_is_untouched_by_this_task() -> None:
+    """Task 9C-B stays ``no_policy_selected`` and none of its evidence moves."""
+    root = Path(__file__).resolve().parents[2]
+    snapshot = root / "docs" / "results" / "american_pde_label_policy_results_v1.json"
+    document = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert document["recommendation"]["selected_accuracy_policy"] == "no_policy_selected"
+    assert document["recommendation"]["criteria_were_not_loosened"] is True
+    # This module never reads, reruns, edits or reinterprets that evidence.
+    source = (
+        root
+        / "python"
+        / "src"
+        / "differentiable_pricing"
+        / "american"
+        / "pde_surface_harvest.py"
+    ).read_text(encoding="utf-8")
+    assert "american_pde_label_policy_results" not in source
+    assert "pde_label_policy" not in source

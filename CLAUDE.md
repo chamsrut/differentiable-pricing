@@ -149,9 +149,10 @@ copied, never relaxed, so a `numerically_indifferent` node keeps its price row
 and can never become an eligible Greek label; per-regime quotas are applied only
 after assignment, by a predeclared outcome-independent rule, with every
 shortfall reported; and raw rows, independent **design** groups and planned,
-attempted, successful, failed, retained and discarded surface counts are
+attempted, solver-returned, solver-failed, pipeline-successful,
+post-solve-pipeline-failed, retained and discarded surface counts are
 reported separately, with `raw_rows_per_group` (dataset expansion) and
-`raw_rows_per_attempted_surface_solve` (numerical-work reuse)
+`raw_rows_per_attempted_surface` (numerical-work reuse)
 published side by side, each carrying its own integer numerator and denominator.
 Rows per group is never the computational multiplier: in the shipped design each
 group emits four surfaces, so the two differ by a factor of four.
@@ -165,10 +166,70 @@ python -m differentiable_pricing.american.pde_surface_harvest \
 ```
 
 The group count is a design count and is never to be called a statistical
-effective sample size. Vega surfaces, parallel execution, production dataset
-generation and label policy v2 are still **not** implemented, and task 9C-B
-remains `no_policy_selected`: its frozen evidence is never edited, rerun or
-reinterpreted.
+effective sample size.
+
+Task 9C-C2b1 closes the five recorded plan-metadata gaps and adds three-surface
+vega. Its rules are in `docs/pde-numerical-contract.md` and are load-bearing.
+
+**Two verification guarantees, named separately and never conflated.**
+`verify_publication` is *self-contained consistency verification*: it proves a
+publication agrees with itself. A digest stored inside a publication cannot make
+that publication authentic, and nothing may claim it does.
+`verify_publication_authoritatively(directory, expected_config=...)` is
+*authoritative verification against an externally supplied expected
+configuration*: it checks raw and semantic config provenance, replans the
+harvest deterministically without executing any PDE solve, compares the complete
+published plan against that configuration-derived plan, recomputes
+`settings_digest` from the solver descriptor rather than trusting it, and
+thereby anchors `scenario_metadata.rate`,
+`scenario_metadata.contract_multiplier`, `scenario_name`, `surface_role` and
+`settings_digest` against the configuration rather than inferring them from the
+publication. `verify_training_input_publication` is the only gate a downstream
+training consumer may use; it requires the authoritative path and then refuses
+every study status, because `APPROVED_TRAINING_INPUT_STATUSES` is empty and
+nothing here is an approved training input.
+
+**Three-surface vega.** A design declares either exactly `["base"]` or exactly
+`["base", "sigma_down", "sigma_up"]`; a partial set is rejected. With the triple,
+each contract leg is solved at `sigma - eta`, `sigma` and `sigma + eta`, and
+`vega = (V(sigma + eta) - V(sigma - eta)) / (2 * eta)` per unit **absolute**
+volatility, with `vega / 100` published beside it for reporting only. `eta` is
+declared in configuration, and a scenario with `sigma - eta <= 0` is rejected
+before planning and therefore before any solve. Price, delta and gamma come only
+from the base surface, which is the leg's only row source; vega comes only from
+the two bumped prices. The three surfaces must share one spot grid bitwise and
+rows are matched by exact node index with exact spot equality. Group atomicity
+holds: every planned surface is still attempted, but a leg whose bumped sibling
+failed retains nothing. `vega_numerically_available` is a narrow numerical
+availability flag and is **not** a supervision-eligibility claim; task 9C-C3
+decides stability, and the inputs it needs — `vega_bump`, `price_sigma_down`,
+`price_sigma_up` and the two bumped exercise states — travel with each row. Every
+vega-related count is recomputed from the actual rows during reconciliation, and
+each row's vega is recomputed bitwise from its own published inputs. Gamma
+remains evaluation-only.
+
+The `/2` economic identities remain unchanged. A separate canonical
+`vega_convention_id` binds the convention version, centered formula, absolute bump, units,
+reporting conversion, the three role meanings and exact-node matching rule. An available
+vega also carries `vega_label_record_id`, derived from `row_id` and
+`vega_convention_id`. Equal `row_id` means the same base pricing node; equal
+`vega_label_record_id` means that node under the same vega convention. Equal `row_id` with
+different convention IDs is not an identical label record. A base-only design publishes
+both identities as absent. Stored digests distinguish conventions but are not authenticity
+evidence; authoritative verification rederives them from the external expected configuration.
+
+```bash
+python scripts/demo_pde_surface_vega_harvest.py
+
+python -m differentiable_pricing.american.pde_surface_harvest \
+  --config configs/pde_surface_vega_harvest_demo_v1.toml \
+  --output-directory artifacts/pde-surface-vega-harvest-demo-v1 \
+  --verify-authoritatively
+```
+
+Parallel execution, resumability, production dataset generation and label policy
+v2 are still **not** implemented, and task 9C-B remains `no_policy_selected`:
+its frozen evidence is never edited, rerun or reinterpreted.
 
 The reviewed cross-check evidence is frozen in
 `docs/results/american_lsm_crosscheck_results_v1.json`. Raw reports stay

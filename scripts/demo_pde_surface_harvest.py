@@ -35,19 +35,20 @@ def _print_scope(title: str, scope: dict[str, object]) -> None:
     eligibility = scope["counts_by_greek_eligibility"]
     rejected = scope["rejected"]
     per_group = scope["raw_rows_per_group"]
-    per_solve = scope["raw_rows_per_attempted_surface_solve"]
+    per_solve = scope["raw_rows_per_attempted_surface"]
     print(f"  {title}")
     print(
         f"    groups {scope['independent_design_group_count']:>3}"
-        f"   planned/attempted/successful "
-        f"{scope['planned_surface_count']:>3}/{scope['attempted_surface_solve_count']:>3}/"
-        f"{scope['successful_surface_solve_count']:>3}"
+        f"   planned/attempted/returned/pipeline-successful "
+        f"{scope['planned_surface_count']:>3}/{scope['attempted_surface_count']:>3}/"
+        f"{scope['solver_returned_surface_count']:>3}/"
+        f"{scope['pipeline_successful_surface_count']:>3}"
         f"   rows {scope['raw_row_count']:>4}"
     )
     print(
         f"    rows/group {per_group['value']:>6.4f}"
         f" ({per_group['numerator']}/{per_group['denominator']}, dataset expansion)"
-        f"   rows/attempted-solve {per_solve['value']:>7.4f}"
+        f"   rows/attempted-surface {per_solve['value']:>7.4f}"
         f" ({per_solve['numerator']}/{per_solve['denominator']}, work reuse)"
     )
     print(
@@ -130,7 +131,7 @@ def main() -> int:
     print(f"surfaces per partition   {dict(sorted(surfaces_per_partition.items()))}")
     print(
         f"solver calls observed    {solves} "
-        f"(report says {totals['attempted_surface_solve_count']})"
+        f"(report says {totals['attempted_surface_count']})"
     )
     print("partition assignment preceded solving: true (plan_harvest takes no solver)")
     print()
@@ -166,8 +167,8 @@ def main() -> int:
     print()
     print(f"rows/group: {definitions['raw_rows_per_group']}")
     print(
-        "rows/attempted-surface-solve: "
-        f"{definitions['raw_rows_per_attempted_surface_solve']}"
+        "rows/attempted-surface: "
+        f"{definitions['raw_rows_per_attempted_surface']}"
     )
     return 0
 

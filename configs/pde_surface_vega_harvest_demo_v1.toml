@@ -1,0 +1,190 @@
+# Task 9C-C2b1 three-surface vega demonstration.
+#
+# One economic state, one contract leg, three PDE solves: V(sigma - eta),
+# V(sigma) and V(sigma + eta). Price, delta and gamma are read off the base
+# surface and off nothing else; vega is the predeclared centered difference of
+# the two bumped prices,
+#
+#     vega = (V(sigma + eta) - V(sigma - eta)) / (2 * eta)
+#
+# per unit ABSOLUTE volatility. `vega / 100` is published beside it as a
+# reporting convention only.
+#
+# This is EXPLORATORY INFRASTRUCTURE. It is not a production dataset, not a
+# label policy, and not a validation of task 9C-B, which remains
+# `no_policy_selected` and is not revisited here. The published vega carries a
+# narrow `vega_numerically_available` flag: whether a vega is stable enough to
+# supervise is task 9C-C3's decision, not this design's.
+
+schema_version = "pde-surface-harvest/3"
+
+[study]
+name = "pde-surface-vega-harvest-demo-v1"
+status = "exploratory_infrastructure_demonstration"
+engine = "dp::finite_difference_valuation_surface/v1"
+price_units = "currency_per_share"
+greek_method = "nodewise_discrete_derivatives_of_one_solved_slice_plus_centered_sigma_bump"
+curve_construction = "flat_continuously_compounded_from_scenario_rate"
+
+[identity]
+version = "pde-surface-harvest-identity/2"
+# Unchanged by the vega design: no identity payload gained or lost a field, so
+# every partition_group_id, solver_input_id and row_id still identifies the same
+# thing it did under task 9C-C2a.
+digest = "sha256_over_canonical_json"
+partition_group_excludes = [
+    "queried_spot",
+    "harvested_node_index",
+    "option_type",
+    "exercise_style",
+    # Excluded so the base/sigma_down/sigma_up triple a vega needs cannot
+    # straddle a partition. That was declared before any vega existed and is
+    # what this design now relies on.
+    "volatility_bump_role",
+    "numerical_grid_and_solver_settings",
+    "reporting_only_contract_multiplier",
+]
+
+[partitioning]
+algorithm = "grouped_quota_by_sorted_digest/1"
+seed = 20260816
+minimum_groups_per_partition = 1
+
+[partitioning.weights]
+train = 0.5
+validation = 0.25
+interpolation_test = 0.25
+
+[solver]
+spot_maximum_strike_multiple = 4.0
+rannacher_steps = 2
+psor_tolerance = 1.0e-11
+psor_relaxation = 1.2
+psor_maximum_iterations = 200000
+settlement = "cash"
+contract_multiplier = 100.0
+
+[grid]
+spot_intervals = 800
+time_steps = 400
+boundary_exclusion_nodes = 4
+
+[surfaces]
+# The complete triple. A configuration may declare either exactly ["base"] or
+# exactly these three; a partial set such as ["base", "sigma_up"] is rejected,
+# because the predeclared vega convention is centered and an asymmetric pair
+# cannot feed it.
+roles = ["base", "sigma_down", "sigma_up"]
+# One option type and one exercise style, so a group is exactly three planned
+# surfaces and the demonstration's per-group solve count is unambiguous.
+option_types = ["put"]
+exercise_styles = ["american"]
+# eta, an ABSOLUTE volatility bump. The parser rejects any scenario whose
+# base_volatility - eta is not positive, before planning and therefore before
+# the first solve. It is an exploratory demonstration value and is not a
+# calibrated bump: task 9C-B's bump-stability findings are frozen and are not
+# reinterpreted here.
+volatility_bump = 0.01
+
+[harvest]
+status = "exploratory_demonstration_values"
+node_source = "exact_grid_nodes"
+moneyness_window_low = 0.7
+moneyness_window_high = 1.4
+selection_rule = "evenly_spaced_by_ascending_node_index/1"
+
+[harvest.quota]
+continuation = 10
+exercise = 4
+numerically_indifferent = 2
+no_obstacle = 10
+
+[[scenarios]]
+name = "atm_one_year"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "atm_one_year_high_vol"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.35
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "atm_one_year_low_vol"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.12
+continuous_carry = 0.0
+dividends = []
+
+[[scenarios]]
+name = "atm_half_year_carry"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 0.5
+rate = 0.04
+base_volatility = 0.25
+continuous_carry = 0.06
+dividends = []
+
+[[scenarios]]
+name = "low_strike_two_year"
+strike = 80.0
+valuation_time = 0.0
+expiry_time = 2.0
+rate = 0.03
+base_volatility = 0.22
+continuous_carry = 0.01
+dividends = []
+
+[[scenarios]]
+name = "high_strike_two_year"
+strike = 120.0
+valuation_time = 0.0
+expiry_time = 2.0
+rate = 0.03
+base_volatility = 0.18
+continuous_carry = 0.01
+dividends = []
+
+[[scenarios]]
+name = "one_cash_dividend"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = [[0.5, 2.0]]
+
+[[scenarios]]
+name = "negative_rate_carry"
+strike = 100.0
+valuation_time = 0.0
+expiry_time = 1.0
+rate = -0.01
+base_volatility = 0.2
+continuous_carry = 0.03
+dividends = []
+
+[[scenarios]]
+name = "deferred_valuation_time"
+strike = 100.0
+valuation_time = 0.1
+expiry_time = 1.1
+rate = 0.05
+base_volatility = 0.2
+continuous_carry = 0.0
+dividends = []

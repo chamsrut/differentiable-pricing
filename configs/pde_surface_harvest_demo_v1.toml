@@ -4,11 +4,11 @@
 # machinery on a small synthetic design. It is EXPLORATORY INFRASTRUCTURE. It is
 # not a production dataset, not a label policy, and not a validation of task
 # 9C-B, which remains `no_policy_selected` and is not revisited here. No vega is
-# computed anywhere: the volatility-bump surface roles exist so that a future
-# three-surface group cannot straddle a partition, and this design declares only
-# the `base` role.
+# computed anywhere: this design declares only the `base` role, which is the
+# base-only member of the two role designs a configuration may declare. The
+# three-surface vega design is `configs/pde_surface_vega_harvest_demo_v1.toml`.
 
-schema_version = "pde-surface-harvest/2"
+schema_version = "pde-surface-harvest/3"
 
 [study]
 name = "pde-surface-harvest-demo-v1"

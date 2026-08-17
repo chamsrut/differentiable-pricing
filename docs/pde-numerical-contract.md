@@ -654,9 +654,11 @@ globally and per partition:
 - **independent design-group count** — distinct base economic states that
   produced rows. It is a *design* count. It is deliberately **not** called a
   statistical effective sample size, and no estimator has been fitted to it;
-- **surface-work counts** — planned, attempted, successful, failed, retained and
-  discarded surfaces are separate integers. Attempted increments immediately
-  before the solver call, so raising and invalid-return calls remain visible.
+- **surface-lifecycle counts** — planned, attempted, solver-returned, solver-failed,
+  pipeline-successful, post-solve-pipeline-failed, retained and discarded surfaces are
+  separate integers. Attempted increments immediately before the solver call;
+  solver-returned increments immediately after it returns, before validation or harvesting.
+  A returned surface that later fails is never described as a solver failure.
 
 Every report carries the statement that rows sharing a `surface_id` are
 correlated outputs of one backward induction, and rows sharing a
@@ -674,11 +676,11 @@ carrying its own integer numerator and denominator:
 - `raw_rows_per_group` = rows / independent design groups. **Dataset expansion
   per design point.** It is not work saved and must never be quoted as a
   computational speedup.
-- `raw_rows_per_attempted_surface_solve` = rows / every solver call attempted,
-  including raising calls, invalid returned surfaces and successful solves later
-  discarded with a failed group. This is the honest **rows-per-solve
+- `raw_rows_per_attempted_surface` = rows / every solver call attempted,
+  including raising calls, invalid returned surfaces and pipeline-successful surfaces later
+  discarded with a failed group. This is the honest **rows-per-attempt
   multiplier** and the conservative denominator.
-- `raw_rows_per_retained_surface` = rows / solves whose rows were kept. It
+- `raw_rows_per_retained_surface` = rows / pipeline-successful surfaces whose rows were kept. It
   equals the previous ratio when nothing was discarded and exceeds it otherwise;
   it is published beside the attempted-solve figure so the flattering
   denominator can never appear alone.
@@ -688,10 +690,14 @@ are integer counts that appear elsewhere in the same scope, `value` is exactly
 their float64 quotient, and a zero denominator gives `0.0` rather than a
 non-finite number. `reconcile_report` verifies every one of these against the
 scope's own counts, and separately that
-`planned_surface_count == attempted_surface_solve_count`,
-`attempted_surface_solve_count == successful_surface_solve_count +
-failed_surface_solve_count`, and `successful_surface_solve_count ==
-retained_surface_count + discarded_surface_count`.
+`planned_surface_count == attempted_surface_count`,
+`attempted_surface_count == solver_returned_surface_count + solver_failed_surface_count`,
+`solver_returned_surface_count == pipeline_successful_surface_count +
+post_solve_pipeline_failed_surface_count`, and `pipeline_successful_surface_count ==
+retained_surface_count + discarded_surface_count`. Failure records equal solver failures plus
+post-solve pipeline failures. Backward inductions and available returned diagnostics are counted
+when the solver returns, even if validation or harvesting later fails; nothing is invented for a
+raising call.
 The definitions travel inside the report under `interpretation.yield_definitions`.
 **Neither ratio is a statistical effective sample size.**
 
@@ -899,7 +905,8 @@ path.** Before any row is harvested, the harvester rebuilds the canonical solver
 descriptor from the returned echo and requires its digest to equal the planned
 `solver_input_id`; it compares field by field first so a mismatch names the
 offending input, and it rejects a missing section, a missing field or an unknown
-field. A missing or mismatched echo counts as one attempted and failed solve,
+field. A missing or mismatched echo counts as one attempted, solver-returned,
+post-solve-pipeline-failed surface,
 produces a failure record with full group and surface identity, produces no rows,
 and prevents its group from being retained.
 
@@ -963,12 +970,12 @@ classification or eligibility count in the report are each rejected, because eac
 is rebuilt from the published plan or recomputed from the actual rows rather than
 read back from the field under test.
 
-#### What that reconciliation does not yet cover
+#### What that reconciliation does not cover on its own
 
-That guarantee is about *consistency*, not authenticity, and the gap is recorded
-here rather than left for a reader to discover. Five plan fields carry no digest
-of their own, so a **coordinated rewrite that changes the published plan and
-every corresponding row in the same way currently passes `verify_publication`
+That guarantee is about *consistency*, not authenticity, and the gap was
+recorded here rather than left for a reader to discover. Five plan fields carry
+no digest of their own, so a **coordinated rewrite that changes the published
+plan and every corresponding row in the same way passes `verify_publication`
 undetected**:
 
 - `scenario_metadata.rate`
@@ -990,11 +997,14 @@ The scope of the gap, stated exactly:
   which is a digest of its own payload; nor partition assignment; nor any pricing
   label; nor the current exploratory demonstration, which publishes nothing that
   is consumed.
-- Published task 9C-C2a harvests must therefore **not yet be treated as
-  authoritative downstream training inputs.**
-- Anchoring or recomputing these five fields is a **required first step of task
+- Published task 9C-C2a harvests must therefore **not** be treated as
+  authoritative downstream training inputs on the strength of
+  `verify_publication` alone.
+- Anchoring or recomputing these five fields was a **required first step of task
   9C-C2b**, before any published harvest is read as an input rather than as a
-  demonstration.
+  demonstration. Task 9C-C2b1 does it, in a **separate, explicitly named**
+  entry point; the section below states exactly which guarantee is which, and
+  `verify_publication` deliberately keeps the weaker one.
 
 Finally, `_expected_spot_grid_payload` and `_expected_time_grid_payload`
 reconstruct the solver's node placement and time alignment in Python. That
@@ -1009,7 +1019,251 @@ Vega surfaces and the sigma-bump solves themselves beyond the role identity;
 parallel or batched execution; Parquet output; production dataset generation;
 label policy v2; neural training; checkpointing or resumption; any acceptance
 gate. **Task 9C-B remains `no_policy_selected`** and nothing here reads, reruns,
-edits or reinterprets its frozen evidence.
+edits or reinterprets its frozen evidence. Task 9C-C2b1, below, adds the vega
+triple and authoritative verification and nothing else from that list.
+
+### Task 9C-C2b1: authoritative verification and three-surface vega
+
+Task 9C-C2b1 does exactly two things: it closes the five recorded plan-metadata
+gaps behind a separately named verification entry point, and it computes vega
+from three surfaces per contract leg. It adds no worker pool, no resumability,
+no Parquet, no production dataset, no label policy v2, no training, no new LCP
+solver and no acceptance gate, and it does not rerun the task 9C-B pilot.
+
+The row, report, manifest and configuration schemas move to `/3`. The **identity
+scheme stays at `pde-surface-harvest-identity/2`**: no identity payload gained,
+lost or reordered a field, so every `partition_group_id`, `solver_input_id` and
+`row_id` a task 9C-C2a run produced still identifies the same thing.
+
+Vega label identity is deliberately separate. `vega_convention_id` is SHA-256 over a canonical
+versioned payload containing the centered formula, canonical absolute bump $eta$, per-unit
+absolute-volatility unit, divide-by-100 point conversion, the canonical meanings of
+`sigma_down`, `base` and `sigma_up`, and exact-node-index plus bitwise-spot matching.
+`vega_label_record_id` is derived from the economic `row_id` and that convention ID. Therefore:
+
+- equal `row_id` means the same base economic and numerical pricing node;
+- equal `vega_label_record_id` means the same node under the same vega convention;
+- equal `row_id` with unequal `vega_convention_id` is not an identical label record.
+
+A base-only design publishes the convention and label-record identities as absent. A
+three-surface row publishes its convention ID; only a row with an available vega label publishes
+a label-record ID. Stored digests distinguish conventions but are not authenticity evidence.
+Authoritative verification rederives the convention from the externally supplied expected
+configuration and verifies every row identity against it.
+
+#### Two guarantees, named separately and kept separate
+
+`verify_publication` is **self-contained consistency verification** and is
+unchanged in kind. It proves a publication agrees with itself: file hashes match
+the manifest, each identity is a digest of its own payload, each immutable row
+and surface field is rebuilt from the published plan, and every count is
+recomputed from the actual rows. **A digest stored inside a publication cannot
+make that publication authentic**, and this document does not claim otherwise.
+
+`verify_publication_authoritatively(directory, expected_config=...)` is
+**authoritative verification against an externally supplied expected
+configuration**, either an already parsed config or a path to the versioned
+TOML. It:
+
+1. verifies the publication's `raw_config_sha256` and `semantic_config_sha256`
+   against that configuration;
+2. **replans the harvest deterministically** with `plan_harvest`, which takes no
+   solver argument and calls none, so nothing is priced;
+3. compares the complete published plan against the replanned one, field by
+   field first so a mismatch names the offending field, then as a whole
+   canonical payload;
+4. thereby anchors `scenario_metadata.rate`,
+   `scenario_metadata.contract_multiplier`, `scenario_name`, `surface_role` and
+   `settings_digest` against the supplied configuration rather than inferring
+   any of them from the publication;
+5. **recomputes `settings_digest`** from the published solver descriptor's own
+   grid and solver settings rather than trusting the published value;
+6. compares every configuration-derived report section — `vega_identity`, `study`,
+   `partitioning`, `harvest_rules` — and the `numerical_settings` table, all
+   built by the same `_config_report_sections` derivation that wrote them;
+7. finally runs the whole consistency pass with every row and surface record
+   rebuilt from the **externally derived** plan. It is a strict superset of
+   `verify_publication`'s semantic stage.
+
+The report carries both statements verbatim under `verification`, so a reader of
+an artifact cannot mistake one for the other.
+
+`verify_training_input_publication` is the gate a downstream training consumer
+must use. It always runs the authoritative path — consistency-only verification
+is explicitly insufficient for a training input — and then refuses any study
+status outside `APPROVED_TRAINING_INPUT_STATUSES`, which is **empty**. Nothing
+this module produces is an approved training input today.
+
+Mutation tests cover all five fields: a coordinated rewrite of the plan, every
+affected row and every regenerated file hash is rejected by authoritative
+verification, with the offending field named. Four of the five —
+`rate`, `contract_multiplier`, `scenario_name`, `settings_digest` — are also
+shown *passing* consistency-only verification, which is what makes the two
+guarantees genuinely different rather than nominally different. `surface_role`
+is the exception and is tested as such: the vega design below pins each role to
+the volatility its group actually solves, and a solved volatility lives inside
+`solver_input` and therefore inside the surface's own digest, so relabelling a
+role is now detectable without an external configuration too.
+
+#### Three surfaces, one vega
+
+A configuration declares either exactly `["base"]` or exactly the complete
+triple `["base", "sigma_down", "sigma_up"]`. A partial set such as
+`["base", "sigma_up"]` is **rejected at parse time**: the convention below is
+centered, an asymmetric pair cannot feed it, and admitting such a design would
+invite a one-sided vega under the same column name later.
+
+With the triple, each contract leg — one `(option_type, exercise_style)` of one
+scenario — is solved three times, at $\sigma-\eta$, $\sigma$ and $\sigma+\eta$,
+and
+
+$$
+\mathrm{vega}=\frac{V(\sigma+\eta)-V(\sigma-\eta)}{2\eta}.
+$$
+
+- $\eta$ is an **absolute** volatility bump declared as
+  `volatility_bump` under `[surfaces]`. A scenario with $\sigma-\eta\le 0$ is
+  rejected during configuration parsing, before planning and therefore before
+  the first solve.
+- Vega is published **per unit absolute volatility**.
+  `vega_per_volatility_point = vega / 100` is published beside it as a
+  **reporting** conversion only; nothing consumes it.
+- **Price, delta and gamma come only from the base surface.** The base surface
+  is the leg's only row source; `sigma_down` and `sigma_up` contribute two
+  prices per node and nothing else. Their whole node vector is accounted for
+  under the rejection reason `non_base_role`, so the per-surface identity
+  `selected + rejected == node_count` still holds for every surface.
+- **Vega comes only from the two bumped prices.** The base price does not enter
+  it.
+- The three surfaces are required to sit on **bitwise the same spot grid** —
+  intervals, maximum, step, strike node and the whole node vector — and rows are
+  matched by exact node index with the bumped node's spot required to equal the
+  row's spot bitwise before its price is used. Volatility does not enter the
+  grid rule, so those checks should never fire; they exist because a silently
+  misaligned pair would difference two prices at two different spots and publish
+  the result as a derivative.
+- `solver_input_id` already contains the volatility actually passed, so the
+  three solves of one leg carry three distinct identities and no alias can merge
+  them.
+- The roles of one leg are members of one partition group by construction, which
+  is the rule declared before any vega existed. A triple therefore cannot
+  straddle a partition.
+- **Group atomicity is preserved.** The two bumped surfaces are solved first and
+  the base surface last, so a leg's vega is assembled inside the same guarded
+  step that harvests its rows. Every planned surface is still attempted —
+  `planned == attempted` is a reconciliation invariant and a failure may never
+  become a skipped solve — but a base surface whose bumped sibling failed raises
+  at stage `surface_harvest` and its group retains nothing. A solver return is counted before
+  that stage; the base is then a post-solve pipeline failure, while only surfaces that pass the
+  whole pipeline enter retained/discarded accounting.
+
+#### What the vega columns are, and what they are not
+
+`vega_numerically_available` is a **numerical-availability flag and nothing
+more**: it says this row carries a finite vega computed from its own group's
+three surfaces at the same exact grid node. It is deliberately not named like
+`delta_label_eligible` or `gamma_label_eligible`, and **no vega is called
+supervision-eligible here**. Whether a vega is stable enough to supervise is
+task 9C-C3's decision.
+
+The inputs that decision needs travel with the row so it can be made without
+re-solving: `vega_bump`, `price_sigma_down`, `price_sigma_up`, the base `price`,
+and `exercise_state_sigma_down` / `exercise_state_sigma_up`. One-sided
+differences, the second difference and any bump ladder follow from the first
+four. The last two are there because a node can exercise at $\sigma$ and
+continue at $\sigma+\eta$ — the free boundary moves with volatility — and a
+centered difference across that regime change estimates neither one-sided
+derivative. That is published raw, per row, and counted descriptively in
+`counts_by_vega_bump_exercise_regime`; it decides nothing here.
+
+A row whose bumped price is not finite keeps its price, delta and gamma, reports
+`vega_numerically_available = false`, and publishes **no** vega quantity at all
+rather than a zero or a NaN. Its `vega_bump` and the two bumped regimes stay,
+because they are design and classification facts rather than derived numbers.
+
+**Gamma supervision policy is unchanged and undecided.** Gamma remains
+evaluation-only, exactly as task 9C-C2a left it.
+
+#### Recomputed, never trusted
+
+Every vega-related count is recomputed from the actual rows during
+reconciliation: `counts_by_vega_numerical_availability` and
+`counts_by_vega_bump_exercise_regime` globally and per partition, and
+`vega_available_row_count` per surface. Each published row's vega is recomputed
+from that row's own `price_sigma_up`, `price_sigma_down` and `vega_bump` with
+exactly the operations that produced it and compared **bitwise**, and
+`vega_per_volatility_point` against `vega / 100` likewise. `vega_bump` is
+anchored separately and exactly against the plan: `_role_volatility` computes
+the bumped volatilities as `base -/+ bump` in float64, so recomputing them from
+the row's published bump reproduces the planned volatilities bitwise and no
+tolerance is involved.
+
+Editing `vega`, either bumped price, the bump, either vega identity, the point conversion, the
+availability flag, a bumped regime, or any vega count is therefore rejected even
+when every ordinary file hash has been regenerated.
+
+What this does **not** prove is that the two bumped prices are the ones the
+solver returned. That is the same limit the base `price` column has always had,
+and it is stated rather than papered over: reconciliation binds published
+numbers to published inputs and to the plan; it does not re-solve.
+
+#### Measured against independent references
+
+Neither figure below is an acceptance gate, neither is an accuracy claim, and
+no threshold from the frozen task 9C-B pilot is reused as a criterion.
+
+- **European call against Black--Scholes**, at 800 spot intervals and 400 time
+  steps with $\eta=0.01$ across three volatilities: the worst absolute error
+  against the analytic derivative is $5.839\times10^{-2}$ per unit volatility,
+  while against the *analytic centered difference at the same $\eta$* it is
+  $9.634\times10^{-3}$, falling to $2.407\times10^{-3}$ at 1600/800. Error against
+  analytic Black--Scholes vega contains both PDE-grid error and finite-bump truncation. The
+  same-$\eta$ analytic centered comparison isolates the PDE-grid component pointwise: grid
+  refinement reduces that component but cannot remove the finite-bump component. The printed
+  worst-case maxima may occur at different rows and must not be subtracted to estimate
+  truncation error. This is exactly the kind of fact task 9C-C3 needs.
+- **American put against a twice-refined centered PDE control** (a control
+  surface at double the spot intervals and double the time steps, where every
+  coarse node is a refined node at bitwise the same spot): the worst absolute
+  difference over all harvested rows is $3.478\times10^{-2}$ and over
+  Greek-eligible rows $1.992\times10^{-2}$. The worst row is one the surface
+  contract already refuses as a Greek label, with reason
+  `regime_stencil_not_uniform` — the free-boundary band. **Vega is not gated by
+  that flag**, because it comes from prices rather than from a stencil, and that
+  is precisely the stability question left open.
+- A pure exercise-region American put node has vega zero to solver scale while
+  **both** bumped surfaces are still in that region at the same node, and a
+  visibly non-zero vega when the up-bump crosses into continuation. Both cases
+  are asserted.
+
+#### Demonstration
+
+```bash
+python scripts/demo_pde_surface_vega_harvest.py
+```
+
+Driven by `configs/pde_surface_vega_harvest_demo_v1.toml`: nine scenarios, one
+contract leg, three surfaces per group, 27 solves. It reports groups, planned
+  surfaces per group, the full attempted/returned/pipeline lifecycle and retained/discarded
+  counts, rows per independent group beside rows per attempted surface, the two vega
+comparisons above, partitions and integrity counts, both verification
+guarantees, the training-input gate refusing, byte identity under reversed
+candidate order and a different chunk size, and wall time on the terminal only.
+It is descriptive evidence. It selects no label policy, generates no dataset,
+and is not a throughput claim.
+
+Rows per group and rows per attempted surface now differ by a factor of **three**
+in that design, because a vega costs three backward inductions per row set.
+Quoting rows per group as a computational multiplier would overstate the
+numerical-work reuse by exactly that factor.
+
+#### Not implemented by task 9C-C2b1
+
+Parallel workers; resumability or checkpointing; dataset-scale generation;
+label policy v2; neural training; a replacement for PSOR; Parquet output; any
+acceptance gate; any vega supervision-eligibility or stability rule; any change
+to gamma supervision policy. **Task 9C-B remains `no_policy_selected`** and
+nothing here reads, reruns, edits or reinterprets its frozen evidence.
 
 ### Mandatory rules for the task 9C-C2 dataset contract
 
