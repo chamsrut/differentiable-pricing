@@ -99,16 +99,28 @@ Current members: the European replication and validation snapshots, and
 (`scripts/freeze_american_lsm_results.py`,
 `scripts/plot_american_lsm_results.py`).
 
-`american_pde_label_policy_results_v1.json` is frozen differently and
+`american_pde_label_policy_results_v1.json` is **immutable historical
+evidence**, frozen differently from the other snapshot families and
 deliberately so. The task 9C-B runner already emits canonical, timestamp-free
 JSON that a second run reproduces byte for byte, so the reviewed report is
 checked in as-is and pinned by SHA-256 in
-`python/tests/test_pde_label_policy_results_snapshot.py`, which also reconciles
-the configuration and runner digests it records against the current files. The
-PDE source digests it records are **historical** — task 9C-C1 changed the engine
-sources after the pilot ran — and are deliberately not reconciled against HEAD
-nor refreshed to match it. It carries no figures. Replacing it means rerunning the pilot and updating the
-pinned digest in the same reviewed change.
+`python/tests/test_pde_label_policy_results_snapshot.py`. That test may only
+**validate preservation** of this file — it reconciles the configuration and
+runner digests the file records against current repository files, which
+confirms the frozen bytes still match what the pilot actually consumed and
+ran, not that the file is current. This snapshot must **never** be replaced,
+refreshed, regenerated, rerun, or reinterpreted, by hand or by script, for
+any reason, including a later engine or policy change (see
+[decision-log.md](decision-log.md) DEC-003 and `CONTRIBUTING.md`). The PDE
+source digests it records are **historical**, describing the engine as it
+was when the 9C-B pilot ran — task 9C-C1 changed
+`cpp/include/dp/finite_difference_pde.hpp` and
+`cpp/src/finite_difference_pde.cpp` afterward — and are deliberately not
+reconciled against HEAD nor expected to track it; refreshing them to match a
+later build would silently transfer provenance the pilot never had. It
+carries no figures. A later numerical-policy or engine question — including
+task 9C-C3 — is answered by a new, separately versioned config, runner, and
+result snapshot, never by editing, rerunning, or regenerating this one.
 
 `american.pde_surface_harvest` (task 9C-C2a) contributes no snapshot either, and
 for a different reason: it is exploratory infrastructure whose outputs are a

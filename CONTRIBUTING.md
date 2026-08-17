@@ -1,6 +1,7 @@
 # Contributing
 
-Start with [CLAUDE.md](CLAUDE.md) and
+Start with [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md) (if you are using
+Claude Code), [docs/project-state.md](docs/project-state.md), and
 [docs/research-contract.md](docs/research-contract.md). Every change should
 state its model or software assumption, add a regression test, and pass:
 
@@ -10,9 +11,48 @@ state its model or software assumption, add a regression test, and pass:
 
 The full gate ends with `python3 -m pytest -q`, so install the editable
 package first with `python -m pip install -e '.[dev,train]'`. A missing pytest
-or missing extension fails the gate instead of skipping the Python suite. The
-`--quick` mode used by the pre-commit hook stops after the C++ tests; run the
-full gate before opening a pull request.
+or missing extension fails the gate instead of skipping the Python suite.
+`./scripts/check.sh` runs `ruff check` only when `ruff` is importable and
+`clang-format --dry-run --Werror` only when `clang-format` is installed on
+your machine — neither is unconditional, and CI does not run `clang-format`
+at all today; do not report a passing gate as evidence that C++ formatting
+was checked, or that linting ran, unless the relevant tool genuinely ran.
+The script exits on its first failing command, so the C++ and Python test
+stages are reached only once every preceding enabled check (config/snapshot
+validation, Ruff, clang-format) has passed. `--quick`, used by the
+pre-commit hook, skips the Python suite and runs the C++ tests **only if
+`build/check` already exists** from a prior full run — on a fresh clone
+without it, `--quick` may perform no C++ test execution at all. Run the full
+gate before opening a pull request; **GitHub Actions CI remains the
+authoritative clean-environment gate**, since local results depend on
+machine state.
+
+## Documentation hierarchy
+
+When two documents disagree, the higher tier is correct: code/config/frozen
+evidence, then normative contracts — [docs/architecture.md](docs/architecture.md)
+and the applicable `docs/*-contract.md` files — then
+[docs/decision-log.md](docs/decision-log.md), then
+[docs/project-state.md](docs/project-state.md) and the active task under
+`docs/tasks/active/`, then README and other narrative documentation. Full
+rules and each document's edit policy:
+[docs/documentation-map.md](docs/documentation-map.md). Update
+`docs/project-state.md` and add a `docs/decision-log.md` entry in the same
+change whenever a milestone starts, changes scope, or completes.
+
+## Enable local git hooks
+
+Git hooks are versioned under `.githooks/` but are **not** activated
+automatically by cloning the repository — Git does not enable a non-default
+`core.hooksPath` on its own. Run this once per clone to enable the local
+pre-commit gate:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+Without it, `.githooks/pre-commit` simply never runs, and CI is your only
+gate.
 
 Tests are split by directory so CI can keep one job PyTorch-free:
 `python/tests/ml/` holds every PyTorch-dependent test, and everything else
@@ -40,12 +80,20 @@ python scripts/freeze_american_lsm_results.py --check
 python scripts/plot_american_lsm_results.py --check
 ```
 
-`docs/results/american_pde_label_policy_results_v1.json` is the task 9C-B
-report itself, checked in unchanged and pinned by SHA-256 in
-`python/tests/test_pde_label_policy_results_snapshot.py`, which also reconciles
-the configuration and runner digests it records. Replacing it means rerunning
-that expensive pilot and updating the pinned digest in the same reviewed
-change; never edit the JSON by hand.
+`docs/results/american_pde_label_policy_results_v1.json` is **immutable
+historical evidence**: the task 9C-B report itself, checked in unchanged and
+pinned by SHA-256 in `python/tests/test_pde_label_policy_results_snapshot.py`.
+It must **never** be replaced, refreshed, rerun, or reinterpreted, by hand or
+by script — not even to reflect a later engine change (see
+[docs/decision-log.md](docs/decision-log.md) DEC-003). Its snapshot test
+reconciles only the configuration and runner digests it records against
+current files; that check validates **preservation of historical evidence**,
+not currency with HEAD, and it deliberately does not reconcile the PDE
+source digests it also records, because those are frozen provenance of the
+run that produced this file, not a claim about today's engine. A new
+numerical-policy question — including task 9C-C3 — requires its own,
+separately versioned config, runner, and result snapshot; it is never
+answered by editing or rerunning this one.
 
 ## Markdown and math
 
