@@ -1,4 +1,4 @@
-"""Task 9C-C2a: leakage-safe harvesting of spot rows from PDE valuation surfaces.
+"""Tasks 9C-C2a/9C-C2b1: leakage-safe harvesting of spot rows from PDE surfaces.
 
 Task 9C-C1 exposed the whole valuation-time slice of one backward induction.
 Turning that slice into several dataset rows is cheap and is exactly where a
@@ -9,9 +9,11 @@ numerical outputs of one solve.
 This module implements the smallest machinery that keeps that fact structural
 rather than documentary:
 
-* three versioned canonical identities -- ``partition_group_id`` for the base
+* three unchanged ``/2`` economic identities -- ``partition_group_id`` for the base
   non-spot economic state, ``surface_id`` for one actual solve, ``row_id`` for
-  one harvested exact node -- each a SHA-256 digest of a canonical JSON payload
+  one harvested exact node -- plus separate versioned ``vega_convention_id`` and
+  ``vega_label_record_id`` identities for label-policy and cross-publication duplicate
+  semantics, each a SHA-256 digest of a canonical JSON payload
   with no dependence on ``hash()``, dictionary order, locale, platform float
   formatting, absolute paths, or insertion order;
 * a deterministic grouped partition assignment that consumes *only* candidate
@@ -23,9 +25,29 @@ rather than documentary:
 * a report that states raw row count, independent design-group count and actual
   surface-solve count as three separate numbers.
 
-It computes no vega, runs no worker pool, replaces no LCP solver, trains
-nothing, generates no production dataset, and selects no label policy. Task 9C-B
-remains ``no_policy_selected``; nothing here reads, reruns or reinterprets it.
+Task 9C-C2b1 adds two things and nothing else.
+
+* **Three-surface vega.** A design may declare the complete
+  ``base``/``sigma_down``/``sigma_up`` triple. Each contract leg of a group is
+  then solved three times, at :math:`\\sigma-\\eta`, :math:`\\sigma` and
+  :math:`\\sigma+\\eta`, and the predeclared convention
+  :data:`VEGA_CONVENTION` turns the two bumped prices into one vega per unit
+  absolute volatility. Price, delta and gamma still come **only** from the base
+  surface; vega comes **only** from the two bumped prices. Vega is *not* called
+  supervision-eligible: :data:`VEGA_AVAILABILITY_STATEMENT` says what the
+  published flag does and does not mean.
+* **Authoritative verification.** :func:`verify_publication` is, and remains, a
+  *self-contained consistency* check: it proves a publication agrees with
+  itself. :func:`verify_publication_authoritatively` is the separate, stronger
+  check that compares a publication against an externally supplied expected
+  configuration. Only the latter anchors ``scenario_metadata.rate``,
+  ``scenario_metadata.contract_multiplier``, ``scenario_name``, ``surface_role``
+  and ``settings_digest``, and only the latter may gate a downstream training
+  input -- see :func:`verify_training_input_publication`.
+
+It runs no worker pool, replaces no LCP solver, trains nothing, generates no
+production dataset, and selects no label policy. Task 9C-B remains
+``no_policy_selected``; nothing here reads, reruns or reinterprets it.
 
 Command line::
 
@@ -54,10 +76,18 @@ from typing import Any, Final
 
 from differentiable_pricing import _pde, pde_valuation_surface
 
-SCHEMA_VERSION: Final = "pde-surface-harvest/2"
-REPORT_SCHEMA_VERSION: Final = "pde-surface-harvest-report/2"
-ROW_SCHEMA_VERSION: Final = "pde-surface-harvest-row/2"
+SCHEMA_VERSION: Final = "pde-surface-harvest/3"
+REPORT_SCHEMA_VERSION: Final = "pde-surface-harvest-report/3"
+ROW_SCHEMA_VERSION: Final = "pde-surface-harvest-row/3"
+MANIFEST_SCHEMA_VERSION: Final = "pde-surface-harvest-manifest/3"
 IDENTITY_VERSION: Final = "pde-surface-harvest-identity/2"
+"""Identity scheme version.
+
+Deliberately **unchanged** by task 9C-C2b1: no identity payload gained, lost or
+reordered a field, so every ``partition_group_id``, ``solver_input_id`` and
+``row_id`` a 9C-C2a run produced is still the identity of the same thing. The
+row, report, manifest and configuration schemas did change, and say so.
+"""
 PARTITION_ALGORITHM: Final = "grouped_quota_by_sorted_digest/1"
 SELECTION_RULE: Final = "evenly_spaced_by_ascending_node_index/1"
 NODE_SOURCE: Final = "exact_grid_nodes"
@@ -96,12 +126,66 @@ GREEK_INELIGIBILITY_REASONS: Final = (
 """Reason vocabulary of the surface contract, excluding ``eligible``."""
 
 SURFACE_ROLES: Final = ("base", "sigma_down", "sigma_up")
-"""Volatility-bump roles of one partition group.
+"""Volatility-bump roles of one partition group, in solve order.
 
-Only ``base`` changes anything today. The other two exist so that the three
-surfaces a future vega estimate needs are already, structurally, members of one
-partition group. **No vega is computed anywhere in this module.**
+``base`` is the **only** row source: price, delta and gamma are read from it and
+from nothing else. ``sigma_down`` and ``sigma_up`` exist solely to supply the two
+bumped prices of :data:`VEGA_CONVENTION`. All three are members of one partition
+group by construction, so a vega triple can never straddle a partition.
+
+They are solved in the reverse of this order -- both bumped surfaces first, the
+base surface last -- so that the leg's vega can be assembled inside the same
+guarded step that harvests it. See :func:`execute_plan`.
 """
+
+VEGA_ROLE_ORDER: Final = ("sigma_down", "sigma_up", "base")
+"""Solve order within one contract leg: the row source is solved last."""
+
+DECLARABLE_ROLE_SETS: Final = (("base",), SURFACE_ROLES)
+"""The only two role designs a configuration may declare.
+
+Either the base surface alone -- no vega, the task 9C-C2a behaviour -- or the
+**complete** three-surface triple. A partial set such as ``base``/``sigma_up``
+is rejected rather than silently ignored: the predeclared vega convention is
+centered, an asymmetric pair cannot feed it, and leaving such a design to parse
+would invite a later one-sided vega under the same column name.
+"""
+
+VEGA_CONVENTION: Final = "vega = (V(sigma + eta) - V(sigma - eta)) / (2 * eta)"
+"""The predeclared vega formula. It is fixed in code, not chosen per run."""
+
+VEGA_CONVENTION_VERSION: Final = "pde-surface-harvest-vega-convention/1"
+VEGA_LABEL_RECORD_IDENTITY_VERSION: Final = "pde-surface-harvest-vega-label-record/1"
+VEGA_CENTERED_FORMULA: Final = "[V(sigma + eta) - V(sigma - eta)] / (2 eta)"
+VEGA_EXACT_NODE_MATCHING: Final = "exact_node_index_and_bitwise_equal_spot"
+VEGA_ROLE_MEANINGS: Final = (
+    ("sigma_down", "V(sigma - eta)"),
+    ("base", "V(sigma)"),
+    ("sigma_up", "V(sigma + eta)"),
+)
+
+VEGA_UNITS: Final = "per_unit_absolute_volatility"
+"""Vega's published unit. ``eta`` is an **absolute** volatility bump."""
+
+VOLATILITY_POINTS_PER_UNIT: Final = 100.0
+"""One unit of absolute volatility is 100 volatility points.
+
+``vega_per_volatility_point = vega / 100`` is a **reporting** conversion only.
+Nothing consumes it, and it is republished beside the per-unit number rather
+than in place of it.
+"""
+
+VEGA_AVAILABILITY_STATEMENT: Final = (
+    "vega_numerically_available says only that this row carries a finite vega "
+    "computed from its own group's three surfaces at the same exact grid node. "
+    "It is NOT a supervision-eligibility flag, it is not a stability claim, and "
+    "it is deliberately not named like delta_label_eligible or "
+    "gamma_label_eligible. Whether a vega is stable enough to supervise is task "
+    "9C-C3's decision; the inputs it needs -- vega_bump, price_sigma_down, "
+    "price_sigma_up and the base price -- are published beside the vega so that "
+    "one-sided differences, the second difference and any bump ladder can be "
+    "derived without re-solving."
+)
 
 OPTION_TYPES: Final = frozenset({"call", "put"})
 EXERCISE_STYLES: Final = frozenset({"european", "american"})
@@ -348,6 +432,52 @@ def settings_identity(settings: Mapping[str, Any]) -> str:
     )
 
 
+def vega_convention_payload(eta: float) -> dict[str, Any]:
+    """Return the canonical policy payload for one centered-difference vega.
+
+    This identity is deliberately separate from the unchanged ``/2`` economic
+    identities. It identifies how a vega label is constructed, not the base
+    pricing node that receives the label.
+    """
+    if not math.isfinite(eta) or eta <= 0.0:
+        raise HarvestError("vega convention eta must be a positive finite absolute volatility")
+    return {
+        "version": VEGA_CONVENTION_VERSION,
+        "kind": "vega_convention",
+        "centered_formula": VEGA_CENTERED_FORMULA,
+        "eta": eta,
+        "unit": VEGA_UNITS,
+        "reporting_conversion": {
+            "operation": "divide_by",
+            "divisor": VOLATILITY_POINTS_PER_UNIT,
+            "result": "vega_per_volatility_point",
+        },
+        "required_roles": [
+            {"role": role, "canonical_meaning": meaning}
+            for role, meaning in VEGA_ROLE_MEANINGS
+        ],
+        "exact_node_matching_requirement": VEGA_EXACT_NODE_MATCHING,
+    }
+
+
+def vega_convention_identity(eta: float) -> str:
+    """Identify one canonical vega convention, including its absolute bump."""
+    return _digest("vc", vega_convention_payload(eta))
+
+
+def vega_label_record_identity(*, row_id: str, vega_convention_id: str) -> str:
+    """Identify one economic row under one canonical vega convention."""
+    return _digest(
+        "vl",
+        {
+            "identity_version": VEGA_LABEL_RECORD_IDENTITY_VERSION,
+            "kind": "vega_label_record",
+            "row_id": row_id,
+            "vega_convention_id": vega_convention_id,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -449,6 +579,21 @@ class SurfaceDesign:
     option_types: tuple[str, ...]
     exercise_styles: tuple[str, ...]
     volatility_bump: float | None
+
+    @property
+    def computes_vega(self) -> bool:
+        """True exactly when the complete three-surface triple is declared."""
+        return set(self.roles) == set(SURFACE_ROLES)
+
+    @property
+    def vega_bump(self) -> float | None:
+        """The absolute volatility bump actually used, or ``None`` without vega."""
+        return self.volatility_bump if self.computes_vega else None
+
+    def ordered_roles(self) -> tuple[str, ...]:
+        """Declared roles in solve order: bumped surfaces first, base last."""
+        declared = set(self.roles)
+        return tuple(role for role in VEGA_ROLE_ORDER if role in declared)
 
 
 @dataclass(frozen=True, slots=True)
@@ -642,11 +787,32 @@ def parse_harvest_config(
             raise HarvestError(
                 "surfaces.volatility_bump is required when a non-base role is declared"
             )
+    if tuple(sorted(surfaces.roles)) not in tuple(
+        tuple(sorted(allowed)) for allowed in DECLARABLE_ROLE_SETS
+    ):
+        raise HarvestError(
+            f"surfaces.roles must be exactly {list(DECLARABLE_ROLE_SETS[0])} or the complete "
+            f"three-surface vega triple {list(DECLARABLE_ROLE_SETS[1])}; a partial role set "
+            "cannot feed the predeclared centered vega convention and is rejected rather "
+            "than silently ignored"
+        )
+    if surfaces.computes_vega and surfaces.volatility_bump is None:
+        raise HarvestError("surfaces.volatility_bump is required by the three-surface vega design")
+    if not surfaces.computes_vega and surfaces.volatility_bump is not None:
+        raise HarvestError(
+            "surfaces.volatility_bump is declared but the base-only design computes no vega; "
+            "an unused numerical knob in a versioned design is rejected rather than ignored"
+        )
     if surfaces.volatility_bump is not None:
+        # Checked here, before planning and therefore before any solve: a
+        # non-positive sigma_down is not a solver failure to be discovered
+        # eleven surfaces into a run.
         for scenario in scenarios:
             if scenario.base_volatility - surfaces.volatility_bump <= 0.0:
                 raise HarvestError(
-                    f"scenario '{scenario.name}' has a sigma_down volatility that is not positive"
+                    f"scenario '{scenario.name}' has a sigma_down volatility that is not "
+                    f"positive: base_volatility {scenario.base_volatility!r} minus "
+                    f"surfaces.volatility_bump {surfaces.volatility_bump!r} is not above zero"
                 )
 
     return HarvestConfig(
@@ -1112,8 +1278,10 @@ def plan_harvest(config: HarvestConfig) -> HarvestPlan:
 def _role_volatility(scenario: Scenario, role: str, design: SurfaceDesign) -> float:
     """Return the volatility one surface role is actually solved at.
 
-    ``sigma_down`` and ``sigma_up`` exist so a future vega triple already shares
-    one partition group. **This module computes no vega from them.**
+    The bumped volatilities are ``base_volatility -/+ volatility_bump`` and
+    nothing else, so a consumer holding the base volatility and the published
+    ``vega_bump`` reproduces both **bitwise**. That exactness is what lets
+    reconciliation anchor the bump without a tolerance.
     """
     if role == "base":
         return scenario.base_volatility
@@ -1214,6 +1382,25 @@ def deduplicate_node_indices(indices: Iterable[int]) -> tuple[tuple[int, ...], i
     return tuple(kept), rejected
 
 
+REJECTION_REASONS: Final = (
+    "truncation_endpoint",
+    "boundary_buffer",
+    "outside_moneyness_window",
+    "non_finite_price",
+    "quota",
+    "duplicate_node",
+    "non_base_role",
+)
+"""Why a node produced no row, in fixed first-applicable precedence order.
+
+``non_base_role`` is the whole node vector of a ``sigma_down`` or ``sigma_up``
+surface. Those surfaces are solved for their prices alone and are never a row
+source, so counting their nodes as rejected keeps the per-surface identity
+``selected + rejected == node_count`` true for every surface rather than only
+for the harvested ones.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class SurfaceHarvest:
     """Rows and accounting from one solved surface."""
@@ -1225,6 +1412,27 @@ class SurfaceHarvest:
     selected_by_state: dict[str, int]
     applicable_states: tuple[str, ...]
     shortfalls: tuple[dict[str, Any], ...]
+
+
+def bumped_surface_accounting(surface: Mapping[str, Any], plan: SurfacePlan) -> SurfaceHarvest:
+    """Account for a solved ``sigma_down``/``sigma_up`` surface that yields no row.
+
+    It contributed real numerical work and two prices per node, so it is a
+    surface solve like any other and appears in every solve count. It simply is
+    not the row source, and saying so as an explicit rejection reason keeps that
+    visible instead of leaving an unexplained zero.
+    """
+    rejected = dict.fromkeys(REJECTION_REASONS, 0)
+    rejected["non_base_role"] = len(surface["spot_nodes"])
+    return SurfaceHarvest(
+        rows=(),
+        rejected=rejected,
+        candidates_by_state=dict.fromkeys(EXERCISE_STATES, 0),
+        requested_by_state=dict.fromkeys(EXERCISE_STATES, 0),
+        selected_by_state=dict.fromkeys(EXERCISE_STATES, 0),
+        applicable_states=APPLICABLE_EXERCISE_STATES[plan.exercise_style],
+        shortfalls=(),
+    )
 
 
 def harvest_surface(
@@ -1251,14 +1459,7 @@ def harvest_surface(
             f"surface '{plan.surface_id}' reports {len(spots)} nodes for {intervals} intervals"
         )
 
-    rejected = {
-        "truncation_endpoint": 0,
-        "boundary_buffer": 0,
-        "outside_moneyness_window": 0,
-        "non_finite_price": 0,
-        "quota": 0,
-        "duplicate_node": 0,
-    }
+    rejected = dict.fromkeys(REJECTION_REASONS, 0)
     admissible: dict[str, list[int]] = {state: [] for state in EXERCISE_STATES}
     for index in range(len(spots)):
         # Precedence is fixed and first-applicable, so every rejected node is
@@ -1404,6 +1605,20 @@ def _build_row(
         # what may be supervised.
         "delta": delta,
         "gamma": gamma,
+        # Vega is not a property of this surface. It belongs to the leg's whole
+        # base/sigma_down/sigma_up triple and is attached by `attach_leg_vega`
+        # once all three surfaces exist. A base-only design leaves these empty
+        # for good: an absent vega is published as absent, never as zero.
+        "vega": None,
+        "vega_per_volatility_point": None,
+        "vega_bump": None,
+        "vega_convention_id": None,
+        "vega_label_record_id": None,
+        "price_sigma_down": None,
+        "price_sigma_up": None,
+        "exercise_state_sigma_down": None,
+        "exercise_state_sigma_up": None,
+        "vega_numerically_available": False,
         "exercise_state": exercise_state,
         "price_label_eligible": True,
         "delta_label_eligible": bool(greek_eligible and delta is not None),
@@ -1411,6 +1626,127 @@ def _build_row(
         "greek_eligible": bool(greek_eligible),
         "greek_eligibility_reason": reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# Three-surface vega
+# ---------------------------------------------------------------------------
+
+_VEGA_GRID_FIELDS: Final = (
+    "spot_intervals",
+    "spot_maximum",
+    "spot_step",
+    "strike_node_index",
+    "boundary_exclusion_nodes",
+)
+"""Grid facts the three surfaces of one leg must agree on exactly."""
+
+
+def require_aligned_vega_grids(surfaces: Mapping[str, Mapping[str, Any]], *, leg: str) -> None:
+    """Require every surface of one leg to sit on bitwise the same spot grid.
+
+    Volatility does not enter the grid rule, so the three grids *should* already
+    be identical. That is exactly why it is checked rather than assumed: a
+    silently misaligned pair would produce a difference of two prices at two
+    different spots and publish it under the name ``vega``.
+
+    The whole node vector is compared, not only the reported step and maximum,
+    so no accumulated placement difference can hide behind matching summaries.
+    """
+    base = surfaces["base"]
+    base_nodes = canonical_payload(list(base["spot_nodes"]))
+    for role in SURFACE_ROLES:
+        if role == "base":
+            continue
+        other = surfaces[role]
+        for field in _VEGA_GRID_FIELDS:
+            if canonical_payload(other[field]) != canonical_payload(base[field]):
+                raise HarvestError(
+                    f"leg '{leg}' role '{role}' disagrees with its base surface on '{field}'; "
+                    "a vega triple must share one spot grid exactly"
+                )
+        if canonical_payload(list(other["spot_nodes"])) != base_nodes:
+            raise HarvestError(
+                f"leg '{leg}' role '{role}' does not sit on bitwise the same spot nodes as its "
+                "base surface"
+            )
+
+
+def centered_vega(*, price_up: float, price_down: float, bump: float) -> float:
+    """Return :data:`VEGA_CONVENTION` evaluated in float64.
+
+    Per unit **absolute** volatility. The operations are fixed and in this order
+    so that a consumer holding ``price_sigma_up``, ``price_sigma_down`` and
+    ``vega_bump`` reproduces the published number bitwise; reconciliation relies
+    on exactly that.
+    """
+    if not bump > 0.0 or not math.isfinite(bump):
+        raise HarvestError("the vega bump must be a positive finite absolute volatility")
+    return (price_up - price_down) / (2.0 * bump)
+
+
+def vega_per_volatility_point(vega: float) -> float:
+    """Convert per-unit vega to one volatility point. **Reporting only.**"""
+    return vega / VOLATILITY_POINTS_PER_UNIT
+
+
+def attach_leg_vega(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    down_surface: Mapping[str, Any],
+    up_surface: Mapping[str, Any],
+    bump: float,
+    leg: str,
+) -> tuple[dict[str, Any], ...]:
+    """Attach the leg's vega to rows already harvested from its base surface.
+
+    Rows are matched to the bumped surfaces by **exact node index**, and the
+    bumped node's spot is required to equal the row's spot bitwise before its
+    price is used. Index arithmetic is not evidence of alignment on its own;
+    :func:`require_aligned_vega_grids` has already checked the whole grid, and
+    this is the per-row restatement of the same requirement at the one place
+    where a wrong spot would silently become a wrong derivative.
+
+    A non-finite bumped price leaves the row's price, delta and gamma untouched
+    and publishes *no* vega quantity at all rather than a zero or a NaN.
+    """
+    attached: list[dict[str, Any]] = []
+    convention_id = vega_convention_identity(bump)
+    for row in rows:
+        index = int(row["node_index"])
+        updated = dict(row)
+        updated["vega_bump"] = bump
+        updated["vega_convention_id"] = convention_id
+        for name, surface in (("sigma_down", down_surface), ("sigma_up", up_surface)):
+            spot = surface["spot_nodes"][index]
+            if canonical_payload(spot) != canonical_payload(row["spot"]):
+                raise HarvestError(
+                    f"leg '{leg}' role '{name}' node {index} has spot {spot!r}, not the base "
+                    f"surface's {row['spot']!r}; a vega may not combine two different spots"
+                )
+        # The bumped surfaces' own exercise classifications at the same node.
+        # A node that is in the exercise region at sigma and in the continuation
+        # region at sigma + eta has a vega that straddles a regime change, and
+        # the centered difference then estimates neither one-sided derivative.
+        # That is a stability fact task 9C-C3 must be able to see, so it is
+        # published raw rather than turned into a verdict here.
+        updated["exercise_state_sigma_down"] = str(down_surface["exercise_states"][index])
+        updated["exercise_state_sigma_up"] = str(up_surface["exercise_states"][index])
+        price_down = float(down_surface["values"][index])
+        price_up = float(up_surface["values"][index])
+        if math.isfinite(price_down) and math.isfinite(price_up):
+            vega = centered_vega(price_up=price_up, price_down=price_down, bump=bump)
+            if math.isfinite(vega):
+                updated["price_sigma_down"] = price_down
+                updated["price_sigma_up"] = price_up
+                updated["vega"] = vega
+                updated["vega_per_volatility_point"] = vega_per_volatility_point(vega)
+                updated["vega_label_record_id"] = vega_label_record_identity(
+                    row_id=str(updated["row_id"]), vega_convention_id=convention_id
+                )
+                updated["vega_numerically_available"] = True
+        attached.append(updated)
+    return tuple(attached)
 
 
 ROW_COLUMNS: Final = (
@@ -1439,6 +1775,16 @@ ROW_COLUMNS: Final = (
     "price",
     "delta",
     "gamma",
+    "vega",
+    "vega_per_volatility_point",
+    "vega_bump",
+    "vega_convention_id",
+    "vega_label_record_id",
+    "price_sigma_down",
+    "price_sigma_up",
+    "exercise_state_sigma_down",
+    "exercise_state_sigma_up",
+    "vega_numerically_available",
     "exercise_state",
     "price_label_eligible",
     "delta_label_eligible",
@@ -1746,6 +2092,103 @@ def validate_surface_result(
             )
 
 
+def leg_plans(group: GroupPlan) -> tuple[tuple[str, dict[str, SurfacePlan]], ...]:
+    """Split one group's planned surfaces into contract legs, in canonical order.
+
+    A *leg* is one ``(option_type, exercise_style)`` contract of one scenario.
+    Its surfaces differ only in the volatility actually solved, which is exactly
+    the set a centered vega needs. Legs are ordered by their base surface's
+    identity, so execution order depends on nothing but the plan.
+    """
+    legs: dict[str, dict[str, SurfacePlan]] = {}
+    for surface in group.surfaces:
+        key = f"{surface.option_type}/{surface.exercise_style}"
+        roles = legs.setdefault(key, {})
+        if surface.surface_role in roles:
+            raise HarvestError(
+                f"group '{group.partition_group_id}' leg '{key}' plans role "
+                f"'{surface.surface_role}' twice"
+            )
+        roles[surface.surface_role] = surface
+    return tuple(
+        sorted(legs.items(), key=lambda item: (item[1][SURFACE_ROLES[0]].surface_id, item[0]))
+    )
+
+
+def _leg_rows(
+    *,
+    surface: Mapping[str, Any],
+    surface_plan: SurfacePlan,
+    scenario: Scenario,
+    config: HarvestConfig,
+    solved: Mapping[str, Mapping[str, Any]],
+    leg: str,
+) -> tuple[SurfaceHarvest, tuple[dict[str, Any], ...]]:
+    """Harvest the base surface of one leg and attach its vega.
+
+    Called only for the ``base`` role, and only after every other declared role
+    of the same leg has already been solved and validated. A leg missing one of
+    its bumped surfaces raises here, which is what makes the group's atomicity
+    structural: the row source cannot succeed while a surface its vega needs
+    failed.
+    """
+    design = config.surfaces
+    if design.computes_vega:
+        missing = sorted(set(SURFACE_ROLES) - {"base"} - set(solved))
+        if missing:
+            raise HarvestError(
+                f"leg '{leg}' cannot assemble a vega: role(s) {missing} did not produce a "
+                "validated surface, so this base surface is not the row source the design "
+                "planned and its group retains nothing"
+            )
+        require_aligned_vega_grids({**dict(solved), "base": surface}, leg=leg)
+    harvest = harvest_surface(surface, surface_plan, scenario, config.harvest)
+    if not design.computes_vega:
+        return harvest, harvest.rows
+    bump = design.volatility_bump
+    if bump is None:  # pragma: no cover - the parser already rejects this
+        raise HarvestError("a vega design without a declared volatility bump reached execution")
+    rows = attach_leg_vega(
+        harvest.rows,
+        down_surface=solved["sigma_down"],
+        up_surface=solved["sigma_up"],
+        bump=bump,
+        leg=leg,
+    )
+    return harvest, rows
+
+
+RETURNED_SOLVER_DIAGNOSTIC_FIELDS: Final = (
+    "backward_inductions",
+    "solver_status",
+    "discretization_accuracy",
+    "exercise_classification_scale",
+    "maximum_relative_lcp_residual",
+)
+
+
+def _available_returned_solver_diagnostics(surface: Any) -> dict[str, Any]:
+    """Copy only safe diagnostics actually exposed by a returned solver result."""
+    if not isinstance(surface, Mapping):
+        return {}
+    diagnostics: dict[str, Any] = {}
+    for key in RETURNED_SOLVER_DIAGNOSTIC_FIELDS:
+        if key not in surface:
+            continue
+        value = surface[key]
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            if value >= 0:
+                diagnostics[key] = value
+        elif isinstance(value, float):
+            if math.isfinite(value):
+                diagnostics[key] = value
+        elif isinstance(value, str):
+            diagnostics[key] = value
+    return diagnostics
+
+
 def execute_plan(
     plan: HarvestPlan,
     config: HarvestConfig,
@@ -1757,6 +2200,12 @@ def execute_plan(
 
     ``plan`` arrives already assigned. Chunking only groups the loop; it changes
     no identity, no assignment, and no output byte.
+
+    Every planned surface is attempted, always, even after a sibling of the same
+    leg has failed: ``planned == attempted`` is a reconciliation invariant, so a
+    failure may never turn into a skipped call. Solver return and pipeline success
+    are counted separately. What any failure changes is retention -- a group with
+    a solver or post-solve pipeline failure keeps no rows at all.
     """
     if plan.semantic_config_sha256 != config.semantic_config_sha256:
         raise HarvestError(
@@ -1767,9 +2216,11 @@ def execute_plan(
     failures: list[dict[str, Any]] = []
     shortfalls: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
-    attempted_surface_solve_count = 0
-    successful_surface_solve_count = 0
-    failed_surface_solve_count = 0
+    attempted_surface_count = 0
+    solver_returned_surface_count = 0
+    solver_failed_surface_count = 0
+    pipeline_successful_surface_count = 0
+    post_solve_pipeline_failed_surface_count = 0
 
     for chunk in _chunked(plan.groups, chunk_size):
         for group in chunk:
@@ -1778,48 +2229,91 @@ def execute_plan(
             group_shortfalls: list[dict[str, Any]] = []
             group_failures: list[dict[str, Any]] = []
             group_attempted = 0
-            for surface_plan in group.surfaces:
-                attempted_surface_solve_count += 1
-                group_attempted += 1
-                stage = "pde_solve"
-                try:
-                    surface = _solve_surface(surface_plan, group.scenario, config, solver)
-                    stage = "surface_validation"
-                    validate_surface_result(
-                        surface,
-                        surface_plan,
-                        contract_multiplier=group.scenario.contract_multiplier,
+            group_solver_returned = 0
+            for leg, roles in leg_plans(group):
+                # Both bumped surfaces are solved before the base surface, so the
+                # leg's vega can be assembled inside the same guarded step that
+                # harvests its rows.
+                if set(roles) != set(config.surfaces.roles):
+                    raise HarvestError(
+                        f"group '{group.partition_group_id}' leg '{leg}' plans roles "
+                        f"{sorted(roles)}, not the design's {sorted(config.surfaces.roles)}"
                     )
-                    stage = "surface_harvest"
-                    harvest = harvest_surface(
-                        surface, surface_plan, group.scenario, config.harvest
+                solved: dict[str, Mapping[str, Any]] = {}
+                for role in config.surfaces.ordered_roles():
+                    surface_plan = roles[role]
+                    attempted_surface_count += 1
+                    group_attempted += 1
+                    stage = "pde_solve"
+                    solver_returned = False
+                    returned_solver_diagnostics: dict[str, Any] = {}
+                    try:
+                        surface = _solve_surface(surface_plan, group.scenario, config, solver)
+                        solver_returned = True
+                        solver_returned_surface_count += 1
+                        group_solver_returned += 1
+                        returned_solver_diagnostics = (
+                            _available_returned_solver_diagnostics(surface)
+                        )
+                        stage = "surface_validation"
+                        validate_surface_result(
+                            surface,
+                            surface_plan,
+                            contract_multiplier=group.scenario.contract_multiplier,
+                        )
+                        if role == "base":
+                            stage = "surface_harvest"
+                            harvest, leg_rows = _leg_rows(
+                                surface=surface,
+                                surface_plan=surface_plan,
+                                scenario=group.scenario,
+                                config=config,
+                                solved=solved,
+                                leg=leg,
+                            )
+                        else:
+                            stage = "surface_accounting"
+                            harvest = bumped_surface_accounting(surface, surface_plan)
+                            leg_rows = ()
+                    except Exception as error:
+                        # Isolation is the point: one failed pipeline surface is recorded
+                        # with its full group and surface identity and never
+                        # aborts the run or contaminates another group.
+                        group_failures.append(
+                            {
+                                "partition": surface_plan.partition,
+                                "partition_group_id": surface_plan.partition_group_id,
+                                "surface_id": surface_plan.surface_id,
+                                "scenario_name": surface_plan.scenario_name,
+                                "option_type": surface_plan.option_type,
+                                "exercise_style": surface_plan.exercise_style,
+                                "surface_role": surface_plan.surface_role,
+                                "stage": stage,
+                                "failure_lifecycle": (
+                                    "post_solve_pipeline_failed"
+                                    if solver_returned
+                                    else "solver_failed"
+                                ),
+                                "solver_returned": solver_returned,
+                                "returned_solver_diagnostics": returned_solver_diagnostics,
+                                "error_type": type(error).__name__,
+                                "error_message": str(error),
+                            }
+                        )
+                        if solver_returned:
+                            post_solve_pipeline_failed_surface_count += 1
+                        else:
+                            solver_failed_surface_count += 1
+                        continue
+                    pipeline_successful_surface_count += 1
+                    solved[role] = surface
+                    group_rows.extend(leg_rows)
+                    group_surfaces.append(
+                        _surface_record(
+                            surface_plan, group.scenario, surface, harvest, rows=leg_rows
+                        )
                     )
-                except Exception as error:
-                    # Isolation is the point: one failed solve is recorded with
-                    # its full group and surface identity and never aborts the
-                    # run or contaminates another group.
-                    group_failures.append(
-                        {
-                            "partition": surface_plan.partition,
-                            "partition_group_id": surface_plan.partition_group_id,
-                            "surface_id": surface_plan.surface_id,
-                            "scenario_name": surface_plan.scenario_name,
-                            "option_type": surface_plan.option_type,
-                            "exercise_style": surface_plan.exercise_style,
-                            "surface_role": surface_plan.surface_role,
-                            "stage": stage,
-                            "error_type": type(error).__name__,
-                            "error_message": str(error),
-                        }
-                    )
-                    failed_surface_solve_count += 1
-                    continue
-                successful_surface_solve_count += 1
-                group_rows.extend(harvest.rows)
-                group_surfaces.append(
-                    _surface_record(surface_plan, group.scenario, surface, harvest)
-                )
-                group_shortfalls.extend(harvest.shortfalls)
+                    group_shortfalls.extend(harvest.shortfalls)
 
             failed = bool(group_failures)
             failures.extend(group_failures)
@@ -1842,23 +2336,48 @@ def execute_plan(
                     "ordinal": group.ordinal,
                     "status": "failed" if failed else "succeeded",
                     "planned_surface_count": len(group.surfaces),
-                    "attempted_surface_solve_count": group_attempted,
-                    "successful_surface_solve_count": len(group_surfaces),
-                    "failed_surface_solve_count": len(group_failures),
+                    "attempted_surface_count": group_attempted,
+                    "solver_returned_surface_count": group_solver_returned,
+                    "solver_failed_surface_count": sum(
+                        1
+                        for item in group_failures
+                        if item["failure_lifecycle"] == "solver_failed"
+                    ),
+                    "pipeline_successful_surface_count": len(group_surfaces),
+                    "post_solve_pipeline_failed_surface_count": sum(
+                        1
+                        for item in group_failures
+                        if item["failure_lifecycle"] == "post_solve_pipeline_failed"
+                    ),
                     "retained_surface_count": 0 if failed else len(group_surfaces),
                     "discarded_surface_count": len(group_surfaces) if failed else 0,
                     "harvested_row_count": 0 if failed else len(group_rows),
                     "planned_surface_ids": [item.surface_id for item in group.surfaces],
-                    "successful_surface_ids": [item["surface_id"] for item in group_surfaces],
-                    "failed_surface_ids": [item["surface_id"] for item in group_failures],
+                    "pipeline_successful_surface_ids": [
+                        item["surface_id"] for item in group_surfaces
+                    ],
+                    "solver_failed_surface_ids": [
+                        item["surface_id"]
+                        for item in group_failures
+                        if item["failure_lifecycle"] == "solver_failed"
+                    ],
+                    "post_solve_pipeline_failed_surface_ids": [
+                        item["surface_id"]
+                        for item in group_failures
+                        if item["failure_lifecycle"] == "post_solve_pipeline_failed"
+                    ],
                 }
             )
 
     execution_counts = {
         "planned_surface_count": len(plan.surfaces),
-        "attempted_surface_solve_count": attempted_surface_solve_count,
-        "successful_surface_solve_count": successful_surface_solve_count,
-        "failed_surface_solve_count": failed_surface_solve_count,
+        "attempted_surface_count": attempted_surface_count,
+        "solver_returned_surface_count": solver_returned_surface_count,
+        "solver_failed_surface_count": solver_failed_surface_count,
+        "pipeline_successful_surface_count": pipeline_successful_surface_count,
+        "post_solve_pipeline_failed_surface_count": (
+            post_solve_pipeline_failed_surface_count
+        ),
     }
     check_unique_row_ids(rows)
     rows.sort(key=_row_sort_key)
@@ -1908,13 +2427,21 @@ def _surface_record(
     scenario: Scenario,
     surface: Mapping[str, Any],
     harvest: SurfaceHarvest,
+    *,
+    rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     return {
         # Derived by the same function reconciliation uses to rebuild it.
         **expected_surface_metadata(planned_surface_view(plan, scenario)),
         "status": "solved",
         "retained": True,
-        "retained_row_count": len(harvest.rows),
+        "retained_row_count": len(rows),
+        # Only the base surface is a row source; the bumped pair contributes
+        # prices to its vega and nothing else.
+        "is_row_source": plan.surface_role == "base",
+        "vega_available_row_count": sum(
+            1 for row in rows if bool(row["vega_numerically_available"])
+        ),
         "backward_inductions": int(surface["backward_inductions"]),
         "solver_status": str(surface["solver_status"]),
         "discretization_accuracy": str(surface["discretization_accuracy"]),
@@ -1946,8 +2473,29 @@ def _counter(values: Iterable[str], names: Sequence[str]) -> dict[str, int]:
 
 def _row_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     eligible = sum(1 for row in rows if row["greek_eligible"])
+    # Recomputed from the actual rows on every reconciliation pass. No report
+    # counter is ever read back and trusted, and this one is no exception.
+    vega_available = sum(1 for row in rows if row["vega_numerically_available"])
+    bumped = [row for row in rows if row["vega_bump"] is not None]
+    unchanged = sum(
+        1
+        for row in bumped
+        if row["exercise_state_sigma_down"]
+        == row["exercise_state"]
+        == row["exercise_state_sigma_up"]
+    )
     return {
         "raw_row_count": len(rows),
+        "counts_by_vega_numerical_availability": {
+            "available": vega_available,
+            "unavailable": len(rows) - vega_available,
+        },
+        # Descriptive, and recomputed from the rows. It decides nothing here.
+        "counts_by_vega_bump_exercise_regime": {
+            "unchanged_across_the_bump": unchanged,
+            "changed_across_the_bump": len(bumped) - unchanged,
+            "no_vega_triple": len(rows) - len(bumped),
+        },
         "counts_by_exercise_state": _counter(
             (str(row["exercise_state"]) for row in rows), EXERCISE_STATES
         ),
@@ -1972,16 +2520,9 @@ def _row_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _rejection_totals(surface_records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
-    keys = (
-        "truncation_endpoint",
-        "boundary_buffer",
-        "outside_moneyness_window",
-        "non_finite_price",
-        "quota",
-        "duplicate_node",
-    )
     return {
-        key: sum(int(record["rejected"][key]) for record in surface_records) for key in keys
+        key: sum(int(record["rejected"][key]) for record in surface_records)
+        for key in REJECTION_REASONS
     }
 
 
@@ -1993,17 +2534,19 @@ YIELD_DEFINITIONS: Final = {
         "measure of numerical work saved and must never be quoted as a "
         "computational speedup: a group may contain several separate solves."
     ),
-    "raw_rows_per_attempted_surface_solve": (
-        "Numerical-work reuse per attempted solve: harvested rows divided by "
-        "every solver call attempted, including raising calls, invalid returned "
-        "surfaces and successful solves later discarded with a failed group. This is the "
-        "honest rows-per-solve "
+    "raw_rows_per_attempted_surface": (
+        "Numerical-work reuse per attempted surface: harvested rows divided by "
+        "every PDE call attempted, including raising calls, invalid returned "
+        "surfaces and pipeline-successful surfaces later discarded with a failed group. "
+        "This is the "
+        "honest rows-per-attempt "
         "multiplier -- how many rows one PDE solve bought on average across the "
         "whole run."
     ),
     "raw_rows_per_retained_surface": (
         "Numerical-work reuse per retained solve: harvested rows divided by the "
-        "solves whose rows were kept. It equals raw_rows_per_attempted_surface_solve when "
+        "pipeline-successful surfaces whose rows were kept. It equals "
+        "raw_rows_per_attempted_surface when "
         "nothing was discarded, and exceeds it otherwise. Reported beside the "
         "attempted-solve figure so the flattering denominator can never be "
         "quoted alone."
@@ -2047,11 +2590,16 @@ def _scope_totals(
     retained = [record for record in surface_records if record["retained"]]
     producing = sorted({str(row["partition_group_id"]) for row in rows})
     planned_surfaces = sum(int(record["planned_surface_count"]) for record in group_records)
-    attempted = sum(
-        int(record["attempted_surface_solve_count"]) for record in group_records
+    attempted = sum(int(record["attempted_surface_count"]) for record in group_records)
+    solver_returned = sum(
+        int(record["solver_returned_surface_count"]) for record in group_records
     )
-    successful = len(surface_records)
-    failed_surfaces = len(failures)
+    solver_failed = sum(int(record["solver_failed_surface_count"]) for record in group_records)
+    pipeline_successful = len(surface_records)
+    post_solve_failed = sum(
+        int(record["post_solve_pipeline_failed_surface_count"])
+        for record in group_records
+    )
     totals: dict[str, Any] = {
         "candidate_group_count": len(candidate_groups),
         "assigned_group_count": len(assigned_groups),
@@ -2059,18 +2607,25 @@ def _scope_totals(
         "failed_group_count": len(failed),
         "independent_design_group_count": len(producing),
         "planned_surface_count": planned_surfaces,
-        "attempted_surface_solve_count": attempted,
-        "successful_surface_solve_count": successful,
-        "failed_surface_solve_count": failed_surfaces,
+        "attempted_surface_count": attempted,
+        "solver_returned_surface_count": solver_returned,
+        "solver_failed_surface_count": solver_failed,
+        "pipeline_successful_surface_count": pipeline_successful,
+        "post_solve_pipeline_failed_surface_count": post_solve_failed,
         "retained_surface_count": len(retained),
-        "discarded_surface_count": successful - len(retained),
+        "discarded_surface_count": pipeline_successful - len(retained),
         "backward_induction_count": sum(
             int(record["backward_inductions"]) for record in surface_records
+        )
+        + sum(
+            int(record["returned_solver_diagnostics"]["backward_inductions"])
+            for record in failures
+            if "backward_inductions" in record.get("returned_solver_diagnostics", {})
         ),
         # Three separate denominators, always reported together so nobody can
         # quote rows-per-group as a computational multiplier.
         "raw_rows_per_group": _yield_ratio(len(rows), len(producing)),
-        "raw_rows_per_attempted_surface_solve": _yield_ratio(len(rows), attempted),
+        "raw_rows_per_attempted_surface": _yield_ratio(len(rows), attempted),
         "raw_rows_per_retained_surface": _yield_ratio(len(rows), len(retained)),
         "quota_shortfall_count": len(shortfalls),
         "quota_shortfall_rows": sum(int(item["shortfall"]) for item in shortfalls),
@@ -2235,6 +2790,16 @@ ROW_NUMERICAL_COLUMNS: Final = (
     "price",
     "delta",
     "gamma",
+    "vega",
+    "vega_per_volatility_point",
+    "vega_bump",
+    "vega_convention_id",
+    "vega_label_record_id",
+    "price_sigma_down",
+    "price_sigma_up",
+    "exercise_state_sigma_down",
+    "exercise_state_sigma_up",
+    "vega_numerically_available",
     "exercise_state",
     "price_label_eligible",
     "delta_label_eligible",
@@ -2242,7 +2807,159 @@ ROW_NUMERICAL_COLUMNS: Final = (
     "greek_eligible",
     "greek_eligibility_reason",
 )
-"""Row columns only the validated solve can supply."""
+"""Row columns only the validated solve can supply.
+
+``vega_bump`` is design metadata rather than a solved number, but it is listed
+here because :func:`expected_row_metadata` derives a row from *one* surface plan
+and the bump is a property of the whole leg. Reconciliation anchors it against
+the plan separately and exactly, in :func:`_reconcile_group_vega_design`.
+"""
+
+
+SETTINGS_DIGEST_FIELDS: Final = (
+    "spot_intervals",
+    "time_steps",
+    "spot_maximum",
+    "rannacher_steps",
+    "psor_tolerance",
+    "psor_relaxation",
+    "psor_maximum_iterations",
+    "boundary_exclusion_nodes",
+)
+"""The numerical settings ``settings_digest`` is the digest of.
+
+Exactly the keys :func:`_numerical_settings` builds, so
+:func:`settings_digest_from_solver_input` reproduces a planned digest from the
+published solver descriptor without consulting the published digest itself.
+"""
+
+
+def settings_digest_from_solver_input(descriptor: Mapping[str, Any]) -> str:
+    """Recompute ``settings_digest`` from the actual solver descriptor.
+
+    ``settings_digest`` is one of the five plan fields task 9C-C2a recorded as
+    unanchored. It is recomputed rather than trusted wherever it is checked.
+    """
+    missing = sorted(set(SETTINGS_DIGEST_FIELDS) - set(descriptor))
+    if missing:
+        raise HarvestError(f"solver descriptor cannot supply a settings digest; missing {missing}")
+    return settings_identity({key: descriptor[key] for key in SETTINGS_DIGEST_FIELDS})
+
+
+CROSS_PUBLICATION_DUPLICATE_SEMANTICS: Final = {
+    "row_id": (
+        "Equal row_id means the same base economic and numerical pricing node. "
+        "It does not by itself identify a vega label convention."
+    ),
+    "vega_label_record_id": (
+        "Equal vega_label_record_id means the same base row_id under the same canonical "
+        "vega_convention_id."
+    ),
+    "same_row_different_convention": (
+        "Equal row_id with unequal vega_convention_id is not an identical vega label record."
+    ),
+}
+
+
+def _vega_identity_report(design: SurfaceDesign) -> dict[str, Any]:
+    """Return the externally re-derivable vega identity section of a report."""
+    bump = design.vega_bump
+    if bump is None:
+        return {
+            "status": "absent_base_only_design",
+            "vega_convention_id": None,
+            "vega_convention_payload": None,
+            "vega_label_record_identity_version": None,
+            "cross_publication_duplicate_semantics": dict(
+                CROSS_PUBLICATION_DUPLICATE_SEMANTICS
+            ),
+            "stored_digest_is_authenticity_evidence": False,
+        }
+    return {
+        "status": "declared_three_surface_centered_vega",
+        "vega_convention_id": vega_convention_identity(bump),
+        "vega_convention_payload": vega_convention_payload(bump),
+        "vega_label_record_identity_version": VEGA_LABEL_RECORD_IDENTITY_VERSION,
+        "cross_publication_duplicate_semantics": dict(CROSS_PUBLICATION_DUPLICATE_SEMANTICS),
+        "stored_digest_is_authenticity_evidence": False,
+    }
+
+
+def _config_report_sections(config: HarvestConfig, plan: HarvestPlan) -> dict[str, Any]:
+    """Return every report section the configuration alone determines.
+
+    Built here once and used both when writing a report and when verifying one
+    against an externally supplied configuration, so a published section is
+    never compared against itself.
+    """
+    design = config.surfaces
+    return {
+        "vega_identity": _vega_identity_report(design),
+        "study": {
+            "name": config.study_name,
+            "status": config.study_status,
+            "task": "9C-C2b1" if design.computes_vega else "9C-C2a",
+            "engine": config.engine,
+            "price_units": config.price_units,
+            "greek_method": config.greek_method,
+            "curve_construction": config.curve_construction,
+        },
+        "partitioning": {
+            "algorithm": plan.algorithm,
+            "seed": plan.seed,
+            "partition_names": list(PARTITION_NAMES),
+            "weights": {name: weight for name, weight in config.partitioning.weights},
+            "minimum_groups_per_partition": config.partitioning.minimum_groups_per_partition,
+            "target_group_counts": {name: count for name, count in plan.partition_counts},
+            "assignment_precedes_solving": True,
+            "assignment_inputs": (
+                "candidate partition_group_id digests, the algorithm version and the seed; no "
+                "solved value, no input order and no batch size"
+            ),
+            "incremental": False,
+            "actual_solve_alias_policy": (
+                "reject_before_partition_assignment; task 9C-C2b may introduce explicit reuse"
+            ),
+        },
+        "harvest_rules": {
+            "status": config.harvest.status,
+            "node_source": config.harvest.node_source,
+            "selection_rule": config.harvest.selection_rule,
+            "selection_is_outcome_independent": True,
+            "moneyness_window": [
+                config.harvest.moneyness_window_low,
+                config.harvest.moneyness_window_high,
+            ],
+            "quota_per_surface_by_exercise_state": {
+                state: quota for state, quota in config.harvest.quota
+            },
+            "surface_roles": list(config.surfaces.roles),
+            "option_types": list(config.surfaces.option_types),
+            "exercise_styles": list(config.surfaces.exercise_styles),
+            "row_source_role": "base",
+            "vega": {
+                "computed": design.computes_vega,
+                "convention": VEGA_CONVENTION,
+                "units": VEGA_UNITS,
+                "absolute_volatility_bump": design.vega_bump,
+                "vega_convention_id": (
+                    None
+                    if design.vega_bump is None
+                    else vega_convention_identity(design.vega_bump)
+                ),
+                "reporting_conversion": (
+                    "vega_per_volatility_point = vega / "
+                    f"{VOLATILITY_POINTS_PER_UNIT:g}; reporting only"
+                ),
+                "price_delta_gamma_source": "base_surface_only",
+                "vega_source": "sigma_down_and_sigma_up_prices_only",
+                "surfaces_per_contract_leg": len(design.roles),
+                "availability_flag_meaning": VEGA_AVAILABILITY_STATEMENT,
+                "supervision_eligibility_decided_here": False,
+                "gamma_supervision_policy_decided_here": False,
+            },
+        },
+    }
 
 
 def expected_surface_metadata(view: Mapping[str, Any]) -> dict[str, Any]:
@@ -2341,9 +3058,18 @@ def _build_report(
     candidates = [group.partition_group_id for group in plan.groups]
     if execution_counts != {
         "planned_surface_count": len(plan.surfaces),
-        "attempted_surface_solve_count": len(surface_records) + len(failures),
-        "successful_surface_solve_count": len(surface_records),
-        "failed_surface_solve_count": len(failures),
+        "attempted_surface_count": len(surface_records) + len(failures),
+        "solver_returned_surface_count": len(surface_records)
+        + sum(1 for failure in failures if failure["solver_returned"]),
+        "solver_failed_surface_count": sum(
+            1 for failure in failures if failure["failure_lifecycle"] == "solver_failed"
+        ),
+        "pipeline_successful_surface_count": len(surface_records),
+        "post_solve_pipeline_failed_surface_count": sum(
+            1
+            for failure in failures
+            if failure["failure_lifecycle"] == "post_solve_pipeline_failed"
+        ),
     }:
         raise HarvestError("execution counters do not match surface and failure records")
     per_partition: dict[str, Any] = {}
@@ -2364,15 +3090,7 @@ def _build_report(
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "row_schema_version": ROW_SCHEMA_VERSION,
-        "study": {
-            "name": config.study_name,
-            "status": config.study_status,
-            "task": "9C-C2a",
-            "engine": config.engine,
-            "price_units": config.price_units,
-            "greek_method": config.greek_method,
-            "curve_construction": config.curve_construction,
-        },
+        **_config_report_sections(config, plan),
         "identity": {
             "version": IDENTITY_VERSION,
             "digest": "sha256_over_canonical_json",
@@ -2404,40 +3122,6 @@ def _build_report(
                 "dictionary order, locale, platform float repr, paths and insertion order; "
                 "negative zero normalized to positive zero"
             ),
-        },
-        "partitioning": {
-            "algorithm": plan.algorithm,
-            "seed": plan.seed,
-            "partition_names": list(PARTITION_NAMES),
-            "weights": {name: weight for name, weight in config.partitioning.weights},
-            "minimum_groups_per_partition": config.partitioning.minimum_groups_per_partition,
-            "target_group_counts": {name: count for name, count in plan.partition_counts},
-            "assignment_precedes_solving": True,
-            "assignment_inputs": (
-                "candidate partition_group_id digests, the algorithm version and the seed; no "
-                "solved value, no input order and no batch size"
-            ),
-            "incremental": False,
-            "actual_solve_alias_policy": (
-                "reject_before_partition_assignment; task 9C-C2b may introduce explicit reuse"
-            ),
-        },
-        "harvest_rules": {
-            "status": config.harvest.status,
-            "node_source": config.harvest.node_source,
-            "selection_rule": config.harvest.selection_rule,
-            "selection_is_outcome_independent": True,
-            "moneyness_window": [
-                config.harvest.moneyness_window_low,
-                config.harvest.moneyness_window_high,
-            ],
-            "quota_per_surface_by_exercise_state": {
-                state: quota for state, quota in config.harvest.quota
-            },
-            "surface_roles": list(config.surfaces.roles),
-            "option_types": list(config.surfaces.option_types),
-            "exercise_styles": list(config.surfaces.exercise_styles),
-            "vega_computed": False,
         },
         "determinism": {
             "byte_identity_preconditions": list(BYTE_IDENTITY_PRECONDITIONS),
@@ -2476,7 +3160,15 @@ def _build_report(
             "not_a_production_dataset": (
                 "Quotas, windows and grids here are exploratory demonstration values."
             ),
+            "vega_numerical_availability": VEGA_AVAILABILITY_STATEMENT,
+            "vega_rows_cost_three_solves": (
+                "Every vega row is the output of three backward inductions on one economic "
+                "state, and the three are correlated by construction. Rows per attempted "
+                "surface solve already counts all three; rows per group does not and is not "
+                "a computational multiplier."
+            ),
         },
+        "verification": dict(VERIFICATION_GUARANTEES),
         "provenance": _provenance(config),
     }
 
@@ -2501,9 +3193,9 @@ def _reconcile_yields(scope: Mapping[str, Any], context: str) -> None:
     """Fail unless every yield ratio matches the integer counts of its own scope."""
     expected = {
         "raw_rows_per_group": ("raw_row_count", "independent_design_group_count"),
-        "raw_rows_per_attempted_surface_solve": (
+        "raw_rows_per_attempted_surface": (
             "raw_row_count",
-            "attempted_surface_solve_count",
+            "attempted_surface_count",
         ),
         "raw_rows_per_retained_surface": ("raw_row_count", "retained_surface_count"),
     }
@@ -2523,26 +3215,37 @@ def _reconcile_yields(scope: Mapping[str, Any], context: str) -> None:
         if float(ratio["value"]) != recomputed:
             raise HarvestError(f"{context}.{name}.value does not equal its own quotient")
     if int(scope["retained_surface_count"]) + int(scope["discarded_surface_count"]) != int(
-        scope["successful_surface_solve_count"]
+        scope["pipeline_successful_surface_count"]
     ):
         raise HarvestError(
-            f"{context} retained and discarded surfaces do not sum to successful solves"
+            f"{context} retained and discarded surfaces do not sum to pipeline successes"
         )
 
 
-def _reconcile_solve_counts(scope: Mapping[str, Any], context: str) -> None:
+def _reconcile_surface_lifecycle_counts(scope: Mapping[str, Any], context: str) -> None:
     planned = int(scope["planned_surface_count"])
-    attempted = int(scope["attempted_surface_solve_count"])
-    successful = int(scope["successful_surface_solve_count"])
-    failed = int(scope["failed_surface_solve_count"])
+    attempted = int(scope["attempted_surface_count"])
+    solver_returned = int(scope["solver_returned_surface_count"])
+    solver_failed = int(scope["solver_failed_surface_count"])
+    pipeline_successful = int(scope["pipeline_successful_surface_count"])
+    post_solve_failed = int(scope["post_solve_pipeline_failed_surface_count"])
     retained = int(scope["retained_surface_count"])
     discarded = int(scope["discarded_surface_count"])
     if planned != attempted:
-        raise HarvestError(f"{context} planned surfaces do not equal attempted solves")
-    if attempted != successful + failed:
-        raise HarvestError(f"{context} successful and failed solves do not equal attempts")
-    if successful != retained + discarded:
-        raise HarvestError(f"{context} retained and discarded surfaces do not equal successes")
+        raise HarvestError(f"{context} planned surfaces do not equal attempted surfaces")
+    if attempted != solver_returned + solver_failed:
+        raise HarvestError(
+            f"{context} solver-returned and solver-failed surfaces do not equal attempts"
+        )
+    if solver_returned != pipeline_successful + post_solve_failed:
+        raise HarvestError(
+            f"{context} pipeline-successful and post-solve-failed surfaces do not equal "
+            "solver returns"
+        )
+    if pipeline_successful != retained + discarded:
+        raise HarvestError(
+            f"{context} retained and discarded surfaces do not equal pipeline successes"
+        )
 
 
 def _unique_records(
@@ -2652,6 +3355,182 @@ def _validate_row_numerics(row: Mapping[str, Any]) -> None:
             raise HarvestError(f"row '{row_id}' is Greek eligible but refuses its own {name}")
         elif value is not None and not math.isfinite(float(value)):
             raise HarvestError(f"row '{row_id}' reports a non-finite {name}")
+    _validate_row_vega(row)
+
+
+VEGA_QUANTITY_COLUMNS: Final = (
+    "vega",
+    "vega_per_volatility_point",
+    "price_sigma_down",
+    "price_sigma_up",
+)
+"""Columns that exist only when a row actually carries a vega."""
+
+
+def _validate_row_vega(row: Mapping[str, Any]) -> None:
+    """Recompute one row's vega from its own published inputs.
+
+    The published vega is never read back and trusted: it is recomputed from
+    ``price_sigma_up``, ``price_sigma_down`` and ``vega_bump`` with exactly the
+    operations that produced it, and compared bitwise. Editing any one of the
+    four therefore fails even when every file hash has been regenerated. What
+    this does *not* prove is that the two bumped prices are the ones the solver
+    returned -- that is the same limit the base ``price`` column has, and it is
+    stated in the contract rather than papered over.
+    """
+    row_id = str(row["row_id"])
+    available = bool(row["vega_numerically_available"])
+    bump = row["vega_bump"]
+    convention_id = row["vega_convention_id"]
+    label_record_id = row["vega_label_record_id"]
+    bumped_states = ("exercise_state_sigma_down", "exercise_state_sigma_up")
+    if bump is None:
+        if available:
+            raise HarvestError(f"row '{row_id}' claims a vega without a declared bump")
+        empty = [
+            *VEGA_QUANTITY_COLUMNS,
+            *bumped_states,
+            "vega_convention_id",
+            "vega_label_record_id",
+        ]
+        present = [name for name in empty if row[name] is not None]
+        if present:
+            raise HarvestError(
+                f"row '{row_id}' reports {present} while its design declares no vega triple"
+            )
+        return
+    expected_convention_id = vega_convention_identity(float(bump))
+    if str(convention_id) != expected_convention_id:
+        raise HarvestError(
+            f"row '{row_id}' vega_convention_id is not the canonical identity of its "
+            "published vega bump and convention"
+        )
+    for name in bumped_states:
+        if str(row[name]) not in EXERCISE_STATES:
+            raise HarvestError(
+                f"row '{row_id}' has an unknown or missing {name}; a vega design must report "
+                "the regime each bumped surface saw at the same node"
+            )
+    if not available:
+        present = [name for name in VEGA_QUANTITY_COLUMNS if row[name] is not None]
+        if present:
+            raise HarvestError(
+                f"row '{row_id}' reports {present} while its vega is not numerically available"
+            )
+        if label_record_id is not None:
+            raise HarvestError(
+                f"row '{row_id}' has no numerical vega label but reports a "
+                "vega_label_record_id"
+            )
+        return
+    if bump is None or not math.isfinite(float(bump)) or float(bump) <= 0.0:
+        raise HarvestError(f"row '{row_id}' claims a vega without a positive finite vega_bump")
+    for name in VEGA_QUANTITY_COLUMNS:
+        value = row[name]
+        if value is None or not math.isfinite(float(value)):
+            raise HarvestError(f"row '{row_id}' claims a vega with a missing or non-finite {name}")
+    recomputed = centered_vega(
+        price_up=float(row["price_sigma_up"]),
+        price_down=float(row["price_sigma_down"]),
+        bump=float(bump),
+    )
+    if float(row["vega"]) != recomputed:
+        raise HarvestError(
+            f"row '{row_id}' vega does not equal {VEGA_CONVENTION} applied to its own "
+            "published bumped prices and bump"
+        )
+    if float(row["vega_per_volatility_point"]) != vega_per_volatility_point(recomputed):
+        raise HarvestError(
+            f"row '{row_id}' vega_per_volatility_point is not its vega divided by "
+            f"{VOLATILITY_POINTS_PER_UNIT:g}"
+        )
+    expected_label_record_id = vega_label_record_identity(
+        row_id=row_id, vega_convention_id=expected_convention_id
+    )
+    if str(label_record_id) != expected_label_record_id:
+        raise HarvestError(
+            f"row '{row_id}' vega_label_record_id is not derived from its row_id and "
+            "vega_convention_id"
+        )
+
+
+def _planned_role_volatilities(
+    surfaces: Sequence[Mapping[str, Any]], group_id: str
+) -> dict[str, float]:
+    """Return one volatility per declared role of a group, taken from the plan.
+
+    Every leg of a group shares one scenario, so a role has exactly one actual
+    volatility across the whole group. Two would mean the plan describes two
+    different economic states under one group identity.
+    """
+    by_role: dict[str, set[str]] = {}
+    values: dict[str, float] = {}
+    for surface in surfaces:
+        role = str(surface["surface_role"])
+        if role not in SURFACE_ROLES:
+            raise HarvestError(f"planned group '{group_id}' declares unknown role '{role}'")
+        volatility = float(surface["solver_input"]["volatility"])
+        by_role.setdefault(role, set()).add(canonical_payload(volatility))
+        values[role] = volatility
+    if tuple(sorted(by_role)) not in tuple(
+        tuple(sorted(allowed)) for allowed in DECLARABLE_ROLE_SETS
+    ):
+        raise HarvestError(
+            f"planned group '{group_id}' declares roles {sorted(by_role)}, which is neither "
+            "the base-only design nor the complete three-surface vega triple"
+        )
+    for role, seen in by_role.items():
+        if len(seen) != 1:
+            raise HarvestError(
+                f"planned group '{group_id}' solves role '{role}' at more than one volatility"
+            )
+    return values
+
+
+def _reconcile_group_vega_design(
+    *,
+    group_id: str,
+    role_volatilities: Mapping[str, float],
+    rows: Sequence[Mapping[str, Any]],
+) -> None:
+    """Anchor every row's ``vega_bump`` against the group's planned volatilities.
+
+    ``_role_volatility`` computes the bumped volatilities as
+    ``base -/+ bump`` in float64, so recomputing them from the row's published
+    bump reproduces the planned numbers **bitwise**. The check therefore needs
+    no tolerance, and an edited ``vega_bump`` fails it.
+    """
+    base = role_volatilities["base"]
+    if set(role_volatilities) == {"base"}:
+        for row in rows:
+            if row["vega_bump"] is not None or bool(row["vega_numerically_available"]):
+                raise HarvestError(
+                    f"group '{group_id}' declares no vega triple but a row claims a vega"
+                )
+        return
+    for row in rows:
+        bump = row["vega_bump"]
+        if bump is None:
+            raise HarvestError(
+                f"group '{group_id}' is a three-surface vega design but a row carries no "
+                "vega_bump"
+            )
+        bump = float(bump)
+        expected_convention_id = vega_convention_identity(bump)
+        if str(row["vega_convention_id"]) != expected_convention_id:
+            raise HarvestError(
+                f"group '{group_id}' row vega_convention_id does not match its planned bump"
+            )
+        if role_volatilities["sigma_down"] != base - bump:
+            raise HarvestError(
+                f"group '{group_id}' row vega_bump does not reproduce its planned sigma_down "
+                "volatility"
+            )
+        if role_volatilities["sigma_up"] != base + bump:
+            raise HarvestError(
+                f"group '{group_id}' row vega_bump does not reproduce its planned sigma_up "
+                "volatility"
+            )
 
 
 def _recomputed_surface_regimes(
@@ -2711,6 +3590,12 @@ def reconcile_report(
                 )
         if str(record["status"]) != "solved":
             raise HarvestError(f"surface '{surface_id}' record has a non-solved status")
+        # Only the base surface of a leg is a row source. Recomputed from the
+        # planned role, never read back from the record's own claim.
+        if bool(record["is_row_source"]) != (str(derived["surface_role"]) == "base"):
+            raise HarvestError(
+                f"surface '{surface_id}' misreports whether its role is the row source"
+            )
         successes_by_group[group_id].append(surface_id)
     for surface_id, record in failures.items():
         expected = planned_surfaces[surface_id]
@@ -2719,6 +3604,24 @@ def reconcile_report(
             raise HarvestError(f"failure '{surface_id}' belongs to the wrong group")
         if str(record["partition"]) != str(expected["partition"]):
             raise HarvestError(f"failure '{surface_id}' belongs to the wrong partition")
+        lifecycle = str(record.get("failure_lifecycle"))
+        if lifecycle not in {"solver_failed", "post_solve_pipeline_failed"}:
+            raise HarvestError(f"failure '{surface_id}' has an unknown lifecycle classification")
+        solver_returned = bool(record.get("solver_returned"))
+        if solver_returned != (lifecycle == "post_solve_pipeline_failed"):
+            raise HarvestError(
+                f"failure '{surface_id}' solver-returned flag disagrees with its lifecycle"
+            )
+        diagnostics = record.get("returned_solver_diagnostics")
+        if not isinstance(diagnostics, Mapping):
+            raise HarvestError(f"failure '{surface_id}' has invalid returned solver diagnostics")
+        if not solver_returned and diagnostics:
+            raise HarvestError(
+                f"solver failure '{surface_id}' invents diagnostics for a result that did not "
+                "return"
+            )
+        if set(diagnostics) - set(RETURNED_SOLVER_DIAGNOSTIC_FIELDS):
+            raise HarvestError(f"failure '{surface_id}' has unknown returned solver diagnostics")
         failures_by_group[group_id].append(surface_id)
 
     rows_by_surface = {surface_id: [] for surface_id in surface_records}
@@ -2732,6 +3635,11 @@ def reconcile_report(
         surface_id = str(row["surface_id"])
         if surface_id not in surface_records:
             raise HarvestError(f"row '{row_id}' names an unknown or failed surface")
+        if not bool(surface_records[surface_id]["is_row_source"]):
+            raise HarvestError(
+                f"row '{row_id}' comes from a surface that is not its leg's row source; "
+                "price, delta and gamma may only be read off the base surface"
+            )
         expected = planned_surfaces[surface_id]
         group_id = str(expected["partition_group_id"])
         # Rebuild every immutable column from the plan and the node index, then
@@ -2751,8 +3659,17 @@ def reconcile_report(
         rows_by_surface[surface_id].append(row)
         rows_by_group[group_id].append(row)
 
+    planned_by_group: dict[str, list[Mapping[str, Any]]] = {group_id: [] for group_id in groups}
+    for surface in planned_surfaces.values():
+        planned_by_group[str(surface["partition_group_id"])].append(surface)
+
     for group_id, planned_group in groups.items():
         record = group_records[group_id]
+        _reconcile_group_vega_design(
+            group_id=group_id,
+            role_volatilities=_planned_role_volatilities(planned_by_group[group_id], group_id),
+            rows=rows_by_group[group_id],
+        )
         planned_ids = [str(value) for value in planned_group["surface_ids"]]
         failed = bool(failures_by_group[group_id])
         expected_status = "failed" if failed else "succeeded"
@@ -2760,11 +3677,19 @@ def reconcile_report(
             raise HarvestError(f"group '{group_id}' has the wrong status")
         successful_ids = sorted(successes_by_group[group_id])
         failed_ids = sorted(failures_by_group[group_id])
+        solver_failed_ids = sorted(
+            surface_id
+            for surface_id in failed_ids
+            if failures[surface_id]["failure_lifecycle"] == "solver_failed"
+        )
+        post_solve_failed_ids = sorted(set(failed_ids) - set(solver_failed_ids))
         expected_counts = {
             "planned_surface_count": len(planned_ids),
-            "attempted_surface_solve_count": len(planned_ids),
-            "successful_surface_solve_count": len(successful_ids),
-            "failed_surface_solve_count": len(failed_ids),
+            "attempted_surface_count": len(planned_ids),
+            "solver_returned_surface_count": len(successful_ids) + len(post_solve_failed_ids),
+            "solver_failed_surface_count": len(solver_failed_ids),
+            "pipeline_successful_surface_count": len(successful_ids),
+            "post_solve_pipeline_failed_surface_count": len(post_solve_failed_ids),
             "retained_surface_count": 0 if failed else len(successful_ids),
             "discarded_surface_count": len(successful_ids) if failed else 0,
             "harvested_row_count": len(rows_by_group[group_id]),
@@ -2774,10 +3699,18 @@ def reconcile_report(
                 raise HarvestError(f"group '{group_id}' has the wrong {key}")
         if sorted(str(value) for value in record["planned_surface_ids"]) != sorted(planned_ids):
             raise HarvestError(f"group '{group_id}' has the wrong planned surface identities")
-        if sorted(str(value) for value in record["successful_surface_ids"]) != successful_ids:
-            raise HarvestError(f"group '{group_id}' has the wrong successful surface identities")
-        if sorted(str(value) for value in record["failed_surface_ids"]) != failed_ids:
-            raise HarvestError(f"group '{group_id}' has the wrong failed surface identities")
+        if sorted(
+            str(value) for value in record["pipeline_successful_surface_ids"]
+        ) != successful_ids:
+            raise HarvestError(
+                f"group '{group_id}' has the wrong pipeline-successful surface identities"
+            )
+        if sorted(str(value) for value in record["solver_failed_surface_ids"]) != solver_failed_ids:
+            raise HarvestError(f"group '{group_id}' has the wrong solver-failed identities")
+        if sorted(
+            str(value) for value in record["post_solve_pipeline_failed_surface_ids"]
+        ) != post_solve_failed_ids:
+            raise HarvestError(f"group '{group_id}' has the wrong post-solve-failed identities")
         for surface_id in successful_ids:
             retained = bool(surface_records[surface_id]["retained"])
             if retained == failed:
@@ -2799,6 +3732,15 @@ def reconcile_report(
         retained_rows = len(surface_rows)
         if retained_rows != int(record["retained_row_count"]):
             raise HarvestError(f"surface '{surface_id}' retained rows do not reconcile")
+        # Vega availability is recounted from the surface's own actual rows.
+        if int(record["vega_available_row_count"]) != sum(
+            1 for row in surface_rows if bool(row["vega_numerically_available"])
+        ):
+            raise HarvestError(
+                f"surface '{surface_id}' vega_available_row_count does not match its rows"
+            )
+        if not bool(record["is_row_source"]) and retained_rows:
+            raise HarvestError(f"surface '{surface_id}' is not a row source but carries rows")
         if not bool(record["retained"]) and retained_rows:
             raise HarvestError(f"discarded surface '{surface_id}' contributes rows")
         if bool(record["retained"]):
@@ -2846,7 +3788,7 @@ def reconcile_report(
     if canonical_payload(report["totals"]) != canonical_payload(recomputed_totals):
         raise HarvestError("report totals do not match recomputed totals")
     _reconcile_yields(recomputed_totals, "totals")
-    _reconcile_solve_counts(recomputed_totals, "totals")
+    _reconcile_surface_lifecycle_counts(recomputed_totals, "totals")
 
     for name in PARTITION_NAMES:
         partition_groups = [record for record in group_record_values if record["partition"] == name]
@@ -2868,7 +3810,7 @@ def reconcile_report(
         if canonical_payload(report["partition_totals"][name]) != canonical_payload(recomputed):
             raise HarvestError(f"partition_totals.{name} do not match actual records and rows")
         _reconcile_yields(recomputed, f"partition_totals.{name}")
-        _reconcile_solve_counts(recomputed, f"partition_totals.{name}")
+        _reconcile_surface_lifecycle_counts(recomputed, f"partition_totals.{name}")
 
     recomputed_integrity = _integrity(rows, group_record_values)
     if canonical_payload(report["integrity"]) != canonical_payload(recomputed_integrity):
@@ -2914,7 +3856,7 @@ def write_outputs(
         "rows.csv": rows_csv(rows).encode("utf-8"),
     }
     manifest = {
-        "schema_version": "pde-surface-harvest-manifest/2",
+        "schema_version": MANIFEST_SCHEMA_VERSION,
         "publication_complete": True,
         "row_count": len(rows),
         "files": {
@@ -2941,8 +3883,54 @@ def write_outputs(
     return written
 
 
-def verify_publication(directory: Path) -> None:
-    """Reject a publication that is incomplete, stale or semantically inconsistent."""
+CONSISTENCY_VERIFICATION: Final = "self_contained_consistency_verification"
+AUTHORITATIVE_VERIFICATION: Final = "authoritative_verification_against_expected_configuration"
+
+VERIFICATION_GUARANTEES: Final = {
+    CONSISTENCY_VERIFICATION: (
+        "verify_publication proves a publication agrees with ITSELF: file hashes match the "
+        "manifest, every identity is a digest of its own published payload, every immutable "
+        "row and surface field is rebuilt from the published plan, and every count is "
+        "recomputed from the actual rows. It is NOT an authenticity check. Five plan fields "
+        "-- scenario_metadata.rate, scenario_metadata.contract_multiplier, scenario_name, "
+        "surface_role and settings_digest -- can be rewritten consistently across the plan "
+        "and every row and still pass, because nothing inside the publication contradicts "
+        "them. A digest stored in the same publication cannot make that publication "
+        "authentic."
+    ),
+    AUTHORITATIVE_VERIFICATION: (
+        "verify_publication_authoritatively additionally requires an EXTERNALLY supplied "
+        "expected configuration. It checks the raw and semantic configuration provenance, "
+        "replans the harvest deterministically from that configuration without solving "
+        "anything, and compares the complete published plan against the replanned one. That "
+        "anchors all five fields above: rate, contract_multiplier and scenario_name against "
+        "the supplied configuration rather than inferred from the publication, surface_role "
+        "against the volatility the plan actually solves, and settings_digest by "
+        "recomputation from the solver descriptor rather than by trusting the published "
+        "value. It also rederives vega_convention_id from the expected absolute bump and "
+        "verifies every vega_label_record_id from its economic row_id and that convention."
+    ),
+    "training_input_gate": (
+        "verify_training_input_publication is the only entry point a downstream training "
+        "consumer may rely on. It requires the authoritative path -- consistency-only "
+        "verification is explicitly insufficient for a training input -- and then refuses "
+        "any study status not on the approved list. No status is approved today: task "
+        "9C-C2a/9C-C2b1 output is exploratory infrastructure, not a training dataset."
+    ),
+}
+"""The two named verification guarantees, and the gate that requires the stronger one."""
+
+APPROVED_TRAINING_INPUT_STATUSES: Final = frozenset()
+"""Study statuses approved for downstream training consumption.
+
+Deliberately empty. Nothing this module produces is an approved training input
+yet, and adding a status here is a decision that must be made and justified
+elsewhere, not a side effect of a harvest running successfully.
+"""
+
+
+def _load_verified_publication(directory: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return the published report and rows after manifest and hash verification."""
     manifest_path = directory / MANIFEST_NAME
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -2950,7 +3938,7 @@ def verify_publication(directory: Path) -> None:
         raise HarvestError(f"cannot read '{manifest_path}': {error}") from error
     if manifest.get("publication_complete") is not True:
         raise HarvestError(f"'{manifest_path}' does not record a complete publication")
-    if manifest.get("schema_version") != "pde-surface-harvest-manifest/2":
+    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         raise HarvestError(f"'{manifest_path}' has the wrong schema version")
     declared = manifest.get("files")
     if not isinstance(declared, Mapping) or set(declared) != set(PUBLISHED_FILES):
@@ -2973,7 +3961,201 @@ def verify_publication(directory: Path) -> None:
         raise HarvestError(f"published payload cannot be parsed: {error}") from error
     if int(manifest.get("row_count", -1)) != len(rows):
         raise HarvestError("manifest row_count does not match rows.csv")
+    if not isinstance(report, Mapping):
+        raise HarvestError("published report must be a JSON object")
+    if report.get("schema_version") != REPORT_SCHEMA_VERSION:
+        raise HarvestError(
+            "published report schema_version "
+            f"'{report.get('schema_version')}' is not '{REPORT_SCHEMA_VERSION}'"
+        )
+    if report.get("row_schema_version") != ROW_SCHEMA_VERSION:
+        raise HarvestError(
+            "published report row_schema_version "
+            f"'{report.get('row_schema_version')}' is not '{ROW_SCHEMA_VERSION}'"
+        )
+    for index, row in enumerate(rows):
+        if row.get("schema_version") != ROW_SCHEMA_VERSION:
+            raise HarvestError(
+                f"published row {index} schema_version '{row.get('schema_version')}' is not "
+                f"'{ROW_SCHEMA_VERSION}'"
+            )
+    return report, rows
+
+
+def verify_publication(directory: Path) -> None:
+    """**Self-contained consistency verification.** See :data:`VERIFICATION_GUARANTEES`.
+
+    This proves the publication agrees with itself. It is not, and must not be
+    described as, evidence that the publication came from any particular
+    configuration: use :func:`verify_publication_authoritatively` for that.
+    """
+    report, rows = _load_verified_publication(directory)
     reconcile_report(report, rows)
+
+
+def _resolve_expected_config(expected_config: HarvestConfig | Path | str) -> HarvestConfig:
+    if isinstance(expected_config, HarvestConfig):
+        return expected_config
+    return load_harvest_config(Path(expected_config))
+
+
+def _verify_config_provenance(report: Mapping[str, Any], config: HarvestConfig) -> None:
+    """Require the publication to name the configuration the caller supplied."""
+    provenance = report.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise HarvestError("published report has no provenance block")
+    for key, expected in (
+        ("raw_config_sha256", config.raw_config_sha256),
+        ("semantic_config_sha256", config.semantic_config_sha256),
+    ):
+        if str(provenance.get(key)) != expected:
+            raise HarvestError(
+                f"publication provenance {key} does not match the expected configuration"
+            )
+
+
+def _verify_published_plan(report: Mapping[str, Any], expected: HarvestPlan) -> None:
+    """Compare the published plan against a plan replanned from the configuration.
+
+    Field by field first, so a mismatch names the offending field rather than
+    only reporting that two digests differ, then as a whole payload so nothing
+    outside the named list can drift either.
+    """
+    published = report.get("plan")
+    if not isinstance(published, Mapping):
+        raise HarvestError("published report has no plan")
+    published_groups, published_surfaces = _plan_indexes(published)
+    expected_document = _published_plan(expected)
+    expected_groups, expected_surfaces = _plan_indexes(expected_document)
+
+    if set(published_groups) != set(expected_groups):
+        raise HarvestError(
+            "the published plan does not contain exactly the groups the expected "
+            "configuration plans"
+        )
+    if set(published_surfaces) != set(expected_surfaces):
+        raise HarvestError(
+            "the published plan does not contain exactly the surfaces the expected "
+            "configuration plans"
+        )
+
+    for group_id, published_group in published_groups.items():
+        reference = expected_groups[group_id]
+        for key in ("partition", "scenario_name", "partition_group_payload", "surface_ids"):
+            if canonical_payload(published_group[key]) != canonical_payload(reference[key]):
+                raise HarvestError(
+                    f"planned group '{group_id}' field '{key}' does not match the expected "
+                    "configuration"
+                )
+        # The three free reporting fields task 9C-C2a recorded as unanchored.
+        # They are compared against the supplied configuration, never inferred
+        # from the publication itself.
+        published_metadata = published_group["scenario_metadata"]
+        reference_metadata = reference["scenario_metadata"]
+        for key in ("scenario_name", "rate", "base_volatility", "contract_multiplier"):
+            if canonical_payload(published_metadata[key]) != canonical_payload(
+                reference_metadata[key]
+            ):
+                raise HarvestError(
+                    f"planned group '{group_id}' scenario_metadata.{key} does not match the "
+                    "expected configuration"
+                )
+
+    for surface_id, published_surface in published_surfaces.items():
+        reference = expected_surfaces[surface_id]
+        for key in ("solver_input_id", "solver_input", "surface_role", "settings_digest"):
+            if canonical_payload(published_surface[key]) != canonical_payload(reference[key]):
+                raise HarvestError(
+                    f"planned surface '{surface_id}' field '{key}' does not match the expected "
+                    "configuration"
+                )
+        # Recomputed from the descriptor, not trusted from the publication.
+        recomputed = settings_digest_from_solver_input(published_surface["solver_input"])
+        if str(published_surface["settings_digest"]) != recomputed:
+            raise HarvestError(
+                f"planned surface '{surface_id}' settings_digest is not the digest of its own "
+                "numerical settings"
+            )
+
+    if canonical_payload(published) != canonical_payload(expected_document):
+        raise HarvestError("the published plan differs from the expected configuration's plan")
+
+    expected_settings = {digest: values for digest, values in expected.settings}
+    if canonical_payload(report.get("numerical_settings")) != canonical_payload(
+        expected_settings
+    ):
+        raise HarvestError(
+            "published numerical_settings do not match the expected configuration's settings"
+        )
+
+
+def _verify_config_sections(
+    report: Mapping[str, Any], config: HarvestConfig, plan: HarvestPlan
+) -> None:
+    """Require every configuration-derived report section to match the configuration."""
+    for name, expected in _config_report_sections(config, plan).items():
+        if canonical_payload(report.get(name)) != canonical_payload(expected):
+            raise HarvestError(
+                f"published report section '{name}' does not match the expected configuration"
+            )
+
+
+def verify_publication_authoritatively(
+    directory: Path, *, expected_config: HarvestConfig | Path | str
+) -> None:
+    """**Authoritative verification.** See :data:`VERIFICATION_GUARANTEES`.
+
+    ``expected_config`` is the externally supplied truth: either an already
+    parsed :class:`HarvestConfig` or a path to the versioned TOML. The
+    publication's own recorded provenance is *compared* against it and never
+    used in its place.
+
+    The harvest is replanned deterministically from that configuration with
+    :func:`plan_harvest`, which takes no solver and calls none, so nothing here
+    prices anything. Because every partition assignment, identity and immutable
+    row field is a function of the configuration alone, the replanned plan is a
+    complete external reference for the published one.
+    """
+    config = _resolve_expected_config(expected_config)
+    report, rows = _load_verified_publication(directory)
+    # 1. Provenance of the configuration the publication claims.
+    _verify_config_provenance(report, config)
+    # 2. Deterministic replan, without executing a single PDE solve.
+    expected_plan = plan_harvest(config)
+    # 3-5. The published plan, the recomputed settings digests and the
+    #      configuration-derived report sections, all against the supplied
+    #      configuration. These run first so an unanchored-field mismatch is
+    #      reported as what it is -- a disagreement with the expected
+    #      configuration -- rather than as whatever internal invariant it
+    #      happens to disturb.
+    _verify_published_plan(report, expected_plan)
+    _verify_config_sections(report, config, expected_plan)
+    # 6. The whole self-contained consistency pass, with every row and surface
+    #    record rebuilt from the *externally derived* plan rather than from the
+    #    published one. This is a strict superset of `verify_publication`'s
+    #    semantic stage.
+    reconcile_report(report, rows, expected_plan)
+
+
+def verify_training_input_publication(
+    directory: Path, *, expected_config: HarvestConfig | Path | str
+) -> None:
+    """Gate a publication for downstream training consumption.
+
+    Consistency-only verification is explicitly insufficient here, so this
+    always runs the authoritative path first. It then refuses any study status
+    that is not on :data:`APPROVED_TRAINING_INPUT_STATUSES`, which is empty:
+    task 9C-C2a/9C-C2b1 output is exploratory infrastructure and is not an
+    approved training input.
+    """
+    verify_publication_authoritatively(directory, expected_config=expected_config)
+    report, _rows = _load_verified_publication(directory)
+    status = str(report.get("study", {}).get("status"))
+    if status not in APPROVED_TRAINING_INPUT_STATUSES:
+        raise HarvestError(
+            f"study status '{status}' is not an approved training input: "
+            f"{VERIFICATION_GUARANTEES['training_input_gate']}"
+        )
 
 
 BYTE_IDENTITY_PRECONDITIONS: Final = (
@@ -3067,8 +4249,21 @@ _ROW_FLOAT_COLUMNS: Final = frozenset(
         "price",
         "delta",
         "gamma",
+        "vega",
+        "vega_per_volatility_point",
+        "vega_bump",
+        "price_sigma_down",
+        "price_sigma_up",
         "spot_maximum",
         "spot_step",
+    }
+)
+_ROW_OPTIONAL_STRING_COLUMNS: Final = frozenset(
+    {
+        "exercise_state_sigma_down",
+        "exercise_state_sigma_up",
+        "vega_convention_id",
+        "vega_label_record_id",
     }
 )
 _ROW_BOOLEAN_COLUMNS: Final = frozenset(
@@ -3077,6 +4272,7 @@ _ROW_BOOLEAN_COLUMNS: Final = frozenset(
         "delta_label_eligible",
         "gamma_label_eligible",
         "greek_eligible",
+        "vega_numerically_available",
     }
 )
 
@@ -3094,6 +4290,8 @@ def _parse_rows_csv(payload: str) -> list[dict[str, Any]]:
                 row[key] = int(value)
             elif key in _ROW_FLOAT_COLUMNS:
                 row[key] = None if value == "" else float(value)
+            elif key in _ROW_OPTIONAL_STRING_COLUMNS:
+                row[key] = None if value == "" else value
             elif key in _ROW_BOOLEAN_COLUMNS:
                 if value not in {"true", "false"}:
                     raise ValueError(f"row boolean '{key}' is not true or false")
@@ -3162,6 +4360,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="after publication, require all outputs to match this directory byte for byte",
     )
+    parser.add_argument(
+        "--verify-authoritatively",
+        action="store_true",
+        help=(
+            "after publication, also verify it against --config as an externally supplied "
+            "expected configuration (replans without solving); the default self-contained "
+            "check proves internal consistency only"
+        ),
+    )
     return parser
 
 
@@ -3174,16 +4381,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             report, rows, arguments.output_directory, overwrite=arguments.overwrite
         )
         verify_publication(arguments.output_directory)
+        if arguments.verify_authoritatively:
+            verify_publication_authoritatively(
+                arguments.output_directory, expected_config=config
+            )
         if arguments.verify_identical_to is not None:
             verify_byte_identity(arguments.verify_identical_to, arguments.output_directory)
     except HarvestError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     totals = report["totals"]
+    vega = totals["counts_by_vega_numerical_availability"]
     print(
         f"wrote {len(paths)} artifacts; {totals['raw_row_count']} raw rows from "
-        f"{totals['attempted_surface_solve_count']} attempted surface solves over "
-        f"{totals['independent_design_group_count']} independent design groups"
+        f"{totals['attempted_surface_count']} attempted surfaces over "
+        f"{totals['independent_design_group_count']} independent design groups; "
+        f"{vega['available']} rows carry a numerically available vega"
     )
     return 0
 
