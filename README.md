@@ -318,8 +318,10 @@ strike set, and fitting variation.
 | Market-state reconstruction (task 9B) | Complete, local only | [reconstruction contract](docs/market-state-reconstruction-contract.md) |
 | Valuation-time surface, internally consistent American Greeks (task 9C-C1) | Complete | [PDE contract](docs/pde-numerical-contract.md), scalar-identity, analytic-Greek and free-boundary eligibility tests |
 | Grouped spot-row harvesting from surfaces (task 9C-C2a) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), identity, pre-solve partitioning, quota and determinism tests |
-| Vega surfaces, parallelism, production American dataset (rest of 9C-C2) | Not started | no dataset is generated today |
-| American label policy v2; American dataset, training, transfer; swaption stages 3–4 | Not started | blocked on 9C-C |
+| Three-surface vega, authoritative external-config verification (task 9C-C2b1) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), Task 9C-C2b1 section |
+| PDE label-policy v2 (task 9C-C3) | **Active** | [active task spec](docs/tasks/active/task-9c-c3-label-policy-v2.md) |
+| Parallel/resumable production generation (task 9C-C2b2); an accepted, versioned American training dataset | Not started | blocked on an accepted label policy from 9C-C3 |
+| American neural training, transfer; swaption stages 3–4 | Not started | blocked on 9C-C3 and the dataset pilot above |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
 | Latency claims; calibrated curves and surfaces; OOD partitions | Not established | benchmarks are evidence, not gates |
 
@@ -368,17 +370,28 @@ python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\Ac
 python -m pip install --upgrade pip
 python -m pip install -e '.[dev,train]'
 
-# Full local gate: configs, protocols, snapshots, figures, lint, C++ tests, Python suite
+# Full local gate: configs, protocols, snapshots, figures, C++ tests, Python
+# suite (Ruff and clang-format run only where each tool is installed)
 ./scripts/check.sh
 ```
 
 The `train` extra adds PyTorch and is required by everything under
 `python/tests/ml/`; for dataset work without it install `.[data,dev]`, and the
 optional `market` extra adds the vendor DBN reader only the real ingestion
-pipeline needs. The gate needs the editable install — a missing pytest fails it
-rather than skipping the Python suite — and `--quick`, used by the pre-commit
-hook, stops after the C++ tests. Use `-DCMAKE_BUILD_TYPE=Release` for any
-recorded performance experiment.
+pipeline needs. `./scripts/check.sh` runs `ruff check` only when `ruff` is
+importable and `clang-format --dry-run --Werror` only when `clang-format` is
+installed — neither is unconditional. The script exits on the first failing
+command, so the C++ and Python test stages are reached only once every
+preceding enabled check has passed. Full (non-quick) mode always configures
+and builds C++ fresh and runs the C++ tests, then the full Python suite,
+which needs the editable install — a missing pytest fails the gate rather
+than skipping the Python suite. `--quick`, used by the pre-commit hook, skips
+the Python suite and runs the C++ tests **only if `build/check` already
+exists** from a prior full run; on a fresh clone without it, `--quick` may
+perform no C++ test execution at all before exiting. **GitHub Actions CI
+remains the authoritative clean-environment gate**, since local results
+depend on machine state. Use `-DCMAKE_BUILD_TYPE=Release` for any recorded
+performance experiment.
 
 The pricers emit machine-readable JSON:
 
@@ -720,7 +733,8 @@ never stage them, nor any fitted curve or inferred market value.
 | [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules, and the 9C-C2a identity, grouped-partitioning and exact-node harvesting contract |
 | [docs/market-state-reconstruction-contract.md](docs/market-state-reconstruction-contract.md) | Parity fitting, identifiability classes, forbidden names, task 9C input contract |
 | [docs/agentic-workflow.md](docs/agentic-workflow.md) | Agent roles, guardrails, review loop |
-| [CLAUDE.md](CLAUDE.md) | Operating contract: commands, numerical non-negotiables, coding rules |
+| [AGENTS.md](AGENTS.md) | Durable, cross-tool operating contract: mission, source-of-truth hierarchy, git/data safety, bounded workflow, review-independence rule |
+| [CLAUDE.md](CLAUDE.md) | Concise Claude Code entry point that imports `AGENTS.md`: hooks, subagents, model routing, command routing — not a restatement of numerical rules |
 
 Three disciplines run through all of them.
 
@@ -846,31 +860,52 @@ not a production dataset, not a throughput measurement, and not a validation of
 any label policy. The group count it reports is a design count, deliberately not
 called a statistical effective sample size.
 
-Still not implemented, in order: the rest of **9C-C2**, a three-surface vega with
-production dataset generation, deterministic batching and parallel throughput;
-**9C-C3**, a
-predeclared label-policy v2 evaluated on a small remediation set, followed only
-conditionally by a full confirmation run; then American dataset generation and
-the European→American transfer experiment; and only after that, evaluation of
-price, Greek, latency, implied-volatility and surface-calibration behaviour
-against real quotes. **Task 9C-B remains `no_policy_selected`**; neither 9C-C1
-nor 9C-C2a revisits its thresholds, config or frozen result.
+**Task 9C-C2b1 is also implemented.** It closes the gap this section used to
+describe as open: authoritative verification of a harvest publication against
+an externally supplied expected configuration — not merely self-consistency
+against its own stored digests — and three-surface vega, with `sigma_down`,
+`base` and `sigma_up` solves sharing one spot grid and matched by exact node.
+An available vega additionally carries a `vega_label_record_id`, kept
+distinct from the base row's economic `row_id`: the same pricing node under a
+different vega convention is not the same label record. Reports also
+separate solver-returned surfaces from pipeline-successful ones, so a surface
+that solved but failed a later check is not silently counted as a success.
+Full rules: [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md).
 
-Nothing in that list exists today: no vega surface, no generated label dataset,
-no parallel sharding, no faster LCP solver, no American training dataset, no
-American surrogate, no implied-volatility inversion, and no volatility-surface
-calibration.
+Still not implemented, in order: **task 9C-C3** — a predeclared label-policy
+v2, run once on a small remediation set and, only if that passes, confirmed
+once on the full 28-case set — is next; only after an accepted policy would
+**task 9C-C2b2** add parallel/resumable, production-scale generation to the
+full 9C-C2 design; then a small grouped dataset pilot; then the first
+American neural training run and the European→American transfer experiment;
+and only after that, evaluation of price, Greek, latency,
+implied-volatility and surface-calibration behaviour against real quotes.
+None of what is implemented makes vega or gamma training-ready: vega is
+numerically available, not supervision-eligible — that is task 9C-C3's
+decision to make — and gamma remains evaluation-only. No production label
+policy, no accepted American training dataset, and no American neural
+surrogate exist. **Task 9C-B remains `no_policy_selected`**, and task 9C-C3
+is next. Current state and the exact next task:
+[docs/project-state.md](docs/project-state.md).
 
 ---
 
 ## Contributing
 
-Read [CLAUDE.md](CLAUDE.md) and
-[docs/research-contract.md](docs/research-contract.md) first. Every change
-should state the numerical assumption it changes, add a regression test, and
-pass `./scripts/check.sh`. Full workflow, test-partition rules, snapshot
-refresh procedure, and pull-request expectations:
+Read [AGENTS.md](AGENTS.md) (or [CLAUDE.md](CLAUDE.md) if you are using
+Claude Code) and [docs/research-contract.md](docs/research-contract.md)
+first. Every change should state the numerical assumption it changes, add a
+regression test, and pass `./scripts/check.sh`. Full workflow, test-partition
+rules, snapshot refresh procedure, and pull-request expectations:
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### For contributors and coding agents
+
+Start with [AGENTS.md](AGENTS.md) (durable, cross-tool operating rules),
+[docs/project-state.md](docs/project-state.md) (the current, living state
+and exact next task — more current than the narrative above where they
+disagree), and [docs/documentation-map.md](docs/documentation-map.md) (which
+document wins when two of them disagree).
 
 ## License
 
