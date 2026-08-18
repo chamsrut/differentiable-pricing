@@ -57,6 +57,7 @@ calibrated value and stays fully out of Git.
 | Task 9C-C1: valuation-time surface | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C1 section) |
 | Task 9C-C2a: leakage-safe grouped harvesting | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C2a section) |
 | Task 9C-C2b1: authoritative verification and three-surface vega | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C2b1 section) |
+| Task 9C-C3 predeclaration (criteria, lifecycle, runner, freeze tool) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) — no run executed, no snapshot frozen |
 
 ## Current implementation state
 
@@ -91,13 +92,27 @@ calibrated value and stays fully out of Git.
 
 ## Exact next task
 
-**Task 9C-C3: PDE label-policy v2** —
+**Task 9C-C3: run the predeclared v2 remediation stage, manually, from a
+terminal** —
 [tasks/active/task-9c-c3-label-policy-v2.md](tasks/active/task-9c-c3-label-policy-v2.md).
-Predeclare a revised stability/shape criterion, test it on a small
-remediation set (the five v1-failing regular cases, three smooth controls,
-two anchors), and only if that passes, run the full 28-case confirmation
-once. No dataset generation or training happens inside this task, whichever
-way it resolves.
+
+The predeclaration is **complete and versioned**: every value the task spec
+previously flagged `OPEN` is resolved (decision log DEC-016, DEC-017,
+DEC-018), and the criteria, lifecycle, runner and freeze/check tool exist with
+cheap tests. Nothing has been run. Concretely, what exists now is
+`configs/pde_label_policy_pilot_v2.toml`,
+`python/src/differentiable_pricing/american/pde_label_policy_v2.py`,
+`scripts/freeze_pde_label_policy_v2_results.py`, and their two test modules.
+
+The next action is a **human-run** ten-case remediation stage — the exact
+command is in [pde-numerical-contract.md](pde-numerical-contract.md) ("Task
+9C-C3: label-policy v2", "Manual run protocol"). Nine regular cases decide
+pass/fail; `stress_american_put_exercise_boundary` is descriptive anchor
+evidence. Only if the remediation passes does the unchanged 28-case
+confirmation run, once, against the same unadjusted criteria — and the runner
+**refuses** to start confirmation without a passing remediation report
+carrying the same raw-config and criteria digests. No dataset generation or
+training happens inside this task, whichever way it resolves.
 
 ## Roadmap to training
 
@@ -148,7 +163,15 @@ Task 9C-C3's specific gates:
 - Gamma remains **evaluation-only**; no current row treats it as a
   supervised target (DEC-009).
 - Vega is **numerically available** in the harvested rows but is **not**
-  supervision-eligible until task 9C-C3 decides stability (DEC-007).
+  supervision-eligible until task 9C-C3 decides stability (DEC-007). C3's
+  criterion for that decision is now predeclared; it has not been run, so no
+  vega is supervision-eligible today.
+- Task 9C-C3's American dominance and intrinsic allowances are **operational
+  price-error scale estimates, not certified bounds** — every v2 report
+  publishes `is_a_rigorous_bound = false` (DEC-016).
+- A v2 confirmation success would select a **price** candidate pending fresh
+  top-level approval; delta and vega eligibility are decided separately, case
+  by case (DEC-017). Nothing is selected today.
 - Task 9C-B's `no_policy_selected` is a **valid, complete negative result**,
   not an unfinished task — it is frozen and never reinterpreted (DEC-003).
 - Every exploratory publication produced so far (9C-C2a, 9C-C2b1
@@ -195,6 +218,7 @@ Task 9C-C3's specific gates:
 | American CRR | [american-crr-contract.md](american-crr-contract.md) | none frozen (cross-check role only) |
 | American LSM | [american-lsm-contract.md](american-lsm-contract.md) | [results/american_lsm_crosscheck_results_v1.json](results/american_lsm_crosscheck_results_v1.json) |
 | PDE oracle / surface / harvest / vega | [pde-numerical-contract.md](pde-numerical-contract.md) | [results/american_pde_label_policy_results_v1.json](results/american_pde_label_policy_results_v1.json) (v1 pilot only; 9C-C1/C2a/C2b1 are exploratory infrastructure with no frozen snapshot) |
+| PDE label policy v2 (task 9C-C3) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) | none — predeclared, not yet run. Its canonical snapshot path is `docs/results/american_pde_label_policy_v2_results_v1.json`; `scripts/freeze_pde_label_policy_v2_results.py --check` correctly fails while it is absent |
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 
 ## New-agent checklist

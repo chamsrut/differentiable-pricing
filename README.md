@@ -319,7 +319,7 @@ strike set, and fitting variation.
 | Valuation-time surface, internally consistent American Greeks (task 9C-C1) | Complete | [PDE contract](docs/pde-numerical-contract.md), scalar-identity, analytic-Greek and free-boundary eligibility tests |
 | Grouped spot-row harvesting from surfaces (task 9C-C2a) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), identity, pre-solve partitioning, quota and determinism tests |
 | Three-surface vega, authoritative external-config verification (task 9C-C2b1) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), Task 9C-C2b1 section |
-| PDE label-policy v2 (task 9C-C3) | **Active** | [active task spec](docs/tasks/active/task-9c-c3-label-policy-v2.md) |
+| PDE label-policy v2 (task 9C-C3) | **Active — criteria predeclared and versioned, no run executed** | [PDE contract](docs/pde-numerical-contract.md) (Task 9C-C3 section), [active task spec](docs/tasks/active/task-9c-c3-label-policy-v2.md) |
 | Parallel/resumable production generation (task 9C-C2b2); an accepted, versioned American training dataset | Not started | blocked on an accepted label policy from 9C-C3 |
 | American neural training, transfer; swaption stages 3–4 | Not started | blocked on 9C-C3 and the dataset pilot above |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
@@ -680,6 +680,60 @@ Its frozen outcome is already in the repository, so nothing in CI or the local
 gate reruns it; the checked-in snapshot is digest-pinned by
 `python/tests/test_pde_label_policy_results_snapshot.py`.
 
+### The label-policy v2 stages (task 9C-C3)
+
+The v2 criteria are predeclared and versioned in
+`configs/pde_label_policy_pilot_v2.toml`; **neither stage has been run and no
+v2 snapshot exists.** Both are manual, terminal-invoked jobs. The remediation
+stage runs ten cases, of which nine decide pass/fail:
+
+```bash
+python -m differentiable_pricing.american.pde_label_policy_v2 \
+  --config configs/pde_label_policy_pilot_v2.toml \
+  --stage remediation \
+  --output-directory artifacts/pde-label-policy-v2-remediation
+```
+
+The confirmation stage **refuses to start** without a passing remediation
+report carrying the same raw-config and criteria digests, so a criterion
+edited after a result cannot reach it:
+
+```bash
+python -m differentiable_pricing.american.pde_label_policy_v2 \
+  --config configs/pde_label_policy_pilot_v2.toml \
+  --stage confirmation \
+  --remediation-report artifacts/pde-label-policy-v2-remediation/report.json \
+  --output-directory artifacts/pde-label-policy-v2-confirmation
+```
+
+Every terminal outcome is frozen from a reviewed raw report by its own tool,
+never by hand, and the tool always names its mode. Nothing published in a
+report is trusted: `--extract` recomputes every per-case verdict, Greek
+eligibility, aggregate count and lifecycle field from the raw per-solve
+numbers, against the checked-in configuration, and reconciles every
+executable-source digest against the repository. `--check` does the same for
+the snapshot and fails when the snapshot it enforces is absent — which is its
+current, correct behaviour. Neither re-solves, so neither can authenticate a
+fully coordinated fabricated numerical report; that limit is published in the
+snapshot itself.
+
+```bash
+# A remediation-terminal outcome freezes from the remediation report;
+# a confirmation-terminal outcome freezes from the confirmation report.
+python scripts/freeze_pde_label_policy_v2_results.py \
+  --extract \
+  --report artifacts/pde-label-policy-v2-remediation/report.json \
+  --output docs/results/american_pde_label_policy_v2_results_v1.json
+python scripts/freeze_pde_label_policy_v2_results.py --check
+```
+
+Full criteria — the per-increment fixed-bump tolerances and combined budget,
+the grid-stencil delta validation, the residual-scale-aware shape allowances,
+the role-aware decision matrix that keeps a Greek-specific failure from ever
+vetoing a valid price policy, and the three-state lifecycle — are in
+[docs/pde-numerical-contract.md](docs/pde-numerical-contract.md), "Task 9C-C3:
+label-policy v2".
+
 ### Benchmarking the CRR paths
 
 ```bash
@@ -730,7 +784,7 @@ never stage them, nor any fitted curve or inferred market value.
 | [docs/architecture.md](docs/architecture.md) | Language boundary, snapshot discipline, artifact contract, stage-1 model math |
 | [docs/american-crr-contract.md](docs/american-crr-contract.md) | Lattice, recursion, exercise metadata, complexity, convergence semantics |
 | [docs/american-lsm-contract.md](docs/american-lsm-contract.md) | Estimand, policy/valuation separation, uncertainty, control variate, overflow rejection |
-| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules, and the 9C-C2a identity, grouped-partitioning and exact-node harvesting contract |
+| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules, and the 9C-C2a identity, grouped-partitioning and exact-node harvesting contract, plus the 9C-C3 label-policy v2 predeclaration |
 | [docs/market-state-reconstruction-contract.md](docs/market-state-reconstruction-contract.md) | Parity fitting, identifiability classes, forbidden names, task 9C input contract |
 | [docs/agentic-workflow.md](docs/agentic-workflow.md) | Agent roles, guardrails, review loop |
 | [AGENTS.md](AGENTS.md) | Durable, cross-tool operating contract: mission, source-of-truth hierarchy, git/data safety, bounded workflow, review-independence rule |
@@ -872,9 +926,26 @@ separate solver-returned surfaces from pipeline-successful ones, so a surface
 that solved but failed a later check is not silently counted as a success.
 Full rules: [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md).
 
-Still not implemented, in order: **task 9C-C3** — a predeclared label-policy
-v2, run once on a small remediation set and, only if that passes, confirmed
-once on the full 28-case set — is next; only after an accepted policy would
+**Task 9C-C3's criteria are now predeclared and versioned, and nothing has
+been run against them.** The revised stability and shape rule, the ten-case
+remediation set, the one-shot lifecycle and the freeze tool exist; the
+remediation stage is a manual job that has not been executed, and no v2
+snapshot is checked in. v2 makes the American dominance and intrinsic
+allowances scale with the solver's own absolute accumulated LCP residual —
+explicitly as operational price-error scale estimates, not certified bounds —
+replaces v1's bump-ladder veto with a single combined
+`reference error + bias charge` budget, and takes the production delta from
+the task 9C-C1 nodewise stencil at an exact grid node. Its price reference is
+the **raw** exact-node centre value of the 3200×1600 rung, unconditionally:
+unlike v1 there is no price Richardson extrapolation and no conditional
+fallback, and the 800×400 rung is solved only to estimate the delta stencil
+order. A confirmation success
+would select a **price** candidate pending fresh top-level approval, with
+delta and vega eligibility decided case by case and gamma still
+evaluation-only.
+
+Still not implemented, in order: the **task 9C-C3 remediation run** and, only
+if it passes, the 28-case confirmation run; only after an accepted policy would
 **task 9C-C2b2** add parallel/resumable, production-scale generation to the
 full 9C-C2 design; then a small grouped dataset pilot; then the first
 American neural training run and the European→American transfer experiment;
