@@ -26,8 +26,11 @@ partition that has informed no model choice
 
 **Stage 1 is complete and independently replicated. Stage 2 now has three
 independent reference engines — a CRR tree, an LSM cross-check, and a
-discrete-dividend finite-difference PDE oracle — plus a frozen label-policy
-pilot that selected no policy, and still no neural work. A parallel real-market
+discrete-dividend finite-difference PDE oracle — a first label-policy pilot
+that selected no policy, and a second, separately predeclared study (task
+9C-C3) that **did** select one: `grid_1600x800`, externally approved. There is
+still no American dataset and no neural work: an accepted label policy is not
+an accepted dataset, and both remain separately gated. A parallel real-market
 track has audited a three-session quote archive and established which pricer
 inputs it can and cannot supply.**
 
@@ -196,7 +199,7 @@ separately, and nothing here may be reused as its acceptance criterion.
 Per-case rows, provenance digests, and declared limitations:
 [docs/results/american_lsm_crosscheck_results_v1.json](docs/results/american_lsm_crosscheck_results_v1.json).
 
-### Task 9C: a strong PDE oracle and a useful negative label-policy result
+### Task 9C: a strong PDE oracle, a useful negative result, and an accepted policy
 
 The tree and the Monte Carlo engine both carry a *continuous* dividend yield,
 and a cash dividend is not a yield. Task 9C-A therefore added
@@ -262,7 +265,66 @@ Every per-case error, check outcome and observed order is frozen in
 [docs/results/american_pde_label_policy_results_v1.json](docs/results/american_pde_label_policy_results_v1.json).
 The negative result is the pilot working as designed: it priced out a naive
 labelling strategy for two hours of compute, not after a dataset had been
-generated on it.
+generated on it. That snapshot is immutable and is **never** reinterpreted by
+what follows.
+
+### Task 9C-C3: the accepted label policy
+
+v1 failed on **stability and shape**, not on accuracy. Task 9C-C3 asked a new,
+separately predeclared question on its own versioned config and runner: can a
+revised stability/shape rule — explicitly *not* a loosened error cap — pass
+those five cases without destabilising the ones v1 already handled? The four v1
+absolute-error caps were carried over unchanged, which is what makes the two
+studies comparable.
+
+Both stages ran once, manually. Remediation passed all ten cases; the unchanged
+28-case confirmation set then ran once and selected **`grid_1600x800`**, with
+`criteria_were_not_loosened = true`. A **fresh top-level independent session**
+reviewed the frozen evidence and returned **APPROVE POLICY AND FREEZE**.
+
+| Quantity | Regular-case conclusion |
+|---|---|
+| Price | selected on **22/22** numerically valid regular cases |
+| Delta | supervision-eligible on **18/22** |
+| Vega | supervision-eligible on **22/22** |
+| Gamma | **evaluation-only, 0/22** |
+
+The worst regular price error was **2.6867e-4** against the unchanged **5e-4**
+cap. All **323** confirmation solves completed with **zero solver exceptions** —
+**176,130** linear solves, **144,086** PSOR solves, **34,888,292** PSOR
+iterations, about **1,586.4 seconds** of wall time.
+
+**18/22 delta eligibility is conservative order measurability, not four bad
+deltas.** All four excluded cases passed their stencil-delta validation inside
+the unchanged 1e-3 cap and were excluded solely because the factor-two
+convergence order was unsupported: two have an exactly flat stencil delta
+($-1$ and $+1$), which leaves the order **undefined**; one measured about
+$23.75$; and `regular_american_one_dividend_call` measured about $3.027$
+despite an error of about $9.71\times10^{-7}$. The supported band is not
+widened — that would be a post-result criterion change, and would require a
+separately versioned task.
+
+Three limits are stated rather than glossed. One stress case,
+`stress_euro_short_low_vol_atm`, **fails** its price check descriptively at
+**2.9943e-3** with a correspondingly large evaluation-only gamma error; stress
+cases decide no selection, and it is kept as honest evidence of a regime where
+the policy is not accurate. The negative-rate American-dominance gap passes
+only through the predeclared residual-scale-aware **operational** allowance,
+which is a price-error scale estimate from the solver's own accumulated LCP
+residual and **is not a rigorous error bound**. And **no dataset and no
+training input is authorized by the frozen report itself** — an accepted label
+policy is not an accepted dataset.
+
+The terminal evidence is
+[docs/results/american_pde_label_policy_v2_results_v1.json](docs/results/american_pde_label_policy_v2_results_v1.json)
+(SHA-256 `75d9402f071323065f8398ccd2cf427e2fb6fa1e663aef90ec7cbcf9c46a1186`,
+from confirmation report
+`f9bf3f8fd636498b09fae20df8e42e976c68d2b70b28fdff20ab93752a7e130e`). It is
+enforced by `python scripts/freeze_pde_label_policy_v2_results.py --check` in
+the gate and in CI, and pinned by
+`python/tests/test_pde_label_policy_v2_results_snapshot.py`. Full numbers and
+reasoning: [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md),
+"Task 9C-C3: label-policy v2".
 
 ### Real-market inputs: what a three-session archive can supply (tasks 9A–9B)
 
@@ -319,9 +381,10 @@ strike set, and fitting variation.
 | Valuation-time surface, internally consistent American Greeks (task 9C-C1) | Complete | [PDE contract](docs/pde-numerical-contract.md), scalar-identity, analytic-Greek and free-boundary eligibility tests |
 | Grouped spot-row harvesting from surfaces (task 9C-C2a) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), identity, pre-solve partitioning, quota and determinism tests |
 | Three-surface vega, authoritative external-config verification (task 9C-C2b1) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), Task 9C-C2b1 section |
-| PDE label-policy v2 (task 9C-C3) | **Active — criteria predeclared and versioned, no run executed** | [PDE contract](docs/pde-numerical-contract.md) (Task 9C-C3 section), [active task spec](docs/tasks/active/task-9c-c3-label-policy-v2.md) |
-| Parallel/resumable production generation (task 9C-C2b2); an accepted, versioned American training dataset | Not started | blocked on an accepted label policy from 9C-C3 |
-| American neural training, transfer; swaption stages 3–4 | Not started | blocked on 9C-C3 and the dataset pilot above |
+| PDE label-policy v2 (task 9C-C3) | **Complete, frozen — accepted `grid_1600x800`, externally approved** | [v2 snapshot](docs/results/american_pde_label_policy_v2_results_v1.json), [PDE contract](docs/pde-numerical-contract.md) (Task 9C-C3 section), [decision log](docs/decision-log.md) DEC-025 |
+| Parallel/resumable production generation (task 9C-C2b2) | **Active — not started**; infrastructure, bounded validation and one small pilot only | [active task spec](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md) |
+| An accepted, versioned American training dataset | Not started | separately gated; **not** authorized by the accepted label policy |
+| American neural training, transfer; swaption stages 3–4 | Not started | blocked on the dataset pilot above |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
 | Latency claims; calibrated curves and surfaces; OOD partitions | Not established | benchmarks are evidence, not gates |
 
@@ -683,9 +746,13 @@ gate reruns it; the checked-in snapshot is digest-pinned by
 ### The label-policy v2 stages (task 9C-C3)
 
 The v2 criteria are predeclared and versioned in
-`configs/pde_label_policy_pilot_v2.toml`; **neither stage has been run and no
-v2 snapshot exists.** Both are manual, terminal-invoked jobs. The remediation
-stage runs ten cases, of which nine decide pass/fail:
+`configs/pde_label_policy_pilot_v2.toml`. **Both stages have now been run, once
+each, and the snapshot is frozen and externally approved** — see "Task 9C-C3:
+the accepted label policy" above. The commands below are recorded for
+auditability; **they are not rerunnable.** The task is one-shot and terminal:
+its cases are consumed evidence, and the runner refuses a nonempty output
+directory. Both were manual, terminal-invoked jobs. The remediation stage runs
+ten cases, of which nine decide pass/fail:
 
 ```bash
 python -m differentiable_pricing.american.pde_label_policy_v2 \
@@ -712,10 +779,11 @@ report is trusted: `--extract` recomputes every per-case verdict, Greek
 eligibility, aggregate count and lifecycle field from the raw per-solve
 numbers, against the checked-in configuration, and reconciles every
 executable-source digest against the repository. `--check` does the same for
-the snapshot and fails when the snapshot it enforces is absent — which is its
-current, correct behaviour. Neither re-solves, so neither can authenticate a
-fully coordinated fabricated numerical report; that limit is published in the
-snapshot itself.
+the snapshot and fails when the snapshot it enforces is absent. Now that the
+snapshot exists, `--check` is the **designated** validator and runs in
+`./scripts/check.sh` and in CI, once each, reading only checked-in files.
+Neither mode re-solves, so neither can authenticate a fully coordinated
+fabricated numerical report; that limit is published in the snapshot itself.
 
 ```bash
 # A remediation-terminal outcome freezes from the remediation report;
@@ -784,7 +852,7 @@ never stage them, nor any fitted curve or inferred market value.
 | [docs/architecture.md](docs/architecture.md) | Language boundary, snapshot discipline, artifact contract, stage-1 model math |
 | [docs/american-crr-contract.md](docs/american-crr-contract.md) | Lattice, recursion, exercise metadata, complexity, convergence semantics |
 | [docs/american-lsm-contract.md](docs/american-lsm-contract.md) | Estimand, policy/valuation separation, uncertainty, control variate, overflow rejection |
-| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules, and the 9C-C2a identity, grouped-partitioning and exact-node harvesting contract, plus the 9C-C3 label-policy v2 predeclaration |
+| [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md) | Discrete-dividend PDE oracle: equation, discount interpolation, dividend jump, boundaries, PSOR residual, complexity, scope, the 9C-B pilot design, the 9C-C1 valuation-time surface with its derivative, classification and Greek-eligibility rules, and the 9C-C2a identity, grouped-partitioning and exact-node harvesting contract, plus the 9C-C3 label-policy v2 predeclaration and its accepted terminal result |
 | [docs/market-state-reconstruction-contract.md](docs/market-state-reconstruction-contract.md) | Parity fitting, identifiability classes, forbidden names, task 9C input contract |
 | [docs/agentic-workflow.md](docs/agentic-workflow.md) | Agent roles, guardrails, review loop |
 | [AGENTS.md](AGENTS.md) | Durable, cross-tool operating contract: mission, source-of-truth hierarchy, git/data safety, bounded workflow, review-independence rule |
@@ -828,9 +896,13 @@ claims remain decisive
   SPY American calibration capability. Dividend amounts, borrow and carry, and
   corporate-action adjustments are unavailable in that archive; the SPY
   ex-*date* is officially scheduled and its amount is unverified.
-- **No production label policy exists.** The task 9C-B pilot returned
-  `no_policy_selected`, so American dataset generation and American neural
-  training remain blocked.
+- **An accepted label policy exists; an accepted dataset does not.** Task
+  9C-B returned `no_policy_selected`; task 9C-C3 then selected `grid_1600x800`
+  on a separately predeclared question, and a fresh top-level session approved
+  it. That covers **labeling only** — price on 22/22 regular cases, delta on
+  18/22, vega on 22/22, gamma not at all. The frozen report authorizes neither
+  dataset generation nor training input, so American dataset generation and
+  American neural training remain **separately gated and not started**.
 - **In-envelope interpolation only.** No boundary, extrapolation/OOD, or
   scenario-shock partition has been built or evaluated.
 - **No latency claim.** Analytic Black–Scholes can easily be faster than this
@@ -845,7 +917,8 @@ claims remain decisive
   analytic Black--Scholes on European contracts; for American contracts no
   closed form and no second engine in this repository prices a Greek, so those
   are validated by structure, obstacle identities and a refinement control
-  rather than against truth. No production label policy exists.
+  rather than against truth. An accepted label policy now exists, but no
+  American dataset and no American neural result do.
 
 ---
 
@@ -926,11 +999,11 @@ separate solver-returned surfaces from pipeline-successful ones, so a surface
 that solved but failed a later check is not silently counted as a success.
 Full rules: [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md).
 
-**Task 9C-C3's criteria are now predeclared and versioned, and nothing has
-been run against them.** The revised stability and shape rule, the ten-case
-remediation set, the one-shot lifecycle and the freeze tool exist; the
-remediation stage is a manual job that has not been executed, and no v2
-snapshot is checked in. v2 makes the American dominance and intrinsic
+**Task 9C-C3 is complete and its policy accepted.** Both stages ran once,
+manually, against criteria fixed before execution; `grid_1600x800` was selected
+and externally approved, and the snapshot is frozen and enforced — see "Task
+9C-C3: the accepted label policy" above for the numbers. The design it ran
+under is unchanged by the outcome. v2 makes the American dominance and intrinsic
 allowances scale with the solver's own absolute accumulated LCP residual —
 explicitly as operational price-error scale estimates, not certified bounds —
 replaces v1's bump-ladder veto with a single combined
@@ -939,24 +1012,23 @@ the task 9C-C1 nodewise stencil at an exact grid node. Its price reference is
 the **raw** exact-node centre value of the 3200×1600 rung, unconditionally:
 unlike v1 there is no price Richardson extrapolation and no conditional
 fallback, and the 800×400 rung is solved only to estimate the delta stencil
-order. A confirmation success
-would select a **price** candidate pending fresh top-level approval, with
-delta and vega eligibility decided case by case and gamma still
-evaluation-only.
+order. The confirmation success selected a **price** candidate, with delta and
+vega eligibility decided case by case and gamma still evaluation-only; the
+fresh top-level approval it was pending has since been given.
 
-Still not implemented, in order: the **task 9C-C3 remediation run** and, only
-if it passes, the 28-case confirmation run; only after an accepted policy would
-**task 9C-C2b2** add parallel/resumable, production-scale generation to the
-full 9C-C2 design; then a small grouped dataset pilot; then the first
-American neural training run and the European→American transfer experiment;
-and only after that, evaluation of price, Greek, latency,
-implied-volatility and surface-calibration behaviour against real quotes.
-None of what is implemented makes vega or gamma training-ready: vega is
-numerically available, not supervision-eligible — that is task 9C-C3's
-decision to make — and gamma remains evaluation-only. No production label
-policy, no accepted American training dataset, and no American neural
-surrogate exist. **Task 9C-B remains `no_policy_selected`**, and task 9C-C3
-is next. Current state and the exact next task:
+Still not implemented, in order: **task 9C-C2b2** — deterministic
+parallel/resumable generation infrastructure, bounded validation and one small
+manually invoked pilot, the current active task; then a small grouped dataset
+pilot; then the first American neural training run and the European→American
+transfer experiment; and only after that, evaluation of price, Greek, latency,
+implied-volatility and surface-calibration behaviour against real quotes. Each
+of those is separately gated — **task 9C-C2b2 must not claim or launch a
+production dataset**, and the accepted policy authorizes neither a dataset nor
+a training input. Gamma is still not training-ready and remains
+evaluation-only; vega is now supervision-eligible where task 9C-C3 measured it
+to be. No accepted American training dataset and no American neural surrogate
+exist. **Task 9C-B remains `no_policy_selected`** — v2 answered a new question
+and never reinterpreted it. Current state and the exact next task:
 [docs/project-state.md](docs/project-state.md).
 
 ---

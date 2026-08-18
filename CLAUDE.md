@@ -13,8 +13,11 @@ remains the canonical source for those shared rules.
 
 Also read, before starting work:
 [docs/project-state.md](docs/project-state.md) (current state and the exact
-next task) and, if it applies to the work at hand,
-[docs/tasks/active/task-9c-c3-label-policy-v2.md](docs/tasks/active/task-9c-c3-label-policy-v2.md).
+next task) and, if it applies to the work at hand, the active task spec
+[docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md).
+Task 9C-C3 is **completed** — its spec stays at
+[docs/tasks/active/task-9c-c3-label-policy-v2.md](docs/tasks/active/task-9c-c3-label-policy-v2.md)
+as terminal, marked-`Completed` history, not as work to pick up.
 
 ## Hooks
 
@@ -92,7 +95,13 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
   load-bearing rules, rather than trusting a command copied from an older
   conversation or an out-of-date narrative document.
 - **Active task:**
-  [docs/tasks/active/task-9c-c3-label-policy-v2.md](docs/tasks/active/task-9c-c3-label-policy-v2.md).
+  [docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md)
+  (task 9C-C2b2). Task 9C-C3 is completed and terminal; do not treat its
+  still-present spec as the active one.
+- **Frozen-result checks:** `./scripts/check.sh` and CI both run
+  `python scripts/freeze_pde_label_policy_v2_results.py --check`. The task
+  9C-C3 snapshot it enforces is frozen evidence — never regenerate,
+  reformat, or hand-edit it to make a check pass.
 
 ## Required workflow
 

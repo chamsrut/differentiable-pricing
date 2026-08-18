@@ -2,25 +2,48 @@
 
 ## Status
 
-`Active` — **predeclaration complete; remediation run not yet started.**
+`Completed` — **both stages ran; `grid_1600x800` was selected and externally
+approved.** This is no longer the active task; the active task is
+[task-9c-c2b2-parallel-resumable-generation.md](task-9c-c2b2-parallel-resumable-generation.md).
 
-Every value this document previously flagged `OPEN` is now resolved and
-versioned; see "Predeclared conventions" below and
+This file stays at this path. The repository's convention
+([../../documentation-map.md](../../documentation-map.md)) is to mark a
+completed task spec `Completed` **in place** and record the outcome in the
+decision log and project state; there is no `tasks/completed/` location. Two
+further reasons make moving it wrong here:
+`python/src/differentiable_pricing/american/pde_label_policy_v2.py` names this
+path and is digest-pinned inside the frozen v2 snapshot's executable-source
+inventory, and `python/tests/test_pde_label_policy_v2.py` reads this path
+directly.
+
+**Outcome.** Remediation passed on all ten cases, which admitted the unchanged
+28-case confirmation set; confirmation ran once and selected
+**`grid_1600x800`**, with `criteria_were_not_loosened = true`. The reviewed
+confirmation report
+(`f9bf3f8fd636498b09fae20df8e42e976c68d2b70b28fdff20ab93752a7e130e`) was frozen
+by the designated tool into
+[../../results/american_pde_label_policy_v2_results_v1.json](../../results/american_pde_label_policy_v2_results_v1.json)
+(`75d9402f071323065f8398ccd2cf427e2fb6fa1e663aef90ec7cbcf9c46a1186`). A **fresh
+top-level independent session** then reviewed that frozen evidence and returned
+**APPROVE POLICY AND FREEZE** — see
+[../../decision-log.md](../../decision-log.md) DEC-025, DEC-026, DEC-027.
+
+Price is selected on **22/22** numerically valid regular cases, delta is
+supervision-eligible on **18/22**, vega on **22/22**, and gamma remains
+evaluation-only at **0/22**. The full numbers, the F1 reading of 18/22, and the
+stated limits are in
 [../../pde-numerical-contract.md](../../pde-numerical-contract.md) ("Task
-9C-C3: label-policy v2"), which is the normative statement of the criteria.
-What exists:
+9C-C3: label-policy v2", "Outcome: the accepted v2 result"), which is
+authoritative for them; they are not duplicated here.
 
-- `configs/pde_label_policy_pilot_v2.toml` — the versioned predeclaration;
-- `python/src/differentiable_pricing/american/pde_label_policy_v2.py` — the
-  criteria, the eligibility predicates, the lifecycle state machine and the
-  manual runner;
-- `scripts/freeze_pde_label_policy_v2_results.py` — the snapshot freeze/check
-  tool, deliberately not wired into `scripts/check.sh` or CI;
-- `python/tests/test_pde_label_policy_v2.py` and
-  `python/tests/test_pde_label_policy_v2_freeze.py`.
+**Nothing in this task is rerunnable or revisable.** Its ten remediation cases
+and its 28 confirmation cases are consumed one-shot evidence. Any later
+reconsideration of the criteria — including the supported order band — is a
+separately versioned task, never a continuation of C3.
 
-What does **not** exist: any v2 remediation result, any v2 confirmation
-result, and any v2 snapshot under `docs/results/`. No v2 solve has been run.
+Everything below this section is the **predeclaration as it stood before the
+run**, preserved unedited so the one-shot protocol stays auditable. Where it
+says a run has not happened, read it as the pre-run statement it was.
 
 ## Objective
 

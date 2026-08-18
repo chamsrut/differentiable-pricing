@@ -62,6 +62,12 @@ jobs:
         run: |
           python3 scripts/freeze_american_lsm_results.py --check
           python3 scripts/plot_american_lsm_results.py --check
+      - name: Frozen PDE label-policy v2 result is valid and current
+        # The task 9C-C3 terminal snapshot's designated validator. Like the
+        # checks above it reads only checked-in files: the raw confirmation
+        # report lives under ignored artifacts/ and is never present here.
+        # This job runs the CLI once; nothing else in the workflow invokes it.
+        run: python3 scripts/freeze_pde_label_policy_v2_results.py --check
 
   ml:
     name: Neural baseline / CPU

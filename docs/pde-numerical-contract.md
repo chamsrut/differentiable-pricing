@@ -1421,8 +1421,11 @@ time, because each state and grid costs thirteen independent solves. The
 report's 250,000-label projections are idealized independent-worker
 extrapolations of that measurement and are not production-feasibility claims.
 
-No production label policy therefore exists, and none of these numbers may be
-reused as an acceptance criterion for a later label-policy study.
+No production label policy therefore existed at the end of task 9C-B, and none
+of these numbers may be reused as an acceptance criterion for a later
+label-policy study. Task 9C-C3 later selected one on a separately predeclared
+question; see "Task 9C-C3: label-policy v2", "Outcome: the accepted v2 result".
+That does not reinterpret this section, whose result stands as frozen.
 
 ### Provenance of the frozen snapshot after task 9C-C1
 
@@ -1461,13 +1464,12 @@ new versioned study, not a rerun: `configs/pde_label_policy_pilot_v1.toml`,
 [results/american_pde_label_policy_results_v1.json](results/american_pde_label_policy_results_v1.json)
 are read-only here and are byte-unchanged by it (decision log DEC-003).
 
-**This section is the predeclaration. No v2 remediation or confirmation run has
-been executed, and no v2 snapshot exists under `docs/results/`.** The
-implementation delivers the versioned configuration
-(`configs/pde_label_policy_pilot_v2.toml`), the criteria, eligibility rules and
-lifecycle (`python/src/differentiable_pricing/american/pde_label_policy_v2.py`),
-the freeze/check tool (`scripts/freeze_pde_label_policy_v2_results.py`) and
-their tests, and nothing else.
+**This section states the predeclaration first and the terminal result last.**
+Everything from "The locked protocol" to "Stated limits of this evidence" was
+written and versioned *before* either stage ran, and is unchanged by the
+outcome. "Outcome: the accepted v2 result" below records what the run produced.
+Both stages have now been executed, once each, manually; the terminal snapshot
+is `docs/results/american_pde_label_policy_v2_results_v1.json`.
 
 ### The locked protocol
 
@@ -2118,9 +2120,149 @@ Published verbatim in every v2 report:
 - One-shot enforcement is best effort and procedural.
 - Source digests do not prove the loaded binary's provenance.
 
-### Not implemented by the task 9C-C3 predeclaration change
+### Outcome: the accepted v2 result
 
-The remediation run; the confirmation run; any v2 result snapshot; any change
-to `scripts/check.sh` or CI; parallel or resumable generation; dataset
-generation; neural training; any change to the C++ engine or its bindings; any
-change to `pde_surface_harvest`. **Task 9C-B remains `no_policy_selected`.**
+Both stages ran once, manually, against the criteria fixed before execution.
+Remediation passed on all ten cases, which admitted the unchanged 28-case
+confirmation set; confirmation then ran once. The reviewed confirmation report
+(SHA-256 `f9bf3f8fd636498b09fae20df8e42e976c68d2b70b28fdff20ab93752a7e130e`,
+git-ignored under `artifacts/`) was distilled by the designated freeze tool into
+
+[results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json)
+
+SHA-256 `75d9402f071323065f8398ccd2cf427e2fb6fa1e663aef90ec7cbcf9c46a1186`.
+
+A **fresh top-level independent session** subsequently reviewed the frozen
+evidence and returned **APPROVE POLICY AND FREEZE**. That external approval —
+not this section, and not any single-session review — is what makes the
+selected candidate an accepted policy; see [decision-log.md](decision-log.md)
+DEC-025.
+
+**The accepted accuracy policy is `grid_1600x800`.**
+
+| Quantity | Regular-case conclusion |
+|---|---|
+| Price | selected on **22/22** numerically valid regular cases |
+| Delta | supervision-eligible on **18/22** regular cases |
+| Vega | supervision-eligible on **22/22** regular cases |
+| Gamma | **evaluation-only, 0/22** supervision-eligible (DEC-009, unchanged) |
+
+`criteria_were_not_loosened = true`. The four v1 absolute-error caps were
+carried into v2 unchanged and none was edited after a result was observed. The
+worst regular price error was **2.6867e-4** against the unchanged **5e-4** cap.
+Only regular cases decided selection; the six stress cases stayed descriptive,
+exactly as in v1.
+
+**Cost and completeness.** All **323** confirmation surface solves completed
+with **zero solver exceptions** — planned, attempted and completed solves all
+reconcile — comprising **176,130** linear solves, **144,086** PSOR solves and
+**34,888,292** PSOR iterations, in approximately **1,586.4 seconds** of wall
+time. The wall time is recorded here from the raw report; it is a cost
+measurement, not a criterion, and the snapshot deliberately carries no timing
+field.
+
+**One descriptive stress failure.** `stress_euro_short_low_vol_atm` failed its
+price check at **2.9943e-3**, and its evaluation-only gamma error is likewise
+large. It is `gate_eligible = false`, it is published in full, and it decides
+nothing: **stress cases do not decide selection.** It is retained as honest
+evidence that the accepted policy has a known regime where it is not accurate,
+not as a defect in the selection.
+
+**The negative-rate dominance gap is allowed operationally, not proved.**
+`regular_american_put_negative_rate_control` — the v1 failure whose American
+price fell below its European dominance control by the size of the solver's own
+accumulated PSOR residual — passes here **only** through the predeclared
+residual-scale-aware operational allowance. That allowance is an operational
+price-error scale estimate built from the solver's absolute accumulated LCP
+residual. **It is not a rigorous error bound**; every v2 report and this
+snapshot publish `is_a_rigorous_bound = false` (DEC-016). Nothing downstream may
+cite it as a certified bound.
+
+**No dataset and no training input is authorized by this result.** The frozen
+snapshot records `authorizes_dataset_generation = false` and
+`authorizes_training_input = false`, and `AUTHORIZED_TRAINING_INPUT_STATUSES`
+remains empty. An accepted *label policy* is not an accepted *dataset*: task
+9C-C2b2 and the pilot dataset that follows it are separately gated.
+
+#### F1: what 18/22 delta eligibility means
+
+**18/22 is conservative observed-order measurability, not evidence that four
+deltas are inaccurate.** Every one of the four excluded regular cases records
+`grid_stencil_delta_validation_passed` — its stencil delta was inside the
+unchanged 1e-3 delta cap — and was excluded solely by
+`grid_stencil_observed_order_unsupported`:
+
+| Case | Why excluded |
+|---|---|
+| `regular_american_put_high_rate` | stencil delta exactly $-1$; the factor-two order is **undefined**, not bad |
+| `regular_american_high_carry_call` | stencil delta exactly $+1$; order likewise undefined |
+| `regular_euro_deep_otm_call_short_low_vol` | observed order approximately $23.75$, outside the supported band |
+| `regular_american_one_dividend_call` | observed order approximately $3.027$, **despite** an E2 error of approximately $9.71\times10^{-7}$ — well below the 1e-3 cap |
+
+The first two are the saturated ends of a delta: an exactly flat stencil delta
+leaves no increment from which an order can be measured. The last two measured
+an order outside the predeclared $[1.5, 2.5]$ band while their errors stayed far
+inside the cap.
+
+The band is **not** widened and eligibility is **not** changed. Refusing to
+supervise a delta whose convergence order could not be measured is the
+conservative direction, and it was predeclared. Any reconsideration — of the
+band, of the flat-delta case, or of these four cases specifically — requires a
+**separately versioned task**, exactly as 9C-C3 was separately versioned from
+9C-B. It is never a revision inside 9C-C3.
+
+#### The snapshot is immutable, and enforced
+
+`docs/results/american_pde_label_policy_v2_results_v1.json` is frozen evidence.
+It is never hand-edited, reformatted, regenerated or refreshed — including to
+reflect a later engine change, a later approval, or a later policy question.
+Two mechanisms enforce it:
+
+```bash
+python scripts/freeze_pde_label_policy_v2_results.py --check
+```
+
+is the **designated** validator, now wired into `scripts/check.sh` and into the
+`python` CI job. It reads only checked-in files: it recomputes every per-case
+verdict, Greek eligibility, aggregate count and lifecycle field from the
+snapshot's own raw numbers against the checked-in configuration, reconciles the
+whole executable-source inventory against the repository, and requires exact
+canonical serialisation. It never reads the ignored raw report. Separately,
+`python/tests/test_pde_label_policy_v2_results_snapshot.py` pins the snapshot's
+SHA-256 and every conclusion above.
+
+`selection_pending_fresh_top_level_approval = true` in the frozen snapshot is
+**historical and correct**: the report was generated before the external
+approval existed, and it accurately records the state at generation time. The
+completion of that approval is recorded in [decision-log.md](decision-log.md)
+DEC-025, which post-dates the snapshot. **The report and the snapshot are never
+edited to flip that field.** Doing so would rewrite evidence to match a later
+event, which is precisely what freezing prevents.
+
+#### Future provenance hardening
+
+The snapshot records the consumed remediation report only indirectly, through
+the confirmation report's own digest and the shared `criteria_digest` /
+`raw_config_sha256` that the confirmation stage required to match. A future
+schema version may store the consumed remediation-report **content digest**
+directly, which would make the remediation-to-confirmation link checkable from
+the snapshot alone. That is a forward-looking schema improvement for a later,
+separately versioned study. It is **not** a defect in this result and **not** a
+reason to regenerate this snapshot.
+
+### Not implemented by task 9C-C3, before or after the run
+
+The predeclaration change implemented the configuration, criteria, lifecycle,
+runner, freeze tool and tests, and nothing else. The terminal-result change
+added the frozen snapshot, its preservation test, the gate/CI wiring for
+`--check`, and this record.
+
+Neither implemented, and both still separately gated: **parallel or resumable
+generation** (task 9C-C2b2), **dataset generation**, and **neural training**.
+Neither changed the C++ engine, its bindings, or `pde_surface_harvest` — the
+whole executable-source inventory is byte-unchanged and still reconciles.
+
+**Task 9C-B remains `no_policy_selected`.** v2 answers a new, separately
+predeclared question on a separately versioned config and runner. It does not
+reinterpret, supersede, correct or rerun v1, whose snapshot and config stay
+byte-identical and immutable (DEC-003).

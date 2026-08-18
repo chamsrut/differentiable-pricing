@@ -190,9 +190,18 @@ def test_check_fails_when_the_expected_snapshot_is_absent(tmp_path: Path) -> Non
     assert freeze.main(["--check", "--output", str(tmp_path / "absent.json")]) == 2
 
 
-def test_no_v2_snapshot_is_checked_in_yet() -> None:
-    assert not freeze.DEFAULT_SNAPSHOT.exists()
-    assert freeze.main(["--check"]) == 2
+def test_the_v2_snapshot_is_checked_in_and_valid() -> None:
+    """Task 9C-C3 is terminal, so the snapshot this tool enforces must be present.
+
+    This assertion is the inverse of the pre-run one it replaces
+    (``test_no_v2_snapshot_is_checked_in_yet``), which asserted the snapshot was
+    absent and ``--check`` therefore failed by design. That predicate expired
+    when the confirmation stage was frozen. ``--check`` still refuses a *missing*
+    snapshot: ``test_check_fails_when_the_expected_snapshot_is_absent`` above
+    covers that on a temporary path, so the refusal stays under test.
+    """
+    assert freeze.DEFAULT_SNAPSHOT.is_file()
+    assert freeze.main(["--check"]) == 0
 
 
 def test_the_canonical_snapshot_filename_is_consistent() -> None:
@@ -216,12 +225,22 @@ def test_the_documented_commands_carry_the_required_mode_flag() -> None:
     assert "pde-label-policy-v2-confirmation/report.json" in contract
 
 
-def test_the_freeze_tool_is_not_wired_into_the_gate_or_ci() -> None:
-    assert "freeze_pde_label_policy_v2_results" not in (
-        PROJECT_ROOT / "scripts/check.sh"
-    ).read_text()
-    for workflow in (PROJECT_ROOT / ".github/workflows").glob("*.yml"):
-        assert "freeze_pde_label_policy_v2_results" not in workflow.read_text()
+def test_the_freeze_tool_is_wired_into_the_gate_and_ci_exactly_once() -> None:
+    """The inverse of the pre-run assertion, now that a snapshot exists to enforce.
+
+    Wiring was deliberately deferred until the change that first commits a v2
+    snapshot, because ``--check`` fails when the snapshot is absent. That change
+    has happened, so the check must now run in the local gate and in CI — and in
+    each of them exactly once, so no job pays for it twice.
+    """
+    invocation = "scripts/freeze_pde_label_policy_v2_results.py --check"
+
+    assert (PROJECT_ROOT / "scripts/check.sh").read_text().count(invocation) == 1
+
+    workflows = sorted((PROJECT_ROOT / ".github/workflows").glob("*.yml"))
+    assert workflows, "no CI workflow found"
+    total = sum(workflow.read_text().count(invocation) for workflow in workflows)
+    assert total == 1, "the CI check must appear in exactly one job, exactly once"
 
 
 def test_check_rejects_update(tmp_path: Path) -> None:

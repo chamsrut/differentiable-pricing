@@ -29,16 +29,19 @@ not restate them.
 Stage 1 (European options) is complete and independently, fresh-seed
 replicated — terminal, never rerun. Stage 2 (American options) now has three
 numerically independent reference engines (CRR tree, LSM, discrete-dividend
-PDE oracle), but the first attempt to turn the PDE oracle into a labeling
-policy (task 9C-B) returned a negative, frozen result:
-`no_policy_selected`. Rather than respond to that cost by adding parallel
-compute, the project spent tasks 9C-C1/9C-C2a/9C-C2b1 on algorithmic reuse —
-one solve returning a whole valuation-time surface, grouped partitioning
-that keeps harvested rows honest about correlation, and a three-surface
-vega design — before revisiting the labeling-policy question itself. That
-revisit is task 9C-C3, the current active task. No American dataset and no
-American neural training exist yet; both are blocked on a policy being
-accepted. In parallel, a real-market track (tasks 9A/9B) audited a
+PDE oracle), and — as of task 9C-C3 — **an accepted PDE label policy**. The
+first attempt to turn the PDE oracle into a labeling policy (task 9C-B)
+returned a negative, frozen result: `no_policy_selected`. Rather than respond
+to that cost by adding parallel compute, the project spent tasks
+9C-C1/9C-C2a/9C-C2b1 on algorithmic reuse — one solve returning a whole
+valuation-time surface, grouped partitioning that keeps harvested rows honest
+about correlation, and a three-surface vega design — before revisiting the
+labeling-policy question itself. That revisit, task 9C-C3, ran its two
+predeclared stages once each and selected `grid_1600x800`; a fresh top-level
+independent session then returned **APPROVE POLICY AND FREEZE**. What is
+unblocked is *labeling*, and only that: **no American dataset and no American
+neural training exist yet**, and both remain separately gated behind task
+9C-C2b2's infrastructure and a bounded pilot. In parallel, a real-market track (tasks 9A/9B) audited a
 three-session proprietary quote archive and established, read-only, which
 pricing inputs it can and cannot supply — it produces no price, label, or
 calibrated value and stays fully out of Git.
@@ -57,7 +60,8 @@ calibrated value and stays fully out of Git.
 | Task 9C-C1: valuation-time surface | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C1 section) |
 | Task 9C-C2a: leakage-safe grouped harvesting | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C2a section) |
 | Task 9C-C2b1: authoritative verification and three-surface vega | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C2b1 section) |
-| Task 9C-C3 predeclaration (criteria, lifecycle, runner, freeze tool) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) — no run executed, no snapshot frozen |
+| Task 9C-C3 predeclaration (criteria, lifecycle, runner, freeze tool) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) |
+| Task 9C-C3: PDE label-policy v2 — **accepted `grid_1600x800`** | [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json) — frozen terminal, externally approved ([decision-log.md](decision-log.md) DEC-025) |
 
 ## Current implementation state
 
@@ -67,9 +71,12 @@ calibrated value and stays fully out of Git.
   surrogate (complete); study runners for CRR convergence, LSM cross-check,
   the 9C-B pilot, and PDE surface/vega harvesting (all exploratory, none
   feeding a production dataset); read-only market ingestion/reconstruction.
-- No production label policy exists. No accepted, versioned PDE-labelled
-  American neural-training dataset exists. Three distinct things must not
-  be conflated here:
+- **An accepted production label policy exists: `grid_1600x800`** (task
+  9C-C3, [decision-log.md](decision-log.md) DEC-025). It covers price on all
+  22 regular cases, delta on 18 of them and vega on all 22; gamma stays
+  evaluation-only. **No accepted, versioned PDE-labelled American
+  neural-training dataset exists**, and an accepted label policy is not one.
+  Three distinct things must not be conflated here:
   - **tracked, versioned, reproducible demo code and configuration** —
     `scripts/demo_pde_surface_harvest.py`,
     `scripts/demo_pde_surface_vega_harvest.py`, and their configs
@@ -85,43 +92,52 @@ calibrated value and stays fully out of Git.
     a dataset;
   - **an accepted, versioned training dataset** — does not exist in either
     form above. Neither the tracked demo code nor any local run of it
-    constitutes one; that requires an accepted label policy (task 9C-C3 or
-    later) and its own dataset-generation task.
+    constitutes one. It requires an accepted label policy — which task 9C-C3
+    has now supplied — **and** its own separately gated generation task, which
+    has not run.
   No American neural surrogate exists. No parallel or resumable label
   generation exists.
 
 ## Exact next task
 
-**Task 9C-C3: run the predeclared v2 remediation stage, manually, from a
-terminal** —
-[tasks/active/task-9c-c3-label-policy-v2.md](tasks/active/task-9c-c3-label-policy-v2.md).
+**Task 9C-C2b2: deterministic parallel/resumable production-generation
+infrastructure, using the accepted policy** —
+[tasks/active/task-9c-c2b2-parallel-resumable-generation.md](tasks/active/task-9c-c2b2-parallel-resumable-generation.md).
 
-The predeclaration is **complete and versioned**: every value the task spec
-previously flagged `OPEN` is resolved (decision log DEC-016, DEC-017,
-DEC-018), and the criteria, lifecycle, runner and freeze/check tool exist with
-cheap tests. Nothing has been run. Concretely, what exists now is
-`configs/pde_label_policy_pilot_v2.toml`,
-`python/src/differentiable_pricing/american/pde_label_policy_v2.py`,
-`scripts/freeze_pde_label_policy_v2_results.py`, and their two test modules.
+Task 9C-C3 is **complete and terminal**. Its two stages ran once each,
+manually; the confirmation stage selected `grid_1600x800`, and a fresh
+top-level independent session returned **APPROVE POLICY AND FREEZE**. The
+frozen evidence is
+[results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json)
+(SHA-256 `75d9402f071323065f8398ccd2cf427e2fb6fa1e663aef90ec7cbcf9c46a1186`,
+distilled from confirmation report
+`f9bf3f8fd636498b09fae20df8e42e976c68d2b70b28fdff20ab93752a7e130e`). Its
+numbers live in [pde-numerical-contract.md](pde-numerical-contract.md) ("Task
+9C-C3: label-policy v2", "Outcome: the accepted v2 result") and are not
+restated here. Nothing about 9C-C3 is rerunnable or revisable; its ten
+remediation cases and its 28 confirmation cases are consumed evidence.
 
-The next action is a **human-run** ten-case remediation stage — the exact
-command is in [pde-numerical-contract.md](pde-numerical-contract.md) ("Task
-9C-C3: label-policy v2", "Manual run protocol"). Nine regular cases decide
-pass/fail; `stress_american_put_exercise_boundary` is descriptive anchor
-evidence. Only if the remediation passes does the unchanged 28-case
-confirmation run, once, against the same unadjusted criteria — and the runner
-**refuses** to start confirmation without a passing remediation report
-carrying the same raw-config and criteria digests. No dataset generation or
-training happens inside this task, whichever way it resolves.
+C2b2's initial scope is **infrastructure, bounded validation and one small,
+manually invoked pilot**. It must **not** claim or launch a production dataset.
+Dataset-scale generation and neural training stay separately gated, exactly as
+before — the accepted policy unblocks *labeling*, not *a dataset*
+([decision-log.md](decision-log.md) DEC-014, DEC-025). The frozen v2 report
+itself authorizes neither: it records
+`authorizes_dataset_generation = false` and
+`authorizes_training_input = false`, and
+`AUTHORIZED_TRAINING_INPUT_STATUSES` is still empty.
 
 ## Roadmap to training
 
-In order, after task 9C-C3 resolves (positively or negatively):
+In order, now that task 9C-C3 has resolved positively:
 
-1. Task 9C-C3 remediation, then (conditionally) confirmation — see above.
-2. A bounded task 9C-C2b2: parallel/resumable generation, only once a
-   policy exists to generate against.
-3. A small, grouped pilot dataset under that policy.
+1. ~~Task 9C-C3 remediation, then confirmation~~ — **done**, accepted
+   `grid_1600x800` (DEC-025).
+2. A bounded task 9C-C2b2: deterministic parallel/resumable generation
+   infrastructure, bounded validation, and one small manually invoked pilot —
+   the current active task.
+3. A small, grouped pilot dataset under the accepted policy, separately
+   gated.
 4. The first neural training run and its learning curves.
 5. Scale the dataset only if the pilot run justifies it.
 6. Real-quote price/Greek/implied-volatility/surface comparisons — informed
@@ -134,21 +150,28 @@ Project-level gates (fixed acceptance criteria, `validation`/
 [research-contract.md](research-contract.md), "Provisional gates" and
 "Data protocol." They are not restated here.
 
-Task 9C-C3's specific gates:
+Task 9C-C3's gates are **all discharged** and are recorded here as history,
+not as pending work: the criteria and ten-case remediation set were
+predeclared and versioned; remediation passed in full under unadjusted
+criteria, which admitted the 28-case confirmation run; confirmation ran once
+and selected `grid_1600x800`; the terminal snapshot was frozen; and the
+**fresh top-level independent approval** that the exit gate required was
+obtained (**APPROVE POLICY AND FREEZE**, [decision-log.md](decision-log.md)
+DEC-025). Full detail:
+[tasks/active/task-9c-c3-label-policy-v2.md](tasks/active/task-9c-c3-label-policy-v2.md),
+now marked `Completed`.
 
-- **Entry to the remediation run:** v2 stability/shape criterion and the
-  ten-case remediation set predeclared and versioned; v1 remains untouched.
-  One-shot: these are not revisable inside the task after a result is seen.
-- **Entry to the 28-case confirmation run:** the remediation run passed, in
-  full, under the same, unadjusted criteria — and only then; a remediation
-  failure terminates the task (`confirmation_status = not_run`) rather than
-  triggering a redesign-and-retry.
-- **Exit:** every terminal outcome freezes a snapshot. Either a remediation-
-  or confirmation-stage `no_policy_selected`, or, on confirmation success, a
-  **selected candidate pending fresh top-level independent approval**
-  (price, and separately, delta/vega where eligible) — not an automatically
-  accepted policy. Full detail:
-  [tasks/active/task-9c-c3-label-policy-v2.md](tasks/active/task-9c-c3-label-policy-v2.md).
+Task 9C-C2b2's specific gates:
+
+- **Entry:** an accepted label policy exists to generate against — satisfied
+  by DEC-025 — and C2b2 predeclares its own generation domain, which it does
+  **not** inherit from C3's 28 evidence cases.
+- **Exit of the initial scope:** deterministic parallel/resumable
+  infrastructure, bounded validation, and one small manually invoked pilot
+  whose output is a demonstration of the machinery, not a dataset.
+- **Explicitly not authorized by entry:** production dataset generation and
+  neural training. Each needs its own gate; the frozen v2 report authorizes
+  neither (DEC-014, DEC-025).
 
 ## Known limitations and non-claims
 
@@ -162,16 +185,37 @@ Task 9C-C3's specific gates:
   [decision-log.md](decision-log.md) DEC-006.
 - Gamma remains **evaluation-only**; no current row treats it as a
   supervised target (DEC-009).
-- Vega is **numerically available** in the harvested rows but is **not**
-  supervision-eligible until task 9C-C3 decides stability (DEC-007). C3's
-  criterion for that decision is now predeclared; it has not been run, so no
-  vega is supervision-eligible today.
+- Vega is supervision-eligible **only where task 9C-C3 measured it to be**:
+  22 of 22 regular evidence cases (DEC-007, DEC-025).
+  `vega_numerically_available` on a harvested row is still not the same claim,
+  and eligibility
+  was established on 28 isolated evidence cases, which **do not validate the
+  surrounding parameter hyperrectangle**.
+- Delta is supervision-eligible on **18 of 22** regular cases. That is
+  conservative **observed-order measurability**, not four inaccurate deltas:
+  all four exclusions passed their stencil-delta validation and were excluded
+  only because the factor-two order was undefined or outside the predeclared
+  band (DEC-026). The band is not widened; reconsidering it needs a separately
+  versioned task.
 - Task 9C-C3's American dominance and intrinsic allowances are **operational
   price-error scale estimates, not certified bounds** — every v2 report
   publishes `is_a_rigorous_bound = false` (DEC-016).
-- A v2 confirmation success would select a **price** candidate pending fresh
-  top-level approval; delta and vega eligibility are decided separately, case
-  by case (DEC-017). Nothing is selected today.
+- The accepted policy `grid_1600x800` covers **price** on 22/22 regular
+  cases, with delta and vega eligibility decided separately, case by case
+  (DEC-017, DEC-025). Gamma is not covered at all.
+- The accepted policy authorizes **labeling only**. The frozen v2 report
+  records `authorizes_dataset_generation = false` and
+  `authorizes_training_input = false`; no dataset and no training input is
+  authorized by it (DEC-014, DEC-025).
+- One v2 stress case, `stress_euro_short_low_vol_atm`, **fails** its price
+  check descriptively (2.9943e-3) with a correspondingly large
+  evaluation-only gamma error. Stress cases decide no selection, and this is
+  retained as honest evidence of a regime where the accepted policy is not
+  accurate — not as a resolved defect.
+- `selection_pending_fresh_top_level_approval = true` in the frozen v2
+  snapshot is **historical and correct** — the report predates the approval.
+  DEC-025 records the approval; the snapshot is never edited to flip it
+  (DEC-027).
 - Task 9C-B's `no_policy_selected` is a **valid, complete negative result**,
   not an unfinished task — it is frozen and never reinterpreted (DEC-003).
 - Every exploratory publication produced so far (9C-C2a, 9C-C2b1
@@ -208,6 +252,17 @@ Task 9C-C3's specific gates:
 - `.claude/skills/` and any additional read-only subagent beyond
   `code-reviewer`/`numerical-reviewer` are planned, not implemented — see
   [agent-system.md](agent-system.md).
+- The v2 fixed-bump check `ladder_within_residual_scale` is a **dead
+  reporting field**: its condition can never fail in either branch, so it
+  never contributed to any verdict. Harmless, and deliberately **not** fixed
+  here — the runner is in the frozen snapshot's executable-source inventory,
+  so editing it would break the provenance reconciliation of terminal
+  evidence. Cleanup belongs to a later, separately versioned study (DEC-027).
+- The v2 snapshot links its consumed remediation report only indirectly
+  (shared `criteria_digest` / `raw_config_sha256`, plus the confirmation
+  report digest). A future schema version may store the consumed
+  remediation-report content digest directly — a forward-looking improvement,
+  not a defect in the frozen result (DEC-027).
 
 ## Artifact/contract map
 
@@ -218,7 +273,7 @@ Task 9C-C3's specific gates:
 | American CRR | [american-crr-contract.md](american-crr-contract.md) | none frozen (cross-check role only) |
 | American LSM | [american-lsm-contract.md](american-lsm-contract.md) | [results/american_lsm_crosscheck_results_v1.json](results/american_lsm_crosscheck_results_v1.json) |
 | PDE oracle / surface / harvest / vega | [pde-numerical-contract.md](pde-numerical-contract.md) | [results/american_pde_label_policy_results_v1.json](results/american_pde_label_policy_results_v1.json) (v1 pilot only; 9C-C1/C2a/C2b1 are exploratory infrastructure with no frozen snapshot) |
-| PDE label policy v2 (task 9C-C3) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) | none — predeclared, not yet run. Its canonical snapshot path is `docs/results/american_pde_label_policy_v2_results_v1.json`; `scripts/freeze_pde_label_policy_v2_results.py --check` correctly fails while it is absent |
+| PDE label policy v2 (task 9C-C3) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) | [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json) — frozen terminal, accepted `grid_1600x800`. Enforced by `scripts/freeze_pde_label_policy_v2_results.py --check` in `scripts/check.sh` and CI, and pinned by `python/tests/test_pde_label_policy_v2_results_snapshot.py` |
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 
 ## New-agent checklist

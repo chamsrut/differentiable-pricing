@@ -105,12 +105,25 @@ American-dominance shape check; Richardson extrapolation was the most accurate
 candidate where the solution is smooth but had unsupported observed order in 11
 of the 28 cases, so it is a reference technique rather than a label policy.
 
-Three consequences bind later work. **No American label policy exists**, so no
-American dataset generation and no American neural training may begin. A
-negative selection is a result, not a licence to relax the criteria that
-produced it. And the pilot's measured cost — thirteen scalar solves per state
-and grid — is why the next milestone (task 9C-C1) is to read a valuation-time
-slice and its delta and gamma out of a single solve, not to buy more cores.
+Three consequences bound later work at the time. **No American label policy
+existed**, so no American dataset generation and no American neural training
+could begin. A negative selection is a result, not a licence to relax the
+criteria that produced it. And the pilot's measured cost — thirteen scalar
+solves per state and grid — is why the next milestone (task 9C-C1) was to read
+a valuation-time slice and its delta and gamma out of a single solve, not to
+buy more cores.
+
+Task 9C-C3 later asked a **new, separately predeclared** question — whether a
+revised stability/shape rule, with v1's four absolute-error caps carried over
+unchanged, can pass the cases v1 failed — and answered it positively: the
+accepted accuracy policy is `grid_1600x800`, externally approved by a fresh
+top-level session ([decision-log.md](decision-log.md) DEC-025). That does not
+reinterpret v1, whose snapshot stays immutable and whose negative selection
+stands. Two limits survive it. The accepted policy covers **labeling only**:
+the frozen report authorizes neither dataset generation nor training input, so
+an American dataset and American neural training are still separately gated and
+have not begun. And no number from either study may be reused as an acceptance
+criterion for a later one.
 
 ## Data protocol
 
@@ -224,6 +237,17 @@ tuning against that dataset.
 - Meeting the task 9C-B accuracy caps at one grid is not a label policy. The
   pilot selected none, and its idealized worker projections are not a
   feasibility claim.
+- An accepted label policy is not an accepted dataset. Task 9C-C3's accepted
+  `grid_1600x800` authorizes labeling within its measured eligibility — price,
+  delta where eligible, vega where eligible, never gamma — and authorizes no
+  dataset generation and no training input.
+- Task 9C-C3's 28 evidence cases are isolated points. They do not validate the
+  surrounding parameter hyperrectangle, and no interpolation between them is
+  licensed. A later generation task predeclares its own domain rather than
+  inheriting one.
+- Task 9C-C3's residual-scale-aware dominance and intrinsic allowances are
+  operational price-error scale estimates, not certified bounds
+  (`is_a_rigorous_bound = false`).
 - A three-session archive audit is a feasibility and identifiability study, not
   a historical market study, and it establishes no calibration capability. No
   dividend amount, borrow rate, or American implied volatility has been

@@ -98,12 +98,39 @@ answered by editing or rerunning this one.
 Task 9C-C3 is that separately versioned study, and it has its own family:
 `configs/pde_label_policy_pilot_v2.toml`,
 `python/src/differentiable_pricing/american/pde_label_policy_v2.py`, and
-`scripts/freeze_pde_label_policy_v2_results.py`, whose snapshot would live at
-`docs/results/american_pde_label_policy_v2_results_v1.json`. **That snapshot
-does not exist yet** — neither v2 stage has been run — so
-`freeze_pde_label_policy_v2_results.py --check` currently fails by design, and
-the tool is deliberately **not** wired into `scripts/check.sh` or CI. Wire it
-in only in the change that first commits a v2 snapshot.
+`scripts/freeze_pde_label_policy_v2_results.py`, whose snapshot lives at
+`docs/results/american_pde_label_policy_v2_results_v1.json`.
+
+**That study is complete.** Both stages ran once, manually; the confirmation
+stage selected the accuracy policy `grid_1600x800`, and a fresh top-level
+independent session returned **APPROVE POLICY AND FREEZE**. Price is selected on
+22/22 numerically valid regular cases, delta is supervision-eligible on 18/22,
+vega on 22/22, and gamma stays evaluation-only at 0/22. The snapshot's SHA-256
+is `75d9402f071323065f8398ccd2cf427e2fb6fa1e663aef90ec7cbcf9c46a1186`, distilled
+from confirmation report
+`f9bf3f8fd636498b09fae20df8e42e976c68d2b70b28fdff20ab93752a7e130e`. The numbers
+are authoritative in [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md),
+"Task 9C-C3: label-policy v2", "Outcome: the accepted v2 result"; the decision
+is recorded in [docs/decision-log.md](docs/decision-log.md) DEC-025.
+
+Because a snapshot now exists to enforce, the tool **is** wired in — the gate
+and CI both run
+
+```bash
+python scripts/freeze_pde_label_policy_v2_results.py --check
+```
+
+once each. The v2 snapshot is frozen evidence under the same rules as every
+other: **never** hand-edit, reformat, regenerate or refresh it, including to
+flip `selection_pending_fresh_top_level_approval`. That field is `true` because
+the report was generated before the external approval existed; it is historical
+and correct, and DEC-025 — not an edit to the file — records that the approval
+happened. `python/tests/test_pde_label_policy_v2_results_snapshot.py` pins the
+digest and the conclusions.
+
+An accepted label policy is **not** an accepted dataset. The frozen report
+authorizes neither dataset generation nor training input, and both remain
+separately gated behind task 9C-C2b2 and a bounded pilot.
 
 That tool always names its mode: `--extract --report R --output S` to distil a
 reviewed terminal report, `--check --output S` to enforce a checked-in one.
@@ -112,8 +139,8 @@ per-case verdict, Greek eligibility, aggregate count and lifecycle field from
 the raw per-solve numbers against the checked-in configuration, and reconcile
 every executable-source digest against the repository. Neither re-solves, so
 neither can authenticate a fully coordinated fabricated numerical report — a
-limitation the snapshot states itself. Both v2 stages are manual,
-terminal-invoked jobs; see
+limitation the snapshot states itself. Both v2 stages were manual,
+terminal-invoked jobs and are not rerunnable; see
 [docs/pde-numerical-contract.md](docs/pde-numerical-contract.md), "Task 9C-C3:
 label-policy v2".
 

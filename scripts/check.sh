@@ -33,6 +33,10 @@ python3 scripts/plot_european_replication_results.py --check
 # Both checks use only checked-in files, so they pass with artifacts/ absent.
 python3 scripts/freeze_american_lsm_results.py --check
 python3 scripts/plot_american_lsm_results.py --check
+# The task 9C-C3 v2 snapshot's designated validator. It recomputes every verdict
+# from the snapshot's own numbers against the checked-in configuration and never
+# reads the ignored raw confirmation report, so it passes with artifacts/ absent.
+python3 scripts/freeze_pde_label_policy_v2_results.py --check
 
 if command -v ruff >/dev/null 2>&1; then
     ruff check python scripts .claude/hooks
