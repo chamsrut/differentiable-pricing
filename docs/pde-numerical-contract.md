@@ -1447,3 +1447,680 @@ rate and an upwinded grid — price and every reported diagnostic printed at ful
 precision — and on the unchanged task 9C-A regression suites. Rerunning the
 pilot to refresh provenance is not permitted: protocol-wise its partition was
 consumed once, and its outcome is terminal.
+
+
+## Task 9C-C3: label-policy v2
+
+Task 9C-B met every predeclared absolute-error cap at 1600x800 and still
+refused to select a policy, on two kinds of check that are **not** error caps:
+bump-ladder movement of the *reference* delta and vega, and one
+American-dominance violation whose size was the solver's own accumulated PSOR
+residual. Task 9C-C3 predeclares a separate, one-shot answer to both. It is a
+new versioned study, not a rerun: `configs/pde_label_policy_pilot_v1.toml`,
+`python/src/differentiable_pricing/american/pde_label_policy.py` and
+[results/american_pde_label_policy_results_v1.json](results/american_pde_label_policy_results_v1.json)
+are read-only here and are byte-unchanged by it (decision log DEC-003).
+
+**This section is the predeclaration. No v2 remediation or confirmation run has
+been executed, and no v2 snapshot exists under `docs/results/`.** The
+implementation delivers the versioned configuration
+(`configs/pde_label_policy_pilot_v2.toml`), the criteria, eligibility rules and
+lifecycle (`python/src/differentiable_pricing/american/pde_label_policy_v2.py`),
+the freeze/check tool (`scripts/freeze_pde_label_policy_v2_results.py`) and
+their tests, and nothing else.
+
+### The locked protocol
+
+- Ten remediation cases execute: the five v1 grid_1600x800 regular failures,
+  three smooth regression controls (`regular_euro_atm_put`,
+  `regular_euro_deep_itm_call_long_high_vol`,
+  `regular_euro_deep_otm_put_long`), and the two declared anchors.
+- **Nine regular cases decide pass/fail.**
+  `stress_american_put_exercise_boundary` is mandatory descriptive/anchor
+  evidence and never gates.
+- `selection_order = ["grid_1600x800"]`. There is exactly one candidate.
+- `grid_800x400` is an **order probe only** and can never be selected.
+- Richardson stays **reference/validation-only** (DEC-010).
+- The four v1 absolute-error caps are unchanged: price $5\times10^{-4}$, delta
+  $10^{-3}$, gamma $2\times10^{-4}$, vega $5\times10^{-2}$ per unit
+  volatility.
+- **Gamma is evaluation-only and never gates.** Its error is published; it
+  enters no pass/fail decision and no row is gamma-supervision-eligible
+  (DEC-009).
+- The 6400x3200 anchor rung is retained, for the two declared anchor cases, as
+  descriptive evidence that gates nothing.
+- Shape uses **D2**: one European dominance control, solved at the centre spot
+  only, on the candidate grid, at the base volatility.
+- A regular-case **price-critical** failure fails the candidate. An anchor-rung
+  failure and any stress-case failure are descriptive.
+- **Task 9C-C3 authorizes no dataset and no training input**, whichever way it
+  resolves. `AUTHORIZED_TRAINING_INPUT_STATUSES` is empty.
+
+The 28 confirmation case states are byte-for-byte the v1 design's case states.
+
+### The price reference: raw 3200x1600 centre node, unconditional
+
+This is a frozen v2 design decision and differs deliberately from v1.
+
+- **Candidate price:** the exact-node centre value of the 1600x800 base
+  surface.
+- **Price reference:** the exact-node centre value of the **raw** 3200x1600
+  base surface. `price_reference_method = "raw_grid_3200x1600_center"`, pinned
+  in the configuration, in the criteria digest, and rejected at parse time and
+  at report-verification time if it differs.
+- **No price Richardson extrapolation exists, and no conditional
+  price-reference fallback exists.** There is one branch.
+- **`grid_800x400` is price-irrelevant.** It is solved only to estimate the E2
+  delta observed order; its centre price enters no price quantity, and tests
+  assert that changing it leaves the price block, the gating checks and both
+  eligibility verdicts bitwise unchanged, while changing its stencil delta
+  moves the observed order and nothing else.
+- **Richardson remains a validation and reference technique** for the E2
+  grid-stencil delta reference and for the explicitly descriptive anchor
+  diagnostics, and only there (DEC-010). `richardson_contract` publishes
+  `applies_to_price_reference = false`.
+- **The 6400x3200 anchor stays descriptive** and can never veto ordinary price
+  selection; a test asserts that moving the anchor price leaves the price block
+  unchanged.
+- All four v1 absolute caps remain unchanged.
+
+v1's reference *was* selectively Richardson-extrapolated; that historical
+statement belongs to task 9C-B and is not v2's rule.
+
+### Everything material is pinned in the parser
+
+The configuration is not merely validated for shape; every material fixed
+value is compared against a module constant and rejected if it moved. That
+covers the 28 case states **and their order** (through a pinned
+`case_design_digest`), the exact ten remediation cases, the exact nine gate
+cases, the two anchors, the five v1 failures and the three smooth controls,
+every grid name/dimension/role, `selection_order`, the order band, the $K$
+construction and its scheme version, the shape floor, the four caps, the
+four canonical protocol strings (`study.name`, `delta_method`, `vega_method`
+and `price_reference_method` — module constants the report is *built from*,
+never free descriptive text), the
+solver's residual settings and PSOR iteration ceiling, the E1 and E2
+convention strings, gamma's evaluation-only status, the D2 dominance control,
+Richardson's validation-only role, the reporting-only status of
+`contract_multiplier`, the identity status of `settlement`, the lifecycle
+vocabulary, and the anti-approval fields
+(`selection_requires_fresh_top_level_approval`,
+`authorizes_dataset_generation`, `authorizes_training_input`). Unknown and
+missing keys are both errors, in every table.
+
+### Exact nodes only, and one solve per grid
+
+Every configured centre spot and every configured bumped spot must be an
+**exact interior node** of every grid the study runs, on all four rungs,
+checked at parse time and again bitwise against the returned node vector.
+Nothing is interpolated and nothing is clamped.
+
+That is what lets one base surface per grid supply the centre price, the
+nodewise stencil delta and gamma, **and** every spot-bumped price: the bumped
+spots are nodes of the same solve. There is no scalar centre solve and no
+spot-bump duplication. Per case: one base surface per grid, six
+volatility-bumped surfaces on the candidate grid, two on the reference grid,
+one European dominance control for an American case, and one anchor surface
+for an anchor case.
+
+The stage therefore attempts **116** surface solves in remediation and **323**
+in confirmation, **439** across a successful two-stage path. Every report
+publishes a `solve_accounting` block — planned, attempted, completed, solver
+exceptions, backward inductions, implicit linear solves, PSOR solves, total
+PSOR iterations, counts by solve role, by criticality and by case class — with
+three reconciliation identities that must hold:
+`planned == attempted`,
+`attempted == completed + exceptions`, and
+`backward_inductions == completed`.
+
+### E1: fixed-bump delta and vega validation
+
+Let $D(h)$, $D(2h)$, $D(4h)$ be the candidate's centered fixed-bump estimate of
+one Greek on the strict geometric ladder $(h,2h,4h)$. Write
+
+$$
+\Delta_{\text{small}}=|D(h)-D(2h)|,\qquad
+\Delta_{\text{large}}=|D(2h)-D(4h)|,
+$$
+
+$$
+K=\frac{1}{1-2^{-1.5}}\approx 1.5469,\qquad
+p=\log_2\!\frac{\Delta_{\text{large}}}{\Delta_{\text{small}}}.
+$$
+
+The reference is a refined estimator using **the same primary bump
+convention**, so its finite-bump truncation and the candidate's are the same
+quantity and are charged **once**: one combined budget,
+
+$$
+\text{reference absolute error}+\text{bias charge}\le\text{unchanged Greek cap}.
+$$
+
+**Each ladder increment carries its own tolerance**, because the rungs it is
+built from have different estimator error scales.
+
+**Delta.** With $E=M_{\text{base}}R_{\text{base}}$ — the base surface's time
+steps times its **absolute** `maximum_lcp_residual` — the centered difference
+at bump $b$ has error scale $E/b$, so
+
+$$
+\varepsilon^{\Delta}_{\text{small}}=\frac{E}{h}+\frac{E}{2h}=\frac{3E}{2h},
+\qquad
+\varepsilon^{\Delta}_{\text{large}}=\frac{E}{2h}+\frac{E}{4h}=\frac{3E}{4h}.
+$$
+
+The bumped prices come from one shared surface, and **no cancellation between
+its node errors is claimed**: the tolerance adds the two rung error scales.
+
+**Vega.** With
+
+$$
+\mathrm{err}(b)=\frac{M_{\downarrow,b}R_{\downarrow,b}+M_{\uparrow,b}R_{\uparrow,b}}{2b},
+$$
+
+$$
+\varepsilon^{\nu}_{\text{small}}=\mathrm{err}(h)+\mathrm{err}(2h),\qquad
+\varepsilon^{\nu}_{\text{large}}=\mathrm{err}(2h)+\mathrm{err}(4h).
+$$
+
+Every sigma-down and sigma-up solve on the ladder — six on the candidate grid
+— is solved, published and enters the tolerance explicitly.
+
+Two branches:
+
+- **Resolved** — at least one increment exceeds its own tolerance. Then $p$ is
+  meaningful and is required to lie in $[1.5,2.5]$; an undefined, non-finite or
+  zero-denominator $p$ can never satisfy it. The bias charge is
+  $K\,\Delta_{\text{small}}$.
+- **Flat** — both increments sit within their own tolerances. $p$ is a ratio of
+  noise and decides nothing; the bias charge is
+  $K\,\varepsilon_{\text{small}}$.
+
+If $K\varepsilon_{\text{small}}$ exceeds the Greek cap, the solver's own noise
+floor already exceeds the cap the check is written against. That is recorded as
+`numerically_invalid_residual_scale`. It denies **that Greek** and never
+vetoes the price policy.
+
+Published per case and quantity: branch, $p$ when defined,
+$\Delta_{\text{small}}$, $\Delta_{\text{large}}$, both epsilons, the bias
+charge, the reference error, the combined error, the cap, and the verdict.
+
+### E2: production grid-stencil delta validation
+
+The production delta is the **nodewise grid-stencil delta** read off the
+candidate surface at the exact centre node — the task 9C-C1 estimator.
+
+- **Candidate:** the nodewise stencil delta on `grid_1600x800`.
+- **Reference:** the grid-Richardson of the 1600/3200 stencil deltas.
+- **Order:** measured from the 800/1600/3200 stencil deltas; required in
+  $[1.5,2.5]$.
+- **Single rule:**
+  $|\text{candidate}-\text{reference}|\le\text{delta absolute error cap}$.
+
+**No bump-bias charge is added**, because the grid-stencil reference converges
+toward the mathematical derivative. An unsupported order names
+`grid_stencil_observed_order_unsupported`; a violated rule names
+`grid_stencil_absolute_error_exceeds_cap`. Either makes delta ineligible.
+
+### Dominance and intrinsic: operational scale estimates, not bounds
+
+Both use the **absolute** `maximum_lcp_residual`:
+
+$$
+\text{dominance scale}=M_{\text{A}}R_{\text{A}}+M_{\text{E}}R_{\text{E}},\qquad
+\text{intrinsic scale}=M_{\text{A}}R_{\text{A}},
+$$
+
+$$
+\text{allowance}=\max(\text{shape absolute floor},\ \text{corresponding scale}).
+$$
+
+If the corresponding scale exceeds the **price** cap, the case records
+`residual_scale_exceeds_price_cap`, the allowance is **never widened past the
+price cap**, and the check itself fails. These apply only to
+`american_dominance` and `american_intrinsic_bound`, are **operational
+price-error scale estimates**, and every report publishes
+`is_a_rigorous_bound = false`.
+
+### Role-aware decisions: what a failure is allowed to veto
+
+Every solve is classified, and a failure only ever propagates to the decisions
+its role supports.
+
+| Solve | Criticality |
+|---|---|
+| `grid_1600x800/base`, `grid_3200x1600/base`, `grid_1600x800/european_dominance_control` | `price_critical` |
+| `grid_800x400/base` | `delta_only` |
+| `grid_1600x800/volatility_*`, `grid_3200x1600/volatility_*` | `vega_only` |
+| `grid_6400x3200/base` | `anchor_descriptive` |
+| every solve of a stress case | `stress_descriptive` |
+
+The 800/1600/3200 solves that validate the candidate/reference protocol are
+therefore distinguished from the extra descriptive 6400 anchor rung.
+
+**A price-policy failure on a gate-eligible regular case** is any of: a
+candidate/base price-solve failure; a failure of a solve needed to construct
+the price reference; a centre European dominance-control failure; the
+candidate price error above its cap; a price shape/bounds failure; a
+non-finite, identity-mismatched or non-exact-node failure on a price-critical
+solve; or a price-critical residual scale above the price cap.
+
+**Delta-only ineligibility:** delta E1 failure; delta E2 failure or an
+unsupported stencil order; a delta-specific residual-scale failure; a
+delta-specific auxiliary (order-probe) solve failure;
+$K\varepsilon^{\Delta}_{\text{small}}$ above the delta cap.
+
+**Vega-only ineligibility:** vega E1 failure; structural C1 ineligibility; a
+vega availability failure; a base/down/up regime mismatch; a vega convention or
+bump mismatch; a sigma auxiliary solve failure; a vega-specific residual-scale
+failure; $K\varepsilon^{\nu}_{\text{small}}$ above the vega cap.
+
+**A Greek-specific failure never vetoes an otherwise valid price policy.** An
+anchor-rung failure is descriptive: it records
+`anchor_evidence_complete = false` plus the failure, and vetoes nothing. A
+failure anywhere in the stress case is descriptive and never reaches the gate.
+Gamma remains descriptive throughout.
+
+An executable truth table covering every row above is asserted in
+`python/tests/test_pde_label_policy_v2.py`.
+
+### Structural C1 eligibility is common to both Greeks
+
+The centre node's task 9C-C1 `greek_eligible` flag is part of the **common**
+structural predicate. A row with `centre_greek_eligible = false` is delta
+**and** vega ineligible; its price is unaffected unless an independent price
+criterion fails. An uncertified regime makes a bumped price difference at that
+node as uninterpretable as a stencil difference — this is a correction to an
+earlier draft in which C1 constrained delta only.
+
+Beyond C1, delta requires
+$M_{\text{base}}R_{\text{base}}/\text{spot step}\le$ delta cap, and vega
+requires
+$(M_{\downarrow}R_{\downarrow}+M_{\uparrow}R_{\uparrow})/(2\eta)\le$ vega cap,
+numerical availability, equal base/sigma-down/sigma-up exercise states, and a
+vega convention whose bumped volatilities equal the planned ones **bitwise** —
+the bump is never recovered by differencing two volatilities, because
+$(\sigma_\uparrow-\sigma_\downarrow)/2$ is not exactly $\eta$ in float64.
+
+`contract_multiplier` is **not** part of the pricing/grid identity and not part
+of any eligibility predicate. `settlement` **is** part of the contract
+identity.
+
+### Solver exceptions are data, not control flow
+
+Each solve is wrapped individually. An exception thrown by the binding is
+caught and recorded as a structured failure carrying the case, the grid/rung,
+the solve role, the option and exercise type, the exception class, a sanitized
+single-line message with repository paths redacted, and the solve's
+criticality. **The stage then continues**, so a complete report is always
+emitted and the accounting still reconciles. `KeyboardInterrupt`, `SystemExit`
+and `MemoryError` are re-raised rather than recorded.
+
+The outcomes, by role: a regular price-critical exception fails the price
+candidate; a regular vega-auxiliary exception makes vega ineligible only; a
+delta-auxiliary (order-probe) exception makes delta ineligible only; an extra
+6400 anchor exception is descriptive; any stress-case exception is
+descriptive. Tests inject a throwing fake solver, not merely a returned
+non-converged record.
+
+### Lifecycle: exactly three supported states
+
+| # | stage | remediation_status | confirmation_status | terminal | freezable | selection |
+|---|---|---|---|---|---|---|
+| 1 | `remediation` | `failed` | `not_run` | yes | yes | `no_policy_selected`, reason `remediation_failed` |
+| 2 | `remediation` | `passed` | `pending` | no | **no** | **no selected-policy field at all** |
+| 3 | `confirmation` | `passed` | `run` | yes | yes | `no_policy_selected`, or `grid_1600x800` pending fresh top-level approval |
+
+There is no fourth state, and the freeze tool refuses state 2.
+
+### Evidence JSON is parsed strictly
+
+Every JSON read on the task 9C-C3 evidence path goes through one shared strict
+loader — the confirmation stage's remediation report, the freeze tool's report
+read, and both snapshot reads under `--extract` and `--check`.
+
+- **Duplicate object keys are refused inside the parser**, at every nesting
+  depth and inside objects nested in arrays, via `object_pairs_hook`. This
+  cannot be delegated to canonical re-serialisation: ordinary parsing keeps
+  only the *last* value of a repeated key, so by the time anything downstream
+  looks at the document one value has already been discarded. The error names
+  the duplicated key and its path — the offending objects are remembered by
+  identity during parsing and their paths recovered by one top-down walk.
+- **`NaN`, `Infinity` and `-Infinity` are refused.** They are Python
+  extensions to JSON, not JSON, and `json` accepts them by default.
+
+The refusal happens before `run_stage`, before any solver call, before
+snapshot extraction, before snapshot writing and before any canonical-text
+comparison. Tests inject duplicates into the **serialized file** — a Python
+dict cannot express one — and assert that sentinel `run_stage` and solver call
+counts stay empty and that no snapshot file is written.
+
+### Exact recursive type validation
+
+Before any `SurfaceSolve`, case object or confirmation decision is
+constructed, the whole serialized document is validated against a centralized
+exact schema: `REPORT_SCHEMA` in the runner and `SNAPSHOT_SCHEMA` in the freeze
+tool, both built from the same small combinator set.
+
+The rules are deliberately narrow, and none of them is a truthiness, an
+arithmetic operation, a canonical comparison or an `isinstance` call —
+**`bool` is a subclass of `int` in Python**, so `isinstance(True, int)` is
+true and would let a JSON `1` masquerade as a flag:
+
+| Kind | Rule |
+|---|---|
+| Boolean | `type(value) is bool` — `1` and `0` are rejected |
+| Integer | `type(value) is int`, never `bool`, with range bounds |
+| Real | `type(value) in (int, float)`, never `bool`, finite, with range bounds |
+| String | `type(value) is str`, non-empty by default, plus exact enum vocabularies |
+| Array | `type(value) is list`, every element validated recursively |
+| Object | `type(value) is dict` with its **exact** key set, every leaf validated |
+| Null | accepted only under an explicit `NullableSpec` |
+
+No value is ever coerced. Coverage is exhaustive over every raw `SurfaceSolve`
+field, the solve diagnostics and accounting fields, solve-failure records,
+check records, every case-result field, the eligibility blocks and their
+reason arrays, both fixed-bump records, the grid-stencil record, the price and
+shape blocks, the stage outcome, `performance`, and every snapshot
+study/provenance/criteria/outcome/accounting/case field — including every
+nested list member and enum string. The unavailable fixed-bump record now
+publishes its whole key set with explicit nulls, so a record's serialized
+shape is uniform and the schema can demand it exactly rather than tolerate
+absent keys.
+
+Errors name the path, the expectation and the observation, for example
+`cases[1].solves[0].centre_greek_eligible: expected boolean, observed int 1`.
+
+Two schema-driven mutation tests walk **every distinct serialized position** of
+a valid remediation report and of a valid snapshot, substitute an incompatible
+type at each (a `bool` becomes `1`, an `int` becomes `true`, a `null` becomes
+an object, and so on), and require every one to be rejected. They assert a
+floor on the number of positions visited, so a future field that the schema
+forgets shows up as a failure rather than as silence.
+
+### Key closure: no map means "arbitrary string keys"
+
+Exact types are not enough on their own: a JSON object whose keys are open
+admits fabricated entries even when every value is well typed. Every map in
+both schemas is therefore classified and constrained.
+
+| Map | Class | Constraint |
+|---|---|---|
+| `cases[].solves[].bumped_prices` | context-derived | static vocabulary of the six canonical spot-bump keys, then the **exact** subset that solve's role requires |
+| `cases[].solve_criticality` | context-derived | keys restricted to the criticality vocabulary, then exactly the classes that case's plan produces |
+| `cases[].solve_problems` | context-derived | `<grid>/<role>` syntax, then **exactly** the problems that case's raw solve and failure records imply |
+| `solve_accounting.attempted_by_solve_role` | context-derived | `<grid>/<role>` syntax, then exactly the stage's plan keys |
+| `solve_accounting.attempted_by_criticality` | context-derived | criticality vocabulary, then exactly the classes present |
+| `solve_accounting.attempted_by_case_classification` | context-derived | `regular` / `stress`, then **exactly** the per-classification planned-solve counts |
+| `stage_outcome.failed_checks_by_name` | context-derived | the gating-check vocabulary, then **exactly** the failing gate-eligible cases per check |
+| snapshot `outcome.failed_checks_by_name`, `attempted_by_case_classification`, `attempted_by_criticality` | enum-keyed subset | the exact set is fixed by the snapshot's own full recomputation |
+| snapshot `attempted_by_solve_role` | context-derived | `<grid>/<role>` syntax, then exactly the stage's plan keys |
+
+**No map is genuinely free-form.** An audit test enumerates every `MapSpec` in
+both schemas and fails unless it carries an explicit key constraint *or* is
+registered in `CONTEXTUAL_MAP_PATHS` with a contextual validator behind it.
+The same audit, run against the pre-fix `bumped_prices` spec, reports it as
+unbounded — which is how the defect is now prevented from recurring.
+
+**A key constraint alone is not sufficient when the contents are derivable.**
+Bounding a vocabulary still admits a valid-vocabulary key carrying a
+fabricated value, and still admits the removal of a key that had to be there.
+Every report map whose exact contents follow from the configuration and the
+raw records is therefore listed in `EXACTLY_DERIVABLE_MAP_PATHS`, which the
+module requires to be a subset of `CONTEXTUAL_MAP_PATHS`; a second audit test
+fails any such map that is merely key-bounded. After this closure, every map
+in the report schema is exactly reconciled, none is merely bounded.
+
+Three of them are reconciled against derivations shared with the aggregate
+recomputation rather than reimplemented:
+
+| Map | Canonical rule | Shared derivation |
+|---|---|---|
+| `cases[].solve_problems` | one entry per *planned* solve that has at least one problem, sorted by key, value sorted; a problem-free solve is omitted, never published as an empty list | `raw_solve_problems`, over `solve_record_problems` per planned role |
+| `stage_outcome.failed_checks_by_name` | one entry per gating check at least one *gate-eligible* case failed, sorted by name, value the sorted failing case names; gate eligibility comes from the configuration, never from the row's own claim; a check nobody failed is omitted | `raw_failed_checks_by_name` |
+| `solve_accounting.attempted_by_case_classification` | one entry per classification the stage actually covers, sorted, value the number of solves the configuration plans for those cases; an uncovered classification is omitted, never published as zero | `raw_attempted_by_case_classification` |
+
+`evaluate_case`, `stage_outcome` and `solve_accounting` call the same three
+functions, so there is one implementation of these semantics, not two that can
+drift. A test asserts the helper output equals the recomputed aggregate for all
+four lifecycle variants. The full admission order is: strict JSON parse →
+recursive static schema → raw-record contextual exact reconciliation →
+dataclass construction → aggregate recomputation → confirmation admission and
+`run_stage`. Sentinel tests wrap `surface_solve_from_record`, `run_stage` and
+`pde_valuation_surface` and require all three call lists to stay empty for
+every one of these mutations.
+
+`bumped_prices` is the sharpest case, because the required set genuinely
+differs by role:
+
+| Solve role | Required `bumped_prices` keys |
+|---|---|
+| `grid_1600x800/base`, `grid_3200x1600/base` | all six: `spot_0.5_{down,up}`, `spot_1_{down,up}`, `spot_2_{down,up}` |
+| `grid_800x400/base`, `grid_6400x3200/base` | none |
+| `grid_1600x800/volatility_*`, `grid_3200x1600/volatility_*` | none |
+| `grid_1600x800/european_dominance_control` | none |
+
+The static schema restricts keys to the canonical six, derived from the pinned
+bump ladder; `validate_report_context` then requires the exact subset for that
+solve's grid and role, and errors name the solve path, its grid and role, the
+unexpected and missing keys, and the expected set. Contextual validation runs
+at the admission boundary — immediately after the static schema and **before**
+any `SurfaceSolve` is constructed, any stage is run and any solver is called —
+and is repeated immediately before construction in `_rebuild_case_inputs`, so
+no extra map entry can reach `surface_solve_from_record`.
+
+### Digests are typed as digests
+
+Every field that is a digest is typed as one, not as an unrestricted string:
+plain `sha256` fields require 64 lowercase hex characters, and each prefixed
+identity requires its own prefix — `crit-`, `cases-`, `src-`, `pg-`, `vega-` —
+followed by 64 lowercase hex characters. That covers the ten
+executable-source digests, the raw-config and report digests, the three
+`reported_binding_pde_*_sha256` fields, the criteria and case-design digests
+in the report, the criteria block, the lifecycle and the snapshot, the
+executable-source composite digest, every solve's `pricing_grid_identity`, and
+both vega convention identities.
+
+A name-based audit sweeps every schema position whose field name ends in
+`_sha256` or `_digest`, or is a known identity, and fails if it is not typed
+as a digest — so a future digest field added as a plain string is a failing
+test rather than a silent hole. Parametrized mutation tests replace every one
+of those fields, in both the report and the snapshot, with a non-digest, 63
+hex characters, 65 hex characters, uppercase hex, non-hex characters, an
+integer, a null (where not nullable) and a wrong prefix, and require rejection
+at the schema boundary.
+
+### Systematic object-key closure
+
+Beyond type mutation, both schemas are swept for key closure. For every
+distinct **structural** object position — array records are keyed by their
+discriminator, so a solve is distinguished by grid and role, a case by
+classification/gate-eligibility/anchor/failure shape, a failure by criticality,
+a grid by name, rather than collapsed by index — the sweep adds an unexpected
+key and, separately, removes each required key one at a time, and requires
+every mutation to be rejected. It runs over all four report lifecycle variants
+(remediation-passed, remediation-failed, confirmation-passed,
+confirmation-failed) and all three terminal snapshot variants. Anything the
+schema and contextual pass admit is re-checked through the full authoritative
+path, so a removal inside a legitimately subset-keyed map is still caught by
+aggregate recomputation.
+
+### Confirmation entry is authoritative and semantic
+
+Confirmation does **not** trust the six lifecycle fields of the remediation
+report it is handed. Before any solve, `require_confirmation_entry`:
+
+1. requires the exact report schema and rejects unknown, missing, duplicated or
+   retyped fields **at every level**, not merely the top: `study`,
+   `conventions`, `criteria_block`, `validation_rules` (and each of its
+   `fixed_bump`, `grid_stencil`, `price` and `shape` sub-objects),
+   `eligibility_contract`, `richardson_contract`, `predeclared_criteria`,
+   `solver`, every `grids[]` record, and every case, solve, failure and check
+   record. Each config-derived section is rebuilt from the configuration and
+   compared as a whole canonical payload, which is strictly stronger than a key
+   set. `performance` is the one runtime section, and it gets an exact key set
+   plus per-field type and range checks;
+2. validates the source/provenance block and reconciles the **whole executable
+   source inventory** against the repository files;
+3. verifies `raw_config_sha256` and the criteria digest against the
+   externally supplied checked-in configuration, and rebuilds the entire
+   `criteria_block` from it;
+4. requires every expected case, in order, with its exact required solve roles,
+   rejecting a missing, duplicated, renamed or unexpected case;
+5. **recomputes every per-case check from the raw per-solve numbers** by
+   re-running the same `evaluate_case` the runner ran, then recomputes price
+   verdicts, delta eligibility, vega eligibility, gate counts, the aggregates,
+   the solve accounting, `remediation_status` and `confirmation_status`;
+6. requires the *recomputed* result to be `passed`/`pending`.
+
+A report whose lifecycle claims `passed`/`pending` while its own case rows
+imply `failed`/`not_run` is rejected **before the solver is called at all** —
+asserted by a test that keeps a recording solver and requires its call list to
+stay empty.
+
+**Stated honestly:** semantic verification detects an inconsistent or partial
+mutation, including one whose file hashes were regenerated. Without a
+signature or a re-solve it **cannot** authenticate a fully coordinated
+fabricated numerical report, and neither the confirmation gate nor the freeze
+tool re-solves.
+
+### The freeze tool recomputes rather than trusts
+
+`scripts/freeze_pde_label_policy_v2_results.py` names its mode explicitly.
+`--extract` runs the same authoritative verification above against the
+checked-in configuration, additionally requires a **terminal** lifecycle state,
+and only then distils the snapshot. `--check` revalidates the checked-in
+snapshot: exact keys everywhere, all fixed thresholds and roles (not only the
+four v1 caps) against the configuration, the exact ten-execution and nine-gate
+case sets, the recomputed criteria digest, the runner and every executable
+shared-source digest reconciled against repository files, and **every published
+aggregate recomputed from the lowest-level rows**. The plan comes from the
+configuration; the per-role, per-criticality and per-case-class breakdowns are
+pure functions of the configuration and the case list; solver-exception counts
+come from each row's own failure records; completed solves and backward
+inductions follow from the accounting identities; and the three engine totals —
+implicit linear solves, PSOR solves and PSOR iterations — come from minimal
+immutable per-case fields the extractor derives from the raw solves, precisely
+so that no retained aggregate is underivable. `failed_checks_by_name`, the
+gating and descriptive failure counts, every verdict total and every
+eligibility total are recomputed the same way, and each distilled row is
+cross-checked against the caps and order band so a fabricated boolean or error
+contradicts something. **A missing snapshot fails.** Mutation tests cover a
+fabricated `price.absolute_error`, an unknown case key, a changed
+`shape_absolute_floor`, a changed order bound, a flipped gate boolean, a
+removed and a duplicated case, an altered lifecycle and an altered source
+digest — each with hashes regenerated. The coordinated-rewrite limitation
+above applies here too: the freeze tool does not re-solve.
+
+### Executable-source provenance
+
+Every report and snapshot records an individually named digest for each source
+the runner and freeze path rely on — the v2 runner, the v2 freeze script, the
+v1 label-policy module the v2 formulas were written against, the
+`pde_surface_harvest` module supplying `canonical_payload`, the package
+`__init__`, the PDE header, the PDE implementation, the Python binding source,
+and **`cpp/include/dp/option.hpp` and `cpp/src/option.cpp`** — plus one
+canonical composite digest over the whole inventory. Both the
+confirmation-entry validator and the freeze tool reconcile every one of them
+against the repository files, and a missing inventory file is an error: the v2
+study is a source-checkout study.
+
+The include graph of the PDE path was walked to confirm the inventory is
+complete. Its first-party closure is exactly five files —
+`bindings/python/pde_module.cpp` (which includes `dp/finite_difference_pde.hpp`
+and `dp/option.hpp`), `cpp/include/dp/finite_difference_pde.hpp` (which
+includes `dp/option.hpp`), `cpp/src/finite_difference_pde.cpp`,
+`cpp/include/dp/option.hpp` (standard headers only) and `cpp/src/option.cpp`.
+Every other include on that path is a C++ standard header. That closure is
+`PDE_INCLUDE_CLOSURE` in the runner, and a test re-walks the `#include "dp/..."`
+edges to prove no first-party edge escapes the inventory.
+
+Two facts about the build are recorded rather than silently folded in. `_pde`
+links the whole `dp_core` archive, which also compiles `binomial_tree.cpp`,
+`black_scholes.cpp`, `least_squares_monte_carlo.cpp` and `smooth_mlp.cpp`;
+none is reachable from the PDE path's include graph and the PDE path calls no
+symbol they define, so they are deliberately outside the inventory. And
+`CMakeLists.txt` selects what is compiled but is build definition rather than
+executable source, so it is likewise outside it. Both are stated limits, not
+oversights.
+
+**These digests do not prove the loaded `_pde` extension binary was built from
+those sources.** No such proof exists in this repository. The binding's own
+build-time digests are recorded separately, under `reported_binding_*`, and
+are self-reported by the build.
+
+### One-shot enforcement, stated honestly
+
+The stage CLI has **no `--overwrite` flag**. It refuses to run into a nonempty
+output directory, and the freeze tool refuses to overwrite an existing
+snapshot without `--update`. Both are **best effort**: a second run in another
+directory or another clone cannot be detected from inside the runner. One-shot
+status is **procedural, provenance-backed and independently reviewed**, and
+the lifecycle block says so
+(`one_shot_enforcement = procedural_and_provenance_backed`).
+
+### Manual run protocol
+
+Both stages are manual, terminal-invoked jobs (`AGENTS.md`, "No
+agent-supervised expensive numerical runs"). No hook, CI job or agent may
+launch or schedule either one.
+
+```bash
+python -m differentiable_pricing.american.pde_label_policy_v2 \
+  --config configs/pde_label_policy_pilot_v2.toml \
+  --stage remediation \
+  --output-directory artifacts/pde-label-policy-v2-remediation
+
+python -m differentiable_pricing.american.pde_label_policy_v2 \
+  --config configs/pde_label_policy_pilot_v2.toml \
+  --stage confirmation \
+  --remediation-report artifacts/pde-label-policy-v2-remediation/report.json \
+  --output-directory artifacts/pde-label-policy-v2-confirmation
+```
+
+Freezing a **remediation-terminal** outcome (remediation failed) uses the
+remediation report:
+
+```bash
+python scripts/freeze_pde_label_policy_v2_results.py \
+  --extract \
+  --report artifacts/pde-label-policy-v2-remediation/report.json \
+  --output docs/results/american_pde_label_policy_v2_results_v1.json
+python scripts/freeze_pde_label_policy_v2_results.py --check
+```
+
+Freezing a **confirmation-terminal** outcome uses the confirmation report:
+
+```bash
+python scripts/freeze_pde_label_policy_v2_results.py \
+  --extract \
+  --report artifacts/pde-label-policy-v2-confirmation/report.json \
+  --output docs/results/american_pde_label_policy_v2_results_v1.json
+python scripts/freeze_pde_label_policy_v2_results.py --check
+```
+
+The snapshot filename `american_pde_label_policy_v2_results_v1.json` is the
+canonical one and is identical in the script's default, in this document, in
+`CONTRIBUTING.md` and in the PR 2 plan.
+
+### Stated limits of this evidence
+
+Published verbatim in every v2 report:
+
+- **Validation reference errors and observed orders are unavailable per
+  production row.**
+- **A one-bump production row cannot re-estimate its own vega bump bias.**
+- **The 28 evidence cases do not validate their surrounding hyperrectangle.**
+- **Task 9C-C2b2 must separately predeclare its own generation domain.**
+- **No dataset and no training input is authorized by task 9C-C3.**
+- Semantic verification cannot authenticate a fully coordinated fabricated
+  numerical report.
+- One-shot enforcement is best effort and procedural.
+- Source digests do not prove the loaded binary's provenance.
+
+### Not implemented by the task 9C-C3 predeclaration change
+
+The remediation run; the confirmation run; any v2 result snapshot; any change
+to `scripts/check.sh` or CI; parallel or resumable generation; dataset
+generation; neural training; any change to the C++ engine or its bindings; any
+change to `pde_surface_harvest`. **Task 9C-B remains `no_policy_selected`.**

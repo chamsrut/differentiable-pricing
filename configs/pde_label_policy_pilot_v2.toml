@@ -1,0 +1,654 @@
+# Task 9C-C3 PDE label-policy v2.
+#
+# Every criterion, grid role, bump ladder, lifecycle rule and case below is
+# predeclared before the first v2 solve and is never revised inside task
+# 9C-C3 after a result has been observed. `configs/pde_label_policy_pilot_v1.toml`
+# is read-only for this task and is never edited; the four v1 absolute-error
+# caps are carried over unchanged and deliberately, and every other criterion
+# here is new. The rationale for each is in docs/pde-numerical-contract.md,
+# "Task 9C-C3: label-policy v2".
+#
+# The 28 case states below are byte-for-byte the v1 design's case states, so
+# the confirmation set is the unchanged 28-case set. `case_design_digest`
+# below pins them, in order, against a constant in the runner: a replaced
+# anchor, a reordered case, or an edited case state is rejected at parse time.
+
+schema_version = "pde-label-policy-pilot-v2/1"
+
+[study]
+name = "pde-label-policy-pilot-v2"
+engine = "dp::finite_difference_price/v1"
+surface_engine = "dp::finite_difference_valuation_surface/v1"
+price_units = "currency_per_share"
+delta_method = "grid_stencil_primary_with_fixed_bump_validation"
+vega_method = "centered_volatility_bump_from_separate_surfaces"
+# The frozen v2 price-reference rule: the raw exact-node centre value of the
+# 3200x1600 base surface. Unconditional. There is no price Richardson
+# extrapolation and no conditional price-reference fallback; grid_800x400 is
+# used only to estimate the E2 delta observed order.
+price_reference_method = "raw_grid_3200x1600_center"
+curve_construction = "flat_continuously_compounded_from_case_rate"
+# One candidate only. grid_800x400 is an order probe and can never be
+# selected; Richardson is reference/validation-only (decision log DEC-010).
+selection_order = ["grid_1600x800"]
+order_probe_grids = ["grid_800x400"]
+anchor_cases = ["regular_euro_atm_call", "stress_american_put_exercise_boundary"]
+confirmation_case_count = 28
+case_design_digest = "cases-c2d4ca8210cebd2c951c87052b22f519daf5d14bd1875e56802a9d04fcc3d91d"
+# Ten remediation cases execute: the five v1 grid_1600x800 regular failures,
+# three smooth regression controls, and the two declared anchors.
+remediation_cases = [
+    "regular_euro_negative_rate_call",
+    "regular_euro_high_rate_call",
+    "regular_american_put_early_exercise",
+    "regular_american_put_negative_rate_control",
+    "regular_american_one_dividend_call",
+    "regular_euro_atm_put",
+    "regular_euro_deep_itm_call_long_high_vol",
+    "regular_euro_deep_otm_put_long",
+    "regular_euro_atm_call",
+    "stress_american_put_exercise_boundary",
+]
+# Exactly nine of the ten decide pass/fail, in this order.
+gate_cases = [
+    "regular_euro_negative_rate_call",
+    "regular_euro_high_rate_call",
+    "regular_american_put_early_exercise",
+    "regular_american_put_negative_rate_control",
+    "regular_american_one_dividend_call",
+    "regular_euro_atm_put",
+    "regular_euro_deep_itm_call_long_high_vol",
+    "regular_euro_deep_otm_put_long",
+    "regular_euro_atm_call",
+]
+non_gating_remediation_cases = ["stress_american_put_exercise_boundary"]
+# The five v1 grid_1600x800 regular failures, from the frozen v1 snapshot.
+v1_regular_failures = [
+    "regular_euro_negative_rate_call",
+    "regular_euro_high_rate_call",
+    "regular_american_put_early_exercise",
+    "regular_american_put_negative_rate_control",
+    "regular_american_one_dividend_call",
+]
+# Three plain European, non-dividend regular cases that already passed at
+# 1600x800 in v1; the regression control that v2 does not destabilize them.
+smooth_control_cases = [
+    "regular_euro_atm_put",
+    "regular_euro_deep_itm_call_long_high_vol",
+    "regular_euro_deep_otm_put_long",
+]
+
+[solver]
+spot_maximum = 400.0
+rannacher_steps = 2
+psor_tolerance = 1.0e-11
+psor_relaxation = 1.2
+psor_maximum_iterations = 200000
+settlement = "cash"
+# Reporting only. It never enters pricing arithmetic, the pricing/grid
+# identity, or any eligibility predicate.
+contract_multiplier = 100.0
+boundary_exclusion_nodes = 2
+
+[[grids]]
+name = "grid_800x400"
+spot_intervals = 800
+time_steps = 400
+role = "order_probe"
+
+[[grids]]
+name = "grid_1600x800"
+spot_intervals = 1600
+time_steps = 800
+role = "candidate"
+
+[[grids]]
+name = "grid_3200x1600"
+spot_intervals = 3200
+time_steps = 1600
+role = "reference"
+
+[[grids]]
+name = "grid_6400x3200"
+spot_intervals = 6400
+time_steps = 3200
+role = "anchor"
+
+[bumps]
+# Absolute currency-per-share spot bumps and absolute-volatility bumps, each a
+# strict (h, 2h, 4h) geometric ladder so the fixed-bump validation of
+# docs/pde-numerical-contract.md ("Task 9C-C3", E1) is defined. The primary
+# bump is the smallest rung and is the bump the published label uses.
+spot = [0.5, 1.0, 2.0]
+primary_spot = 0.5
+volatility = [0.005, 0.01, 0.02]
+primary_volatility = 0.005
+ladder_ratio = 2
+
+[richardson]
+# Reference and validation only, in both v1 and v2 (decision log DEC-010). It
+# is never a candidate label policy and never appears in selection_order.
+role = "reference_validation_only"
+coarse_to_fine_ratio = 2
+assumed_order = 2.0
+minimum_supported_observed_order = 1.5
+maximum_supported_observed_order = 2.5
+
+[criteria]
+# The four v1 absolute-error caps, unchanged.
+price_absolute_error = 5.0e-4
+delta_absolute_error = 1.0e-3
+gamma_absolute_error = 2.0e-4
+vega_absolute_error_per_unit_volatility = 5.0e-2
+# The v1 fixed shape tolerance is retained only as a floor. The operative
+# shape allowance is the larger of this floor and the corresponding
+# operational price-error scale estimate, which is never widened past the
+# price cap.
+shape_absolute_floor = 1.0e-8
+# Supported observed-order band for the fixed-bump ladder (E1) and for the
+# grid-stencil delta order probe (E2). Same band as v1's Richardson support
+# interval, applied to different quantities. An undefined, non-finite or
+# zero-denominator observed order can never satisfy it.
+minimum_supported_bump_order = 1.5
+maximum_supported_bump_order = 2.5
+minimum_supported_stencil_order = 1.5
+maximum_supported_stencil_order = 2.5
+gamma_is_evaluation_only = true
+# E1 conventions, pinned. K multiplies the flat-branch tolerance or the
+# resolved-branch increment to bound the remaining extrapolation tail of a
+# ladder whose worst supported order is 1.5.
+fixed_bump_charge_scheme = "one_over_one_minus_two_to_minus_three_halves/1"
+# Each ladder rung carries its own estimator error scale, so the two ladder
+# increments get their own tolerances. No cancellation between node errors of
+# one shared surface is assumed.
+delta_flat_epsilon_rule = "small=3E/(2h), large=3E/(4h), E=M_base*R_base"
+vega_flat_epsilon_rule = "small=err(h)+err(2h), large=err(2h)+err(4h), err(b)=(M_down_b*R_down_b+M_up_b*R_up_b)/(2b)"
+# E2 conventions, pinned.
+grid_stencil_reference_rule = "grid_richardson_of_candidate_and_fine_stencil_deltas"
+grid_stencil_order_rule = "observed_order_from_order_probe_candidate_and_reference"
+grid_stencil_bump_bias_charge_applied = false
+
+[gating]
+# Only these decide whether the candidate price policy passes a gate-eligible
+# case. Every one of them is scoped to price-critical solves; a Greek-specific
+# failure can never veto an otherwise valid price policy.
+gating_checks = [
+    "price_critical_solves_returned_and_converged",
+    "price_critical_exact_node_identity",
+    "price_critical_pricing_and_grid_identity",
+    "price_critical_residual_scale_within_price_cap",
+    "price_absolute_error",
+    "american_dominance",
+    "american_intrinsic_bound",
+    "spot_monotonicity",
+    "spot_convexity",
+]
+non_gating_published_checks = [
+    "gamma_absolute_error",
+    "fixed_bump_delta_validation",
+    "fixed_bump_vega_validation",
+    "grid_stencil_delta_validation",
+    "anchor_rung_evidence",
+]
+# The 800/1600/3200 solves that validate the candidate/reference protocol are
+# distinguished from the extra descriptive 6400 anchor rung.
+price_critical_solves = [
+    "grid_1600x800/base",
+    "grid_3200x1600/base",
+    "grid_1600x800/european_dominance_control",
+]
+delta_only_solves = ["grid_800x400/base"]
+vega_only_solves = ["grid_1600x800/volatility_*", "grid_3200x1600/volatility_*"]
+anchor_descriptive_solves = ["grid_6400x3200/base"]
+regular_case_price_critical_failure_fails_candidate = true
+anchor_rung_failure_is_descriptive = true
+stress_case_failure_is_descriptive = true
+
+[eligibility]
+common_predicates = [
+    "exact_pricing_and_grid_identity",
+    "exact_solver_settings_identity",
+    "exact_node_no_interpolation",
+    "structural_c1_greek_eligibility",
+    "discrete_system_converged",
+    "surface_price_residual_scales_within_price_cap",
+]
+# The structural task 9C-C1 centre eligibility is common to both Greeks, not
+# delta-only: an uncertified regime makes a bumped price difference at that
+# node as uninterpretable as a stencil difference.
+structural_c1_applies_to = ["delta", "vega"]
+delta_predicates = [
+    "delta_supporting_solves_available",
+    "delta_residual_scale_within_delta_cap",
+    "fixed_bump_delta_validation_passed",
+    "fixed_bump_delta_residual_scale_within_delta_cap",
+    "grid_stencil_delta_validation_passed",
+]
+vega_predicates = [
+    "vega_supporting_solves_available",
+    "vega_residual_scale_within_vega_cap",
+    "vega_numerically_available",
+    "vega_bump_exercise_states_equal",
+    "exact_vega_convention_and_bump_identity",
+    "fixed_bump_vega_validation_passed",
+    "fixed_bump_vega_residual_scale_within_vega_cap",
+]
+gamma_eligibility = "never"
+identity_excludes_contract_multiplier = true
+identity_includes_settlement = true
+
+[dominance]
+# D2: the European dominance control is solved at the centre spot only, on the
+# candidate grid, at the base volatility.
+control = "european_dominance_control_at_centre_only"
+residual_measure = "absolute_maximum_lcp_residual"
+is_a_rigorous_bound = false
+
+[lifecycle]
+stages = ["remediation", "confirmation"]
+remediation_statuses = ["passed", "failed"]
+confirmation_statuses = ["not_run", "pending", "run"]
+# Anti-approval fields. A selected candidate is never an accepted policy and
+# never authorizes data.
+selection_requires_fresh_top_level_approval = true
+authorizes_dataset_generation = false
+authorizes_training_input = false
+# One-shot status is procedural and provenance-backed, not machine-enforced:
+# a second run in another directory or clone cannot be detected from here.
+one_shot_enforcement = "procedural_and_provenance_backed"
+
+# Moneyness is S/K. Every curve begins at (0, 0) and ends at
+# (expiry_time, -rate * expiry_time). Dividend times are ACT/365F year
+# fractions from the same origin and lie strictly inside the contract life.
+
+[[cases]]
+name = "regular_euro_atm_call"
+classification = "regular"
+description = "analytic-style European control at ordinary parameters"
+option_type = "call"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.05
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_euro_atm_put"
+classification = "regular"
+description = "European put control at ordinary parameters"
+option_type = "put"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.05
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_otm_call_short_low_vol"
+classification = "regular"
+description = "short low-volatility call at moneyness 0.6"
+option_type = "call"
+exercise_style = "european"
+spot = 60.0
+strike = 100.0
+expiry_time = 0.08
+rate = 0.03
+continuous_carry = 0.0
+volatility = 0.12
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_itm_call_long_high_vol"
+classification = "regular"
+description = "long high-volatility call at moneyness 1.4"
+option_type = "call"
+exercise_style = "european"
+spot = 140.0
+strike = 100.0
+expiry_time = 3.0
+rate = 0.04
+continuous_carry = 0.02
+volatility = 0.60
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_itm_put_short"
+classification = "regular"
+description = "short put at moneyness 0.6"
+option_type = "put"
+exercise_style = "european"
+spot = 60.0
+strike = 100.0
+expiry_time = 0.12
+rate = 0.01
+continuous_carry = 0.0
+volatility = 0.25
+dividends = []
+
+[[cases]]
+name = "regular_euro_deep_otm_put_long"
+classification = "regular"
+description = "long put at moneyness 1.4"
+option_type = "put"
+exercise_style = "european"
+spot = 140.0
+strike = 100.0
+expiry_time = 2.5
+rate = 0.02
+continuous_carry = 0.01
+volatility = 0.35
+dividends = []
+
+[[cases]]
+name = "regular_euro_negative_rate_call"
+classification = "regular"
+description = "negative-rate European call"
+option_type = "call"
+exercise_style = "european"
+spot = 90.0
+strike = 100.0
+expiry_time = 1.5
+rate = -0.02
+continuous_carry = 0.0
+volatility = 0.18
+dividends = []
+
+[[cases]]
+name = "regular_euro_negative_rate_put"
+classification = "regular"
+description = "negative-rate European put"
+option_type = "put"
+exercise_style = "european"
+spot = 110.0
+strike = 100.0
+expiry_time = 0.75
+rate = -0.015
+continuous_carry = -0.03
+volatility = 0.30
+dividends = []
+
+[[cases]]
+name = "regular_euro_high_rate_call"
+classification = "regular"
+description = "high-rate low-volatility call"
+option_type = "call"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 0.5
+rate = 0.15
+continuous_carry = 0.0
+volatility = 0.14
+dividends = []
+
+[[cases]]
+name = "regular_euro_high_carry_put"
+classification = "regular"
+description = "high continuous-carry put"
+option_type = "put"
+exercise_style = "european"
+spot = 105.0
+strike = 100.0
+expiry_time = 2.0
+rate = 0.03
+continuous_carry = 0.12
+volatility = 0.22
+dividends = []
+
+[[cases]]
+name = "regular_euro_one_dividend_near_valuation_call"
+classification = "regular"
+description = "one cash dividend near valuation"
+option_type = "call"
+exercise_style = "european"
+spot = 95.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.04
+continuous_carry = 0.01
+volatility = 0.24
+dividends = [[0.03, 1.5]]
+
+[[cases]]
+name = "regular_euro_one_dividend_near_expiry_put"
+classification = "regular"
+description = "one cash dividend near expiry"
+option_type = "put"
+exercise_style = "european"
+spot = 105.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.04
+continuous_carry = 0.01
+volatility = 0.24
+dividends = [[0.97, 1.5]]
+
+[[cases]]
+name = "regular_euro_multiple_dividends_call"
+classification = "regular"
+description = "three cash dividends spread across a long maturity"
+option_type = "call"
+exercise_style = "european"
+spot = 110.0
+strike = 100.0
+expiry_time = 2.0
+rate = 0.035
+continuous_carry = 0.015
+volatility = 0.28
+dividends = [[0.25, 1.0], [0.9, 1.25], [1.75, 1.5]]
+
+[[cases]]
+name = "regular_euro_multiple_dividends_put"
+classification = "regular"
+description = "two material dividends on a medium-maturity put"
+option_type = "put"
+exercise_style = "european"
+spot = 85.0
+strike = 100.0
+expiry_time = 1.25
+rate = 0.02
+continuous_carry = 0.0
+volatility = 0.40
+dividends = [[0.2, 2.0], [0.85, 2.5]]
+
+[[cases]]
+name = "regular_american_call_no_exercise_control"
+classification = "regular"
+description = "non-dividend American call expected to equal European"
+option_type = "call"
+exercise_style = "american"
+spot = 100.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.05
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_american_put_early_exercise"
+classification = "regular"
+description = "ordinary American put with a material exercise premium"
+option_type = "put"
+exercise_style = "american"
+spot = 90.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.06
+continuous_carry = 0.0
+volatility = 0.22
+dividends = []
+
+[[cases]]
+name = "regular_american_put_high_rate"
+classification = "regular"
+description = "high-rate American put with early exercise"
+option_type = "put"
+exercise_style = "american"
+spot = 80.0
+strike = 100.0
+expiry_time = 0.75
+rate = 0.15
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "regular_american_put_negative_rate_control"
+classification = "regular"
+description = "negative-rate American put control with weak exercise incentive"
+option_type = "put"
+exercise_style = "american"
+spot = 105.0
+strike = 100.0
+expiry_time = 1.5
+rate = -0.02
+continuous_carry = 0.0
+volatility = 0.30
+dividends = []
+
+[[cases]]
+name = "regular_american_high_carry_call"
+classification = "regular"
+description = "continuous-carry American call with early exercise incentive"
+option_type = "call"
+exercise_style = "american"
+spot = 120.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.02
+continuous_carry = 0.12
+volatility = 0.18
+dividends = []
+
+[[cases]]
+name = "regular_american_one_dividend_call"
+classification = "regular"
+description = "American call with one material cash dividend"
+option_type = "call"
+exercise_style = "american"
+spot = 115.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.03
+continuous_carry = 0.0
+volatility = 0.22
+dividends = [[0.5, 5.0]]
+
+[[cases]]
+name = "regular_american_multiple_dividends_put"
+classification = "regular"
+description = "American put with multiple cash dividends"
+option_type = "put"
+exercise_style = "american"
+spot = 95.0
+strike = 100.0
+expiry_time = 2.0
+rate = 0.05
+continuous_carry = 0.01
+volatility = 0.32
+dividends = [[0.3, 1.5], [1.0, 1.5], [1.7, 1.5]]
+
+[[cases]]
+name = "regular_american_short_high_vol_put"
+classification = "regular"
+description = "short high-volatility American put"
+option_type = "put"
+exercise_style = "american"
+spot = 100.0
+strike = 100.0
+expiry_time = 0.08
+rate = 0.04
+continuous_carry = 0.0
+volatility = 0.60
+dividends = []
+
+[[cases]]
+name = "stress_american_put_exercise_boundary"
+classification = "stress"
+description = "spot chosen near an American-put exercise boundary; Greek supervision is suspect"
+option_type = "put"
+exercise_style = "american"
+spot = 82.0
+strike = 100.0
+expiry_time = 1.0
+rate = 0.08
+continuous_carry = 0.0
+volatility = 0.20
+dividends = []
+
+[[cases]]
+name = "stress_american_call_pre_dividend_boundary"
+classification = "stress"
+description = "dividend-sensitive American call near an exercise transition"
+option_type = "call"
+exercise_style = "american"
+spot = 105.0
+strike = 100.0
+expiry_time = 0.55
+rate = 0.03
+continuous_carry = 0.0
+volatility = 0.16
+dividends = [[0.08, 8.0]]
+
+[[cases]]
+name = "stress_euro_short_low_vol_atm"
+classification = "stress"
+description = "short low-volatility ATM payoff-kink resolution stress"
+option_type = "call"
+exercise_style = "european"
+spot = 100.0
+strike = 100.0
+expiry_time = 0.01
+rate = 0.02
+continuous_carry = 0.0
+volatility = 0.08
+dividends = []
+
+[[cases]]
+name = "stress_american_deep_itm_put_kink"
+classification = "stress"
+description = "deep-ITM American put near immediate-exercise contact"
+option_type = "put"
+exercise_style = "american"
+spot = 65.0
+strike = 100.0
+expiry_time = 0.25
+rate = 0.12
+continuous_carry = 0.0
+volatility = 0.15
+dividends = []
+
+[[cases]]
+name = "stress_american_large_near_dividend_call"
+classification = "stress"
+description = "large near-valuation dividend and pre-dividend exercise stress"
+option_type = "call"
+exercise_style = "american"
+spot = 110.0
+strike = 100.0
+expiry_time = 0.5
+rate = 0.04
+continuous_carry = 0.0
+volatility = 0.25
+dividends = [[0.015, 18.0]]
+
+[[cases]]
+name = "stress_american_multiple_dividend_call"
+classification = "stress"
+description = "multiple large dividends with several exercise opportunities"
+option_type = "call"
+exercise_style = "american"
+spot = 125.0
+strike = 100.0
+expiry_time = 1.5
+rate = 0.01
+continuous_carry = 0.02
+volatility = 0.35
+dividends = [[0.1, 6.0], [0.7, 7.0], [1.42, 8.0]]

@@ -95,6 +95,28 @@ numerical-policy question — including task 9C-C3 — requires its own,
 separately versioned config, runner, and result snapshot; it is never
 answered by editing or rerunning this one.
 
+Task 9C-C3 is that separately versioned study, and it has its own family:
+`configs/pde_label_policy_pilot_v2.toml`,
+`python/src/differentiable_pricing/american/pde_label_policy_v2.py`, and
+`scripts/freeze_pde_label_policy_v2_results.py`, whose snapshot would live at
+`docs/results/american_pde_label_policy_v2_results_v1.json`. **That snapshot
+does not exist yet** — neither v2 stage has been run — so
+`freeze_pde_label_policy_v2_results.py --check` currently fails by design, and
+the tool is deliberately **not** wired into `scripts/check.sh` or CI. Wire it
+in only in the change that first commits a v2 snapshot.
+
+That tool always names its mode: `--extract --report R --output S` to distil a
+reviewed terminal report, `--check --output S` to enforce a checked-in one.
+Neither mode trusts what the report or snapshot claims: both recompute every
+per-case verdict, Greek eligibility, aggregate count and lifecycle field from
+the raw per-solve numbers against the checked-in configuration, and reconcile
+every executable-source digest against the repository. Neither re-solves, so
+neither can authenticate a fully coordinated fabricated numerical report — a
+limitation the snapshot states itself. Both v2 stages are manual,
+terminal-invoked jobs; see
+[docs/pde-numerical-contract.md](docs/pde-numerical-contract.md), "Task 9C-C3:
+label-policy v2".
+
 ## Markdown and math
 
 Documentation is read on GitHub, which renders math only with dollar
