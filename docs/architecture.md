@@ -94,10 +94,12 @@ engine identities are recomputed from the same sources `CMakeLists.txt` hashes,
 so no compiled extension is needed either. Figure scripts expose a matching
 `--check` that fails when a checked-in SVG is stale.
 
-Current members: the European replication and validation snapshots, and
+Current members: the European replication and validation snapshots,
 `american_lsm_crosscheck_results_v1.json`
 (`scripts/freeze_american_lsm_results.py`,
-`scripts/plot_american_lsm_results.py`).
+`scripts/plot_american_lsm_results.py`), and
+`american_pde_label_policy_v2_results_v1.json`
+(`scripts/freeze_pde_label_policy_v2_results.py`; no figure script).
 
 `american_pde_label_policy_results_v1.json` is **immutable historical
 evidence**, frozen differently from the other snapshot families and
@@ -121,6 +123,33 @@ later build would silently transfer provenance the pilot never had. It
 carries no figures. A later numerical-policy or engine question — including
 task 9C-C3 — is answered by a new, separately versioned config, runner, and
 result snapshot, never by editing, rerunning, or regenerating this one.
+
+`american_pde_label_policy_v2_results_v1.json` (task 9C-C3) is the terminal
+evidence of the label-policy v2 study and belongs to the freeze/check family
+above, not to the check-in-as-is family v1 belongs to. Its raw confirmation
+report is expensive and git-ignored; the designated tool
+`scripts/freeze_pde_label_policy_v2_results.py` distils it, and its `--check`
+mode — now wired into `scripts/check.sh` and the `python` CI job, once each —
+enforces the checked-in snapshot **without** the raw report. `--check` trusts
+nothing the snapshot claims: it recomputes every per-case verdict, Greek
+eligibility, aggregate count and lifecycle field from the snapshot's own raw
+numbers against the checked-in configuration, requires exact canonical
+serialisation, and reconciles the **whole** executable-source inventory against
+current repository files. That last point is the deliberate difference from v1:
+the v2 study is a source-checkout study, so an inventory digest that stops
+matching HEAD is an error rather than expected historical drift.
+`python/tests/test_pde_label_policy_v2_results_snapshot.py` additionally pins the
+snapshot's SHA-256, the consumed report digest, and every eligibility conclusion.
+The snapshot is never hand-edited, reformatted, regenerated or refreshed —
+including to flip `selection_pending_fresh_top_level_approval`, which is
+historical and correct as frozen (see [decision-log.md](decision-log.md) DEC-025,
+DEC-027). Neither `--check` nor the test re-solves, so neither can authenticate a
+fully coordinated fabricated report; the snapshot states that limit itself.
+
+`american_pde_label_policy_results_v1.json` (task 9C-B, v1) and this v2 snapshot
+**coexist permanently**. v1 stays immutable historical `no_policy_selected`
+evidence; v2 answers a new, separately predeclared question on a separately
+versioned config and runner and does not reinterpret, supersede or correct it.
 
 `american.pde_surface_harvest` (task 9C-C2a) contributes no snapshot either, and
 for a different reason: it is exploratory infrastructure whose outputs are a

@@ -577,3 +577,135 @@ snapshot, which remains authoritative for the numbers.
 - **Authoritative links:** [pde-numerical-contract.md](pde-numerical-contract.md)
   ("Task 9C-C3: label-policy v2", "Key closure: no map means \"arbitrary
   string keys\"")
+
+### DEC-025 — Task 9C-C3 selected `grid_1600x800`, and a fresh top-level session accepted it
+
+- **Status:** Active. Supersedes nothing; DEC-003 (v1 is frozen-terminal)
+  remains in force and untouched.
+- **Context:** Task 9C-B (v1) met every predeclared absolute-error cap at
+  1600x800 and still returned `no_policy_selected`, failing five regular cases
+  on stability and shape rather than on accuracy. Task 9C-C3 predeclared a
+  revised stability/shape rule — not a loosened cap — and asked, once, whether
+  it passes those five cases without destabilising cases v1 already handled.
+- **Decision:** Both stages ran once, manually, against criteria fixed before
+  execution. Remediation passed all ten cases; the unchanged 28-case
+  confirmation set then ran once and selected **`grid_1600x800`**. The reviewed
+  confirmation report
+  (`f9bf3f8fd636498b09fae20df8e42e976c68d2b70b28fdff20ab93752a7e130e`) was
+  frozen by the designated tool into
+  [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json)
+  (`75d9402f071323065f8398ccd2cf427e2fb6fa1e663aef90ec7cbcf9c46a1186`). A
+  **fresh top-level independent session**, with no anchoring on the
+  implementer's reasoning, then reviewed that frozen evidence and returned
+  **APPROVE POLICY AND FREEZE**. That external approval is what converts the
+  selected candidate into an accepted policy; no single-session or subagent
+  review could.
+- **The accepted result, exactly:** accuracy policy `grid_1600x800`; price
+  selected on **22/22** numerically valid regular cases; delta
+  supervision-eligible on **18/22**; vega supervision-eligible on **22/22**;
+  gamma **evaluation-only, 0/22** (DEC-009 unchanged);
+  `criteria_were_not_loosened = true`; worst regular price error **2.6867e-4**
+  against the unchanged **5e-4** cap. All **323** confirmation solves completed
+  with **zero exceptions**, over **176,130** linear solves, **144,086** PSOR
+  solves and **34,888,292** PSOR iterations, in approximately **1,586.4 s** of
+  wall time. One descriptive stress failure, `stress_euro_short_low_vol_atm`,
+  price error **2.9943e-3** with a correspondingly large evaluation-only gamma
+  error; **stress cases do not decide selection** and this one decided nothing.
+- **Two things this decision explicitly does not grant.** First,
+  `regular_american_put_negative_rate_control` passes its negative
+  American-dominance gap **only** through the predeclared residual-scale-aware
+  operational allowance, which is a price-error scale estimate from the
+  solver's own accumulated LCP residual and **is not a rigorous error bound**
+  (`is_a_rigorous_bound = false`, DEC-016). Second, **no dataset and no
+  training input is authorized by the frozen report itself**
+  (`authorizes_dataset_generation = false`,
+  `authorizes_training_input = false`, `AUTHORIZED_TRAINING_INPUT_STATUSES`
+  empty). An accepted label policy is not an accepted dataset; task 9C-C2b2 and
+  its pilot are separately gated, and DEC-014 still binds.
+- **Consequences:** The label-policy blocker recorded since DEC-003 is cleared
+  for **price, delta (where eligible) and vega (where eligible)** only. Task
+  9C-C2b2 — deterministic parallel/resumable generation infrastructure — becomes
+  the next technical milestone, at infrastructure and bounded-pilot scope. v1
+  remains immutable historical `no_policy_selected` evidence: v2 answered a new,
+  separately predeclared question on a separately versioned config and runner
+  and **does not reinterpret v1** (DEC-003).
+- **Authoritative links:** [pde-numerical-contract.md](pde-numerical-contract.md)
+  ("Task 9C-C3: label-policy v2", "Outcome: the accepted v2 result"),
+  [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json),
+  `python/tests/test_pde_label_policy_v2_results_snapshot.py`
+
+### DEC-026 — 18/22 delta eligibility is order measurability, not four inaccurate deltas
+
+- **Status:** Active.
+- **Context:** DEC-025 grants delta supervision eligibility on 18 of 22 regular
+  cases. Read carelessly, "4 of 22 excluded" invites the conclusion that the
+  policy produces four bad deltas, and then invites widening the order band to
+  "recover" them. Both readings are wrong, and the second would be a
+  post-result criterion change.
+- **Decision:** Record the exclusions as what the snapshot actually says. All
+  four excluded cases carry `grid_stencil_delta_validation_passed` — the
+  stencil delta was inside the unchanged 1e-3 cap — and were excluded **solely**
+  by `grid_stencil_observed_order_unsupported`:
+  - `regular_american_put_high_rate` — stencil delta exactly $-1$, so the
+    factor-two order is **undefined**;
+  - `regular_american_high_carry_call` — stencil delta exactly $+1$, order
+    likewise undefined;
+  - `regular_euro_deep_otm_call_short_low_vol` — observed order approximately
+    $23.75$;
+  - `regular_american_one_dividend_call` — observed order approximately
+    $3.027$, **despite** an E2 error of approximately $9.71 \times 10^{-7}$,
+    well below the 1e-3 cap.
+  The first two are the saturated ends of a delta, where an exactly flat
+  stencil leaves no increment to measure an order from. Declining to supervise a
+  delta whose convergence order could not be measured is the conservative
+  direction and was predeclared.
+- **Consequences:** The supported order band is **not** widened and eligibility
+  is **not** changed. Any reconsideration — of the band, of the flat-delta case,
+  or of these four cases — requires a **separately versioned task and config**,
+  exactly as 9C-C3 was separately versioned from 9C-B. It is never a revision
+  inside 9C-C3, and the four cases are already-consumed one-shot evidence.
+- **Authoritative links:** [pde-numerical-contract.md](pde-numerical-contract.md)
+  ("Task 9C-C3: label-policy v2", "F1: what 18/22 delta eligibility means"),
+  DEC-018, DEC-025
+
+### DEC-027 — The v2 snapshot is enforced frozen evidence; its pending-approval field stays historical
+
+- **Status:** Active.
+- **Context:** `scripts/freeze_pde_label_policy_v2_results.py` was deliberately
+  left out of `scripts/check.sh` and CI at predeclaration time, because
+  `--check` fails when the snapshot it enforces is absent. A snapshot now
+  exists. Separately, the frozen snapshot records
+  `selection_pending_fresh_top_level_approval = true`, which is no longer the
+  project's state — the approval has since happened — and that mismatch is an
+  obvious temptation to "correct" the file.
+- **Decision:** Two rules. First, `--check` is now the **designated** validator
+  and runs in `scripts/check.sh` and in the `python` CI job, **once each**; it
+  reads only checked-in files and never the ignored raw report, so it passes
+  with `artifacts/` absent.
+  `python/tests/test_pde_label_policy_v2_results_snapshot.py` pins the snapshot
+  digest and every conclusion alongside it. Second,
+  `selection_pending_fresh_top_level_approval = true` is **historical and
+  correct**: the report was generated before the external approval existed and
+  accurately records the state at generation time. Completion of that approval
+  is recorded by DEC-025, which post-dates the snapshot. **Neither the report
+  nor the snapshot is ever edited to flip that field**, or reformatted,
+  regenerated or refreshed for any other reason.
+- **Known technical debt, recorded not fixed:** the fixed-bump check
+  `ladder_within_residual_scale` is **dead** — in the `flat` branch its
+  condition is exactly the branch predicate, and in the `resolved` branch it is
+  literally `True` — so it can never fail and never contributed to any verdict.
+  It is a harmless reporting field. It is not removed here, because the runner
+  is in the frozen snapshot's executable-source inventory and editing it would
+  break the provenance reconciliation of terminal evidence. Any cleanup belongs
+  to a later, separately versioned study.
+- **Known limit, recorded not fixed:** the snapshot links the consumed
+  remediation report only indirectly, via the confirmation report's digest and
+  the shared `criteria_digest` / `raw_config_sha256` the confirmation stage
+  required to match. A future schema version may store the consumed
+  remediation-report **content digest** directly. That is a forward-looking
+  improvement for a later study, not a defect in this result and not a reason to
+  regenerate this snapshot.
+- **Authoritative links:** [pde-numerical-contract.md](pde-numerical-contract.md)
+  ("Task 9C-C3: label-policy v2", "The snapshot is immutable, and enforced",
+  "Future provenance hardening"), [architecture.md](architecture.md), DEC-003,
+  DEC-025
