@@ -14,10 +14,20 @@ remains the canonical source for those shared rules.
 Also read, before starting work:
 [docs/project-state.md](docs/project-state.md) (current state and the exact
 next task) and, if it applies to the work at hand, the active task spec
-[docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md).
-Task 9C-C3 is **completed** — its spec stays at
-[docs/tasks/active/task-9c-c3-label-policy-v2.md](docs/tasks/active/task-9c-c3-label-policy-v2.md)
-as terminal, marked-`Completed` history, not as work to pick up.
+[docs/tasks/active/task-9e-crr-dataset-admission.md](docs/tasks/active/task-9e-crr-dataset-admission.md)
+(task 9E — **implemented, pending fresh review**; its admission record is
+[docs/american-crr-dataset-admission.md](docs/american-crr-dataset-admission.md)).
+**No training task exists**, and 9E's admission authorizes none. Three other
+specs stay in `docs/tasks/active/` and are **not** work to pick up: task 9C-C2b2 is `Deferred`
+([docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md)),
+to be resumed only when the XSP/SPY phase needs dataset-scale PDE generation;
+task 9C-C3 and task 9D are **completed**
+([docs/tasks/active/task-9c-c3-label-policy-v2.md](docs/tasks/active/task-9c-c3-label-policy-v2.md),
+[docs/tasks/active/task-9d-data-holdings-audit.md](docs/tasks/active/task-9d-data-holdings-audit.md)),
+terminal, marked-`Completed` history; and task 9F is `On hold`
+([docs/tasks/active/task-9f-remote-data-access-plan.md](docs/tasks/active/task-9f-remote-data-access-plan.md)),
+a plan only. Task 9D's catalogue of the local data holdings is
+[docs/data-holdings-catalogue.md](docs/data-holdings-catalogue.md).
 
 ## Hooks
 
@@ -95,9 +105,12 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
   load-bearing rules, rather than trusting a command copied from an older
   conversation or an out-of-date narrative document.
 - **Active task:**
-  [docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md)
-  (task 9C-C2b2). Task 9C-C3 is completed and terminal; do not treat its
-  still-present spec as the active one.
+  [docs/tasks/active/task-9e-crr-dataset-admission.md](docs/tasks/active/task-9e-crr-dataset-admission.md)
+  (task 9E — CRR dataset admission), status `Implemented, pending fresh review`:
+  the outstanding step is a **fresh top-level material approval**, not more
+  implementation, and **not training**. Task 9C-C2b2 is deferred, tasks 9C-C3
+  and 9D are completed and terminal, and task 9F is on hold; do not treat any of
+  those still-present specs as the active one.
 - **Frozen-result checks:** `./scripts/check.sh` and CI both run
   `python scripts/freeze_pde_label_policy_v2_results.py --check`. The task
   9C-C3 snapshot it enforces is frozen evidence — never regenerate,

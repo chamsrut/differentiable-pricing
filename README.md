@@ -382,9 +382,13 @@ strike set, and fitting variation.
 | Grouped spot-row harvesting from surfaces (task 9C-C2a) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), identity, pre-solve partitioning, quota and determinism tests |
 | Three-surface vega, authoritative external-config verification (task 9C-C2b1) | Complete, exploratory infrastructure | [PDE contract](docs/pde-numerical-contract.md), Task 9C-C2b1 section |
 | PDE label-policy v2 (task 9C-C3) | **Complete, frozen — accepted `grid_1600x800`, externally approved** | [v2 snapshot](docs/results/american_pde_label_policy_v2_results_v1.json), [PDE contract](docs/pde-numerical-contract.md) (Task 9C-C3 section), [decision log](docs/decision-log.md) DEC-025 |
-| Parallel/resumable production generation (task 9C-C2b2) | **Active — not started**; infrastructure, bounded validation and one small pilot only | [active task spec](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md) |
+| Parallel/resumable production generation (task 9C-C2b2) | **Deferred — not started**; resumed only when the XSP/SPY phase needs dataset-scale PDE generation | [deferred task spec](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md), [decision log](docs/decision-log.md) DEC-029 |
+| Local data-holdings catalogue and integrity audit (task 9D) | **Complete** — documentation and audit only, admitted nothing | [catalogue](docs/data-holdings-catalogue.md), [task spec](docs/tasks/active/task-9d-data-holdings-audit.md), [decision log](docs/decision-log.md) DEC-031 |
+| CRR dataset admission (task 9E) | **Implemented, pending fresh review** — admitted for one bounded experiment; authorizes no training | [admission record](docs/american-crr-dataset-admission.md), [task spec](docs/tasks/active/task-9e-crr-dataset-admission.md), [decision log](docs/decision-log.md) DEC-033 |
+| Private object storage and entitlement-aware vendor ingestion (task 9F) | **On hold** — a plan only, every convention still open | [task spec](docs/tasks/active/task-9f-remote-data-access-plan.md) |
+| The local candidate CRR dataset (continuous dividend yield) | **Catalogued and preliminarily admitted for the bounded CRR learnability experiment only**; still not regenerable from tracked sources | Git-ignored, untracked; generator on an unmerged branch; [catalogue](docs/data-holdings-catalogue.md), [admission record](docs/american-crr-dataset-admission.md) |
 | An accepted, versioned American training dataset | Not started | separately gated; **not** authorized by the accepted label policy |
-| American neural training, transfer; swaption stages 3–4 | Not started | blocked on the dataset pilot above |
+| American neural training, transfer; swaption stages 3–4 | Not started | no American neural surrogate has yet been trained and accepted |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
 | Latency claims; calibrated curves and surfaces; OOD partitions | Not established | benchmarks are evidence, not gates |
 
@@ -1016,19 +1020,56 @@ order. The confirmation success selected a **price** candidate, with delta and
 vega eligibility decided case by case and gamma still evaluation-only; the
 fresh top-level approval it was pending has since been given.
 
-Still not implemented, in order: **task 9C-C2b2** — deterministic
-parallel/resumable generation infrastructure, bounded validation and one small
-manually invoked pilot, the current active task; then a small grouped dataset
-pilot; then the first American neural training run and the European→American
-transfer experiment; and only after that, evaluation of price, Greek, latency,
-implied-volatility and surface-calibration behaviour against real quotes. Each
-of those is separately gated — **task 9C-C2b2 must not claim or launch a
-production dataset**, and the accepted policy authorizes neither a dataset nor
-a training input. Gamma is still not training-ready and remains
-evaluation-only; vega is now supervision-eligible where task 9C-C3 measured it
-to be. No accepted American training dataset and no American neural surrogate
-exist. **Task 9C-B remains `no_policy_selected`** — v2 answered a new question
-and never reinterpreted it. Current state and the exact next task:
+**The stage-2 roadmap is now locked** ([docs/decision-log.md](docs/decision-log.md)
+DEC-028, stated normatively in
+[docs/research-contract.md](docs/research-contract.md), "The locked stage-2
+roadmap"), around one question: can a neural surrogate price American options
+with useful accuracy while delivering materially faster inference than the
+numerical method that generated its labels, and does that speedup support
+faster implied-volatility inversion and volatility-surface construction? In
+order: (1) a **continuous-dividend-yield American CRR baseline** — learnability,
+scratch versus European→American transfer, inference accuracy, scaling against
+CRR's O(N^2) lattice cost, and a small implied-volatility/surface
+reconstruction; (2) an **XSP/SPY real-instrument study**, with XSP (European,
+cash-settled) as the control and SPY (American, discrete deterministic cash
+distributions, early exercise) as the target, learning PDE prices and
+evaluating real implied-volatility surfaces; (3) a **deferred commodity
+extension**, with corn options the leading future candidate. Crypto is
+explicitly excluded: European-only crypto options do not advance the
+American-option question.
+
+Consequently **task 9C-C2b2 is deferred, not rejected** (DEC-029). Its
+specification stays in place and is resumed only when the XSP/SPY phase
+requires dataset-scale PDE generation; it still must not claim or launch a
+production dataset when it does resume. **Task 9D is complete**: the local data
+holdings — the candidate CRR dataset and the Databento/FRED market-data
+holdings — are catalogued and integrity-audited in
+[docs/data-holdings-catalogue.md](docs/data-holdings-catalogue.md), which admits
+nothing (DEC-031). **Task 9E is implemented pending fresh review**: the dataset
+is admitted **solely for the bounded continuous-yield American CRR learnability
+and latency experiment**, under a named schema and the
+`american_raw_physical_v1` representation, with every integrity and leakage gate
+passing over all 250,000 rows — see the
+[admission record](docs/american-crr-dataset-admission.md) (DEC-033). Admission
+authorizes **no training**: the first American training run is a separate task
+with its own gate, and none has been started. Two things 9E did not do and did
+not claim: no independent cross-check of the labels against a numerically
+unrelated engine, and no near-duplicate leakage threshold, which would have been
+post-hoc. The deferred plan for private object storage and
+entitlement-aware Databento ingestion is **task 9F**, on hold — a plan only,
+and licensed OPRA/Databento content is never redistributable.
+
+The local candidate CRR dataset is catalogued but has not been validated as
+suitable, reproducibly admitted, or accepted as project evidence; its generator
+is on an unmerged branch and its label policy has no frozen evidence. It carries
+a continuous dividend yield and therefore cannot model SPY cash dividends. No accepted, versioned PDE-labelled SPY training dataset exists, and
+no American neural surrogate has yet been trained and accepted. The accepted
+policy authorizes neither a dataset nor a training input, and the accepted PDE
+label policy remains frozen evidence that the roadmap lock does not reinterpret
+or rerun. Gamma is still not training-ready and remains evaluation-only; vega is
+supervision-eligible where task 9C-C3 measured it to be. **Task 9C-B remains
+`no_policy_selected`** — v2 answered a new question and never reinterpreted it.
+Current state and the exact next task:
 [docs/project-state.md](docs/project-state.md).
 
 ---

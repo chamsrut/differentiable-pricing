@@ -709,3 +709,302 @@ snapshot, which remains authoritative for the numbers.
   ("Task 9C-C3: label-policy v2", "The snapshot is immutable, and enforced",
   "Future provenance hardening"), [architecture.md](architecture.md), DEC-003,
   DEC-025
+
+### DEC-028 — The stage-2 roadmap is locked to CRR learnability, then XSP/SPY, then a deferred commodity extension
+
+- **Status:** Active.
+- **Context:** After DEC-025 accepted `grid_1600x800`, the project's stated
+  next step was infrastructure (task 9C-C2b2) leading to a PDE-labelled
+  American dataset. That ordering answered "how do we generate labels at
+  scale?" before the project had answered "is an American surrogate worth
+  generating labels for?" The research question the project actually exists to
+  answer is a **speed** question, and the cheapest evidence for it does not
+  need new label generation at all.
+- **Decision:** Lock the stage-2 roadmap, in this order, as a new appended
+  section of [research-contract.md](research-contract.md) ("The locked stage-2
+  roadmap"):
+  1. **Continuous-dividend-yield American CRR baseline** — the first
+     learnability experiment: American-price learnability, scratch versus
+     European-transfer training (H2), inference accuracy, inference scaling
+     against CRR's $O(N^2)$ lattice cost, and a small implied-volatility
+     inversion and surface reconstruction.
+  2. **XSP/SPY real-instrument study** — XSP (European, cash-settled) as the
+     control, SPY (American, discrete deterministic cash distributions, early
+     exercise) as the target; learn PDE prices for contracts grounded in the
+     available market universe, compare inference against the PDE, and
+     reproduce and evaluate real implied-volatility surfaces. The existing PDE
+     solver and the accepted v2 label policy remain valuable inputs here.
+  3. **Deferred commodity extension** — corn options are the leading future
+     candidate, because American exercise into futures, seasonality and the
+     futures curve give a genuinely different cross-asset test. Not designed,
+     not scoped for data acquisition, not implemented now.
+  **Crypto is explicitly excluded** from the active roadmap: the liquid crypto
+  option universe is European-only and therefore does not advance the
+  American-option question. That is a scope decision, not a numerical one.
+- **The central question this locks the roadmap to:** can a neural surrogate
+  price American options with useful accuracy while delivering materially
+  faster inference than the numerical method that generated its labels, and
+  does that speedup support faster implied-volatility inversion and
+  volatility-surface construction? Latency claims stay governed by
+  [research-contract.md](research-contract.md) "Metrics" — end-to-end, against
+  the label-generating method, under matched conditions.
+- **Consequences:** Phase ordering is not to be relitigated task by task. A
+  later task may report evidence that a phase is misordered; it may not
+  quietly reorder them. **The accepted PDE label policy remains frozen
+  evidence; this roadmap change does not reinterpret or rerun it** (DEC-025,
+  DEC-026, DEC-027). This decision changed documentation only: no code, test,
+  config, script, frozen result, figure, or data file was touched, and no
+  numerical run was performed.
+- **Authoritative links:** [research-contract.md](research-contract.md) ("The
+  locked stage-2 roadmap"), [project-state.md](project-state.md), DEC-029,
+  DEC-030
+
+### DEC-029 — Task 9C-C2b2 is deferred, not deleted and not rejected
+
+- **Status:** Active.
+- **Context:** Task 9C-C2b2 (deterministic parallel/resumable PDE-label
+  generation) was the active task under the pre-DEC-028 ordering. Under the
+  locked roadmap, dataset-scale PDE generation is not needed until the
+  XSP/SPY phase. Building it now would be infrastructure ahead of the
+  experiment that justifies it — the same failure mode DEC-012 already ruled
+  against in the small.
+- **Decision:** Task 9C-C2b2 is **deferred**. Its specification stays at
+  [tasks/active/task-9c-c2b2-parallel-resumable-generation.md](tasks/active/task-9c-c2b2-parallel-resumable-generation.md)
+  — the repository marks task status in place and has no `tasks/completed/` or
+  `tasks/deferred/` location — with `Status: Deferred` and the resumption
+  condition stated in the file. Nothing in it is rejected: its objective,
+  gates, `OPEN` conventions and stop conditions remain the specification to
+  resume from.
+- **Resumption condition:** the XSP/SPY phase requires dataset-scale PDE
+  generation. Until then, no work proceeds on it.
+- **Consequences:** Deferring it does not weaken anything it was protecting.
+  Grouped partitioning (DEC-005), gamma's evaluation-only status (DEC-009),
+  the empty `AUTHORIZED_TRAINING_INPUT_STATUSES` (DEC-011), and the rule that
+  an accepted policy is not an accepted dataset (DEC-014, DEC-025) all still
+  bind. In particular, this deferral is **not** a licence for some other task
+  to generate PDE labels at scale without deterministic, resumable,
+  leakage-safe machinery.
+- **Authoritative links:**
+  [tasks/active/task-9c-c2b2-parallel-resumable-generation.md](tasks/active/task-9c-c2b2-parallel-resumable-generation.md),
+  DEC-012, DEC-014, DEC-025, DEC-028
+
+### DEC-030 — The local candidate CRR dataset is audited before it is admitted, and task 9D is the next active task
+
+- **Status:** Active.
+- **Context:** Phase 1 of the locked roadmap (DEC-028) runs against a
+  continuous-dividend-yield American CRR dataset. A candidate exists locally
+  under Git-ignored `data/`, reportedly about 250,000 rows. Nothing about it
+  has been established by this repository's evidence rules: it is untracked,
+  its provenance is not catalogued here, and its generator does not exist on
+  the current branch or on `main`.
+- **Decision:** **A local candidate CRR dataset reportedly exists, but it has
+  not yet been catalogued, validated, reproducibly admitted, or accepted as
+  project evidence.** It is not admitted, not transformed, not regenerated,
+  and not trained on until a documentation and integrity audit — **task 9D**,
+  [tasks/active/task-9d-data-holdings-audit.md](tasks/active/task-9d-data-holdings-audit.md)
+  — has catalogued it. Task 9D is the single active task and is
+  documentation-and-audit scope only.
+- **What task 9D covers:** the existing CRR dataset; the existing
+  Databento/FRED market-data holdings; schemas, formats, partitions, sizes,
+  row/record counts, provenance, hashes where appropriate, tracking/ignore
+  status, and known limitations; and a **deferred plan** for private S3
+  storage/retrieval and entitlement-aware Databento ingestion.
+- **What task 9D must not do:** upload data, implement S3 access, call
+  Databento, regenerate CRR labels, modify the ML loader, or train a network.
+- **Two wordings that must not drift:** a continuous dividend yield is not a
+  discrete cash-distribution schedule, so the phase-1 CRR dataset **cannot
+  model SPY cash dividends** and must never be described as a no-dividend
+  dataset (DEC-001). And **cloud storage and vendor ingestion are deferred
+  reproducibility work, not prerequisites for the first CRR learnability
+  experiment** — task 9D plans them, it does not build them.
+- **Consequences:** No accepted, versioned PDE-labelled SPY training dataset
+  exists, and no American neural surrogate has yet been trained and accepted.
+  Whether the candidate dataset is admitted at all is task 9D's finding to
+  report and a later, separately gated decision to make; a negative audit
+  finding is a valid outcome that stops phase-1 training until it is resolved.
+- **Authoritative links:**
+  [tasks/active/task-9d-data-holdings-audit.md](tasks/active/task-9d-data-holdings-audit.md),
+  [research-contract.md](research-contract.md) ("The locked stage-2 roadmap",
+  "Non-claims"), DEC-001, DEC-011, DEC-015, DEC-028
+
+### DEC-031 — Task 9D catalogued the local data holdings; the catalogue admits nothing
+
+- **Status:** Active.
+- **Context:** DEC-030 routed the single active task to a documentation and
+  integrity audit of the existing local data holdings, because phase 1 of the
+  locked roadmap (DEC-028) needs an input and the only candidate was an
+  uncatalogued local dataset.
+- **Decision:** The audit is complete and its written output is
+  [data-holdings-catalogue.md](data-holdings-catalogue.md). Every holding under
+  `data/` is catalogued; every material fact is marked either **[check]**
+  (recomputed in the audit from local bytes or Git objects) or **[claim]**
+  (copied from metadata or an existing report and not independently verified).
+  A claim is never promoted to a check by restatement. The catalogue is an
+  audit record at one point in time: it is **not** a normative contract, **not**
+  frozen evidence, has no generator script, and is superseded by re-auditing
+  rather than regeneration.
+- **What the audit established, positively:** the candidate CRR dataset's
+  internal identities all hold (label averaging, early-exercise premium,
+  adjacent-step gap, log-moneyness, American dominance — exact; intrinsic
+  dominance exact to rounding); every manifest claim reconciles against the
+  bytes, including all per-partition, per-stratum and label-diagnostic counts;
+  no nulls and no non-finite values anywhere; full domain and per-stratum bound
+  compliance; no identifier and no exact contract state shared between
+  partitions; and the manifest's composite `crr_implementation_sha256`
+  **reproduces exactly from this branch's tracked C++ and binding sources**, so
+  the labelling oracle is byte-identical to the CRR engine at HEAD. The market
+  archive verifies 119 of 119 checksummed files with zero mismatches.
+- **What the audit established, negatively:** the CRR dataset's generator,
+  configuration and tests are **not on this branch and not on `main`** — they
+  exist only on the unmerged branch `feat/american-dataset-v1`, which is not an
+  ancestor of `main`; its label policy has **no frozen `docs/results/`
+  snapshot** on any branch and its governing contract section exists only on
+  that other branch; its Parquet files carry no embedded provenance; and the
+  existing ML loader rejects its schema by design. In the processed market
+  partitions, `exercise_style` and `contract_multiplier` are **100 % null**, so
+  the XSP-European / SPY-American distinction phase 2 depends on is an external
+  convention, not something these bytes carry.
+- **Consequences:** **The catalogue admits nothing.** Cataloguing a holding is
+  not accepting it; `AUTHORIZED_TRAINING_INPUT_STATUSES` stays empty (DEC-011);
+  and **no accepted, versioned American training dataset exists** in any class.
+  Twelve unresolved limitations are recorded in the catalogue's section 8 and
+  are inherited by task 9E (DEC-032). The audit modified no data, ran no
+  numerical study, called no vendor API, and changed no source code.
+- **Review status, recorded not glossed:** the `numerical-reviewer` the task
+  spec requires was not invoked in the session that produced the catalogue, and
+  no fresh top-level session has materially accepted its findings. `Completed`
+  means the exit gates are discharged and the deliverables exist; it does not
+  mean independently approved. Task 9E's admission decision is where that
+  approval becomes load-bearing.
+- **Authoritative links:** [data-holdings-catalogue.md](data-holdings-catalogue.md),
+  [tasks/active/task-9d-data-holdings-audit.md](tasks/active/task-9d-data-holdings-audit.md),
+  DEC-015, DEC-028, DEC-030, DEC-032
+
+### DEC-032 — Task 9E, CRR dataset admission, is the next active task; task 9F is on hold
+
+- **Status:** Active.
+- **Context:** Task 9D established what the candidate CRR dataset is and what
+  about it is still open (DEC-031). The next bounded step is neither training
+  nor regeneration: it is deciding whether the dataset is fit for phase 1 and
+  making this repository able to read it under an explicit schema contract.
+  Separately, the deferred half of 9D — remote storage and vendor ingestion —
+  needed somewhere to live without becoming work.
+- **Decision:** Two task routings.
+  1. **Task 9E — CRR dataset admission** is the single active task:
+     [tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md).
+     Its scope is exactly three things plus the decision they support:
+     **semantic suitability** (is this a useful learnability probe, not merely
+     a valid table, including one small predeclared cross-check against a
+     numerically unrelated engine — the first external check this dataset has
+     had); **named-schema loader support** (a dataset is read because its
+     schema is named and versioned, never because a file happens to parse; the
+     European path is unchanged and unknown schemas still fail closed); and
+     **integrity and leakage gates** wired into the test suite, with the
+     near-duplicate threshold predeclared and versioned **before** it is
+     evaluated. Provenance decisions on `feat/american-dataset-v1` and on the
+     label policy's missing frozen evidence are recorded there too.
+  2. **Task 9F — private object storage and entitlement-aware vendor
+     ingestion** is `On hold`:
+     [tasks/active/task-9f-remote-data-access-plan.md](tasks/active/task-9f-remote-data-access-plan.md).
+     It is a plan, not work. Its every predeclared convention is `OPEN` and
+     none was invented.
+- **Explicitly excluded from task 9E:** training any network, and regenerating,
+  transforming, moving or deleting any dataset. Both are separate gates. Phase
+  1's training run does not begin at 9E's exit; 9E authorizes the dataset as a
+  phase-1 input and nothing more, and only a fresh top-level session can grant
+  even that.
+- **The redistribution boundary, recorded once so 9F cannot drift:** licensed
+  OPRA and Databento content may not be redistributed publicly. "Reproducible"
+  in 9F means reproducible by an authorized user who independently holds the
+  required vendor entitlements — never downloadable by anyone with the
+  repository. **Cloud storage and vendor ingestion are deferred reproducibility
+  work, not prerequisites for the first CRR learnability experiment.**
+- **Consequences:** The locked three-phase roadmap (DEC-028) is unchanged; this
+  entry routes tasks within phase 1, it does not reorder phases. Task 9C-C2b2
+  stays `Deferred` (DEC-029) and task 9C-C3 stays `Completed` and terminal.
+  **The accepted PDE label policy remains frozen evidence; neither 9E nor 9F
+  reinterprets or reruns it.**
+- **Authoritative links:**
+  [tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md),
+  [tasks/active/task-9f-remote-data-access-plan.md](tasks/active/task-9f-remote-data-access-plan.md),
+  [data-holdings-catalogue.md](data-holdings-catalogue.md), DEC-011, DEC-014,
+  DEC-015, DEC-028, DEC-030, DEC-031
+
+### DEC-033 — The CRR dataset is admitted for one bounded experiment, and for nothing else
+
+- **Status:** Active.
+- **Context:** DEC-032 routed the active task to 9E, which had to answer one
+  question: is `data/american-option-v1/` a valid, reproducible input to a
+  bounded American CRR-network experiment? Task 9D had catalogued it and left
+  the loader unable to read its schema, its generator on an unmerged branch, and
+  its label policy without frozen evidence.
+- **Decision:** **Admitted, solely for the bounded continuous-yield American CRR
+  learnability and latency experiment**, under the schema
+  `american-option-dataset/1` and the representation `american_raw_physical_v1`.
+  The record is
+  [american-crr-dataset-admission.md](american-crr-dataset-admission.md). Every
+  gate in `python/src/differentiable_pricing/data/american_admission.py` ran
+  over all 250,000 rows and passed; no gate was weakened and no row was dropped.
+  **The admission is a single-session conclusion and its material approval is
+  outstanding**, so task 9E is `Implemented, pending fresh review`, not
+  `Completed`.
+- **What admission does not grant:** it authorizes **no training** — the first
+  American training run is a separate task with its own gate, which this session
+  did not define, start, or route to. It grants no SPY or PDE training, no
+  production label-quality claim, no certified Greek, and no discrete-dividend
+  coverage. **A continuous dividend yield is not a discrete SPY cash-dividend
+  schedule**, and this schema cannot represent one.
+- **Provenance recovered, and its limit.** Read-only Git-object inspection of
+  `feat/american-dataset-v1` at `49ef72a` — no merge, no cherry-pick, no
+  regenerated row. `configs/american_option_dataset_v1.toml` and both
+  label-policy pilot configurations were ported **verbatim** and are digest-
+  pinned by a test, so the manifest's config link now verifies from tracked
+  sources; the "Label policy v1" section was recovered into
+  [american-crr-contract.md](american-crr-contract.md); and the schema contract
+  was ported as `data/american_schema.py`. **The generation machinery was
+  deliberately not ported**, so the dataset **still cannot be regenerated from
+  tracked sources alone**. The manifest's composite `crr_implementation_sha256`
+  reproduces exactly from this branch's C++ and binding sources, so the
+  labelling oracle is byte-identical to the CRR engine at HEAD.
+- **The label policy's evidence status, recorded not glossed:** the two pilot
+  reports that selected `steps = 1024` were **ignored local artifacts under
+  `artifacts/`, never frozen `docs/results/` snapshots**, and they remain so. No
+  snapshot for this label policy exists on any branch and task 9E invented none.
+  The recovered contract section states that pilot v2 was written after v1's
+  results were seen and is **not an uncontaminated predeclaration**, and that
+  re-scored under v1's original p99 gate the selection would have been
+  `N = 4096`. That is carried forward as a property of the policy.
+- **Feature sufficiency:** the dataset carries every state variable a
+  constant-parameter American CRR price depends on. `raw_physical_v1`'s seven
+  raw features suffice; the European **`forward_normalized_v1` representation
+  does not** and is recorded as rejected. Measured with the CRR engine, two
+  contracts sharing an option type, `log(F/K)` and `sigma*sqrt(T)` but differing
+  in rate and dividend yield agree to machine precision in normalized European
+  price and differ by **1.2–1.3 %** in normalized American price. The minimal
+  versioned American representation is therefore `american_raw_physical_v1`.
+- **Loader:** datasets are now selected by **explicit schema name and version**
+  from a registry of two, with exact per-version schema validation, mandatory
+  manifest-digest verification, and **no permissive compatibility fallback**;
+  an unregistered `schema_version` fails before any file is opened. The
+  **European path is unchanged** and its tests pass untouched. The American
+  target and its paired European comparator are exposed by name.
+- **Two gates deliberately not claimed.** The **near-duplicate** leakage
+  threshold was not predeclared — task 9D measured those distances first, so any
+  threshold now would be post-hoc; the measurement stays descriptive and no gate
+  was built from it. The **independent cross-check** against a numerically
+  unrelated engine was scoped out by the implementing prompt and **was not
+  run**; every identity verified so far is internal to one lattice, and that
+  cross-check remains open work.
+- **Consequences:** phase 1 of the locked roadmap (DEC-028) has an input, and
+  only that. The locked three-phase roadmap is unchanged. Task 9C-C2b2 stays
+  `Deferred`, task 9C-C3 stays `Completed` and terminal, and task 9F stays
+  `On hold`. **The accepted PDE label policy remains frozen evidence; this task
+  does not reinterpret or rerun it.** No network was trained, no inference was
+  benchmarked, no implied volatility was reconstructed, and no dataset was
+  regenerated or modified.
+- **Authoritative links:**
+  [american-crr-dataset-admission.md](american-crr-dataset-admission.md),
+  [american-crr-contract.md](american-crr-contract.md) ("Label policy v1"),
+  [tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md),
+  [data-holdings-catalogue.md](data-holdings-catalogue.md), DEC-001, DEC-011,
+  DEC-028, DEC-031, DEC-032

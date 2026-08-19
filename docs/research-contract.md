@@ -125,6 +125,118 @@ an American dataset and American neural training are still separately gated and
 have not begun. And no number from either study may be reused as an acceptance
 criterion for a later one.
 
+## The locked stage-2 roadmap
+
+This section is appended, not a rewrite: it fixes the order in which the
+stage-2 American work is attempted, and it does not alter any rule, hypothesis,
+threshold, or non-claim stated above. It was locked as part of a
+documentation-only roadmap reset ([decision-log.md](decision-log.md) DEC-028).
+
+### The question this roadmap exists to answer
+
+Can a neural surrogate price American options with **useful accuracy** while
+delivering **materially faster inference than the numerical method that
+generated its labels**, and does that speedup carry through to **faster
+implied-volatility inversion and volatility-surface construction**?
+
+This is a specialization of the primary question above, not a replacement for
+it. "Useful accuracy" and "materially faster" are still governed by the stage
+reference standards, "Metrics", and "Provisional gates": end-to-end latency
+must count feature, transfer, batching and derivative costs, and a speedup
+claim measured against anything other than the label-generating method under
+matched conditions does not answer this question.
+
+### Phase 1 — continuous-dividend-yield American CRR baseline
+
+The first learnability experiment runs against a **continuous-dividend-yield
+American CRR** dataset, not a no-dividend one: its underlying carries a
+continuous yield `q`, which is a different modelling object from a discrete
+cash-distribution schedule and is never treated as equivalent to one
+(DEC-001).
+
+Its purpose is bounded and entirely about learnability and speed:
+
+- whether American prices are learnable at all at useful accuracy;
+- scratch training versus European-transfer initialization (H2);
+- out-of-sample inference accuracy;
+- inference scaling against CRR's $O(N^2)$ lattice cost;
+- a small implied-volatility inversion and surface reconstruction built on
+  surrogate inference.
+
+**A local candidate CRR dataset reportedly exists, but it has not yet been
+catalogued, validated, reproducibly admitted, or accepted as project
+evidence.** It is local, Git-ignored and untracked, and insufficiently
+catalogued. It must be audited before it is admitted as a training input or
+used to train anything.
+
+**Update, task 9D.** The audit that paragraph called for has since run. The
+dataset is now **catalogued** — [data-holdings-catalogue.md](data-holdings-catalogue.md),
+[decision-log.md](decision-log.md) DEC-031 — and the other three conditions are
+unchanged: it has **not** been validated as suitable, **not** reproducibly
+admitted, and **not** accepted as project evidence. It remains local,
+Git-ignored and untracked, its generator and configuration are on an unmerged
+branch, and its label policy has no frozen `docs/results/` evidence. Admission
+is task 9E (DEC-032). Nothing above is relaxed by this update.
+
+**Update, task 9E.** Admission has since been decided:
+[american-crr-dataset-admission.md](american-crr-dataset-admission.md),
+[decision-log.md](decision-log.md) DEC-033. The dataset is **admitted solely for
+the bounded continuous-yield American CRR learnability and latency experiment
+described in phase 1 above**, under the schema `american-option-dataset/1` and
+the representation `american_raw_physical_v1`, with every integrity and leakage
+gate passing over all 250,000 rows. Four limits stand. Admission **authorizes no
+training** — the first American training run is a separate task with its own
+gate. The admission is a **single-session conclusion whose material approval is
+outstanding**. The dataset is **still not regenerable from tracked sources
+alone**: task 9E recovered its configuration, its pilot configurations and its
+label-policy contract section, but deliberately not the generation machinery.
+And its label policy **still has no frozen `docs/results/` evidence**, its
+selection resting on ignored local artifacts. Nothing above is relaxed by this
+update, and phase 1 remains a continuous-yield experiment that says nothing
+about discrete dividends.
+
+### Phase 2 — the XSP/SPY real-instrument study
+
+Phase 2 moves to contracts grounded in the available market universe, with a
+deliberate control/target pair:
+
+- **XSP** — European, cash-settled — is the **control**;
+- **SPY** — American, with discrete deterministic cash distributions and
+  early exercise — is the **target**.
+
+Its goal is to learn PDE prices for those contracts, compare surrogate
+inference against the PDE, and reproduce and evaluate real implied-volatility
+surfaces. The existing discrete-dividend PDE solver
+([pde-numerical-contract.md](pde-numerical-contract.md)) and the accepted v2
+label policy remain valuable inputs to this phase.
+
+**No accepted, versioned PDE-labelled SPY training dataset exists**, and no
+SPY neural surrogate exists.
+
+### Phase 3 — deferred commodity extension
+
+Commodity options are **not on the current critical path**. Corn options are
+the leading future candidate, because American exercise into futures,
+seasonality, and the futures curve would supply a genuinely different
+cross-asset test of the same question. This phase is not designed, not
+scoped for data acquisition, and not implemented now.
+
+### Explicitly excluded: crypto
+
+Crypto options are excluded from the active roadmap. The liquid crypto option
+universe is European-only, so it does not advance the American-option research
+question this roadmap exists to answer. Exclusion here is a scope decision,
+not a numerical judgement.
+
+### What this roadmap does not change
+
+- **The accepted PDE label policy remains frozen evidence; this roadmap
+  change does not reinterpret or rerun it.** `grid_1600x800` and its
+  eligibility readings stand exactly as frozen (DEC-025, DEC-026, DEC-027).
+- **No American neural surrogate has yet been trained and accepted.**
+- **Cloud storage and vendor ingestion are deferred reproducibility work, not
+  prerequisites for the first CRR learnability experiment.**
+
 ## Data protocol
 
 Each generated row or partition records:
@@ -252,3 +364,29 @@ tuning against that dataset.
   a historical market study, and it establishes no calibration capability. No
   dividend amount, borrow rate, or American implied volatility has been
   inferred anywhere in this repository.
+- A continuous dividend yield is **not** a discrete cash-distribution
+  schedule. The phase-1 CRR dataset carries a continuous yield and therefore
+  **cannot model SPY cash dividends**; nothing learned on it transfers as a
+  claim about discrete-dividend American pricing (DEC-001, DEC-030).
+- A local candidate CRR dataset reportedly exists, but it has not yet been
+  catalogued, validated, reproducibly admitted, or accepted as project
+  evidence. Its row count, its parquet files, and its manifest are not evidence
+  until an audit establishes them; no number from it may be cited as a project
+  result before then (DEC-030).
+- Task 9D catalogued that dataset and admitted nothing. Cataloguing a holding
+  is not accepting it: the dataset is still not validated as suitable, not
+  reproducibly admitted, and not accepted as project evidence, and no number
+  from it may be cited as a project result before task 9E's admission gate and
+  a fresh top-level approval (DEC-031, DEC-032).
+- Task 9E admitted that dataset for **one bounded experiment only** — the
+  continuous-yield American CRR learnability and latency experiment — and for
+  nothing else. Admission is not training authorization, not a production
+  label-quality claim, not a certified Greek, and not discrete-dividend
+  coverage; its material approval is outstanding; the dataset remains
+  unregenerable from tracked sources; and its label policy still has no frozen
+  evidence (DEC-033).
+- No independent cross-check of the CRR labels against a numerically unrelated
+  engine has been run. Every identity verified in tasks 9D and 9E is internal to
+  one lattice (DEC-033).
+- No accepted, versioned PDE-labelled SPY training dataset exists, and no
+  American neural surrogate has yet been trained and accepted.
