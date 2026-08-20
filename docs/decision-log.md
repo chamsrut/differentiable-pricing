@@ -1008,3 +1008,86 @@ snapshot, which remains authoritative for the numbers.
   [tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md),
   [data-holdings-catalogue.md](data-holdings-catalogue.md), DEC-001, DEC-011,
   DEC-028, DEC-031, DEC-032
+
+### DEC-034 — Task 9E is conditional, and task 9G is a bounded feasibility pilot
+
+- **Status:** Active. Supersedes DEC-033 only where DEC-033 describes task 9E
+  as an all-gates admission or calls `american_raw_physical_v1` minimal;
+  DEC-033 remains append-only history and all of its recorded measurements and
+  limitations stand.
+- **Context:** Reconciliation against task 9E's predeclared specification found
+  that the independent LSM/PDE price cross-check and semantic-coverage
+  judgement were not performed, and that the near-duplicate threshold was not
+  predeclared before task 9D observed the distances. It also found that the
+  implemented gates do not bind each row's `label_policy` and `label_steps` to
+  `manifest.label_policy.name` and `.steps`. Separately, the seven raw American
+  inputs are feature-sufficient but not a minimal representation, and the
+  frozen European source weights are recorded in evidence but not tracked.
+- **Admission decision:** The dataset is **conditionally admitted only for
+  learning the known continuous-yield CRR mapping**. This is not acceptance of
+  converged American-price accuracy and authorizes no training by itself. The
+  independent numerical cross-check remains outstanding and must be completed
+  or explicitly resolved before training is authorized. The near-duplicate
+  measurements remain descriptive: task 9E's predeclared gate cannot be
+  satisfied retroactively for this dataset version, and no threshold is
+  invented now. Material acceptance of the reconciled conditional admission
+  still requires fresh top-level review.
+- **Dataset entry invariant:** Before training, implementation and tests must
+  require every row's `label_policy == manifest.label_policy.name` and
+  `label_steps == manifest.label_policy.steps`. Experiment entry checks also
+  pin generator version `1.0.0` and recovered configuration SHA-256
+  `d18485c66b92c720c57bef6820e7f6cdb7204159c2dcf8d47d8f9c744cb28c98`.
+- **Representation:** The phase-1 network uses
+  `american_forward_carry_v1`: encoded option type, `log(F/K)`,
+  `sigma*sqrt(T)`, `rT`, and `qT`, with target
+  `V/(S*exp(-q*T))` and physical reconstruction by multiplying by
+  `S*exp(-q*T)`. It is sufficient because
+  `log(S/K) = log(F/K) - rT + qT`. `american_raw_physical_v1` remains
+  feature-sufficient but is not minimal. The measured rejection of the
+  three-input European representation stands; this decision extends it with
+  the two missing carry coordinates rather than reinterpreting it.
+- **Transfer lift and source gate:** Task 9G copies the three shared first-layer
+  columns of the frozen three-input European network, adds zero first-layer
+  columns for `rT` and `qT`, copies all later weights and biases, and preserves
+  or algebraically rebases standardization so the unconstrained physical
+  function is identical. It uses unconstrained weights, not the European bounds
+  projection as an American constraint, and verifies the physical identity at
+  fixed probes to float64 numerical precision before fine-tuning. An impossible
+  exact lift stops the experiment; no general framework is built around it.
+  The original `weights.npz` must be recovered and match frozen SHA-256
+  `42670774f736383e50818b6e6c1db9374a77988173e35423ffc34b3c4297ecb8`.
+  Missing or mismatching weights stop the transfer arm; silent retraining or
+  substitution is forbidden.
+- **Pilot boundary:** Task 9G is one architecture, one scratch run, one transfer
+  run, one budget, validation checkpoint selection, and one-shot
+  `interpolation_test`, with no sweep. It reports the paired European CRR price
+  as a no-learning baseline and positive early-exercise-premium rows
+  separately; benchmarks the actual adjacent-average operation
+  `0.5*(CRR(N)+CRR(N+1))` over the fixed depth ladder; and performs one small
+  model-consistent IV experiment. Negative transfer and failure to learn are
+  valid. One seed and one budget cannot establish H2; a promising pilot leads
+  to a separately predeclared replication with at least five seeds and several
+  label budgets.
+- **Latency and IV language:** Reference and neural timing match request shapes,
+  batch sizes, thread budgets, warm-ups, repetitions, and recorded
+  hardware/software metadata. Neural timing includes physical feature
+  transformation and output reconstruction. One maturity is an IV smile slice;
+  multiple maturities are required for an IV surface. Synthetic phase 1 makes
+  no bid--ask-relative market claim.
+- **Lifecycle:** The required order is planning-reconciliation PR;
+  protocol-and-implementation PR reviewed and merged before execution; manual
+  locked run; result-only PR with gates, seeds, training code, and evaluation
+  code unchanged; fresh review of the result. A branch first reviewed only
+  after results is not the predeclaration mechanism.
+- **Consequences:** Task 9G is the exact next task, at protocol-and-
+  implementation scope. No experiment was run by this decision. The locked
+  CRR → XSP/SPY → deferred commodity roadmap is unchanged; task 9C-C2b2 remains
+  deferred, task 9F remains on hold, and the accepted PDE policy and all frozen
+  evidence remain untouched.
+- **Authoritative links:**
+  [american-crr-dataset-admission.md](american-crr-dataset-admission.md),
+  [architecture.md](architecture.md) ("Phase-1 American surrogate
+  representation"), [research-contract.md](research-contract.md) ("Phase-1
+  feasibility pilot versus an H2 replication"),
+  [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
+  DEC-028, DEC-032, DEC-033
