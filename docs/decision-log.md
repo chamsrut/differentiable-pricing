@@ -1212,3 +1212,38 @@ snapshot, which remains authoritative for the numbers.
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
   [architecture.md](architecture.md), [research-contract.md](research-contract.md),
   DEC-034, DEC-035
+
+### DEC-037 — Fresh review approves Task 9G's protocol and implementation for merge
+
+- **Status:** Active. This is an append-only implementation-review record; it
+  approves no numerical result and changes no locked experimental value.
+- **Verdict and reviewed identity:** A fresh top-level reviewer inspected the
+  complete cumulative Task 9G branch at commit `8d27c23` and returned exactly
+  `APPROVE TASK 9G IMPLEMENTATION FOR MERGE`.
+- **Approved boundary:** The verdict approves the Task 9G protocol and
+  implementation for merge and, after merge, the subsequent human invocation
+  of the locked `python scripts/run_american_neural_pilot.py
+  run-to-validation` command. It does not itself authorize execution before
+  merge, approve any result, or authorize `final-evaluate`.
+- **Minor observations before final cumulative review:** The three
+  non-blocking MINOR observations were corrected after the reviewed commit and
+  before final cumulative review: the duplicated approval wording in project
+  state was removed; compact-statistic mutation coverage now uses distinct,
+  non-zero, multi-slice errors and directly mutates squared sums, maxima,
+  quantile interpolation and ranks; and the 25,000-validation plus 25,000-final
+  size fixture now populates both option types and every expiry, moneyness,
+  volatility, premium and exercise-status slice.
+- **Execution state:** No PDE cross-check, training, latency benchmark, IV
+  inversion, final evaluation or result approval occurred. No numerical result
+  exists. The approval-recording/minor-fix commit requires final cumulative
+  review and the implementation branch must be merged before the human locked
+  validation run.
+- **Non-claims preserved:** This approval establishes no H2 result, converged-
+  price accuracy, American Greek accuracy, market or bid--ask performance, OOD
+  behavior, discrete-dividend applicability, or portable-latency conclusion.
+  `final-evaluate` remains separately gated on the validation outcome and its
+  required review.
+- **Authoritative links:**
+  [project-state.md](project-state.md),
+  [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
+  DEC-034, DEC-035, DEC-036

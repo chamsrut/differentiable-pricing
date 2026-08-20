@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import json
 import math
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -180,6 +181,172 @@ def _model(acceptance: dict, *, prediction: float = 10.0, baseline: bool = False
         }
         value["gate"] = {"checks": checks, "passed": all(checks.values())}
     return value
+
+
+def _model_from_rows(
+    acceptance: dict,
+    rows: list[dict],
+    *,
+    baseline: bool = False,
+    section: str = "validation_final_entry",
+) -> dict:
+    module = _module()
+    slices = {}
+    for slice_name in module._slice_names(acceptance):
+        selected = [row for row in rows if module._row_in_slice(row, slice_name, acceptance)]
+        if not selected:
+            slices[slice_name] = {"rows": 0, "physical": None, "normalized": None}
+            continue
+        references = [row["reference_price"] for row in selected]
+        predictions = [row["prediction"] for row in selected]
+        scales = [
+            row["spot"] * math.exp(-row["dividend_yield"] * row["maturity"]) for row in selected
+        ]
+        slices[slice_name] = {
+            "rows": len(selected),
+            "physical": module._statistics(references, predictions),
+            "normalized": module._statistics(
+                [value / scale for value, scale in zip(references, scales, strict=True)],
+                [value / scale for value, scale in zip(predictions, scales, strict=True)],
+            ),
+        }
+    if baseline:
+        return {
+            "slices": slices,
+            "diagnostics": {
+                "not_applicable": "stored paired no-learning baseline",
+                "stored_error_equals_early_exercise_premium": True,
+            },
+            "audit_rows": rows,
+        }
+    checks = {}
+    for check_name in module.DIAGNOSTIC_CHECKS:
+        eligible = [
+            (row["diagnostic_violations"][check_name], row["diagnostic_tolerance"])
+            for row in rows
+            if row["diagnostic_violations"][check_name] is not None
+        ]
+        checks[check_name] = {
+            "material_violations": sum(value > tolerance for value, tolerance in eligible),
+            "maximum_violation": max((max(value, 0.0) for value, _ in eligible), default=0.0),
+            "eligible_rows": len(eligible),
+        }
+    bound = sum(
+        checks[name]["material_violations"]
+        for name in (
+            "intrinsic_lower_bound",
+            "european_comparator_lower_bound",
+            "american_call_upper_bound",
+            "american_put_rate_aware_upper_bound",
+        )
+    )
+    shape = sum(
+        checks[name]["material_violations"]
+        for name in ("spot_monotonicity", "spot_convexity", "volatility_monotonicity")
+    )
+    overall = slices["overall"]["normalized"]
+    limits = acceptance[section]
+    gate_checks = {
+        "normalized_rmse": overall["rmse"] <= limits["normalized_rmse_max"],
+        "normalized_p99_absolute_error": overall["p99_absolute_error"]
+        <= limits["normalized_p99_absolute_error_max"],
+        "normalized_maximum_absolute_error": overall["maximum_absolute_error"]
+        <= limits["normalized_maximum_absolute_error_max"],
+        "material_bound_violations": bound <= limits["maximum_material_bound_violations"],
+        "material_shape_violations": shape <= limits["maximum_material_shape_violations"],
+    }
+    return {
+        "slices": slices,
+        "diagnostics": {
+            "checks": checks,
+            "material_bound_violations": bound,
+            "material_shape_violations": shape,
+            "american_greek_accuracy_claim": False,
+        },
+        "gate": {"checks": gate_checks, "passed": all(gate_checks.values())},
+        "audit_rows": rows,
+    }
+
+
+def _varied_models(acceptance: dict, row_count: int) -> dict:
+    states = list(
+        product(
+            ("call", "put"),
+            (0.1, 0.5, 1.5, 2.5),
+            (-0.3, 0.0, 0.3),
+            (0.1, 0.3, 0.6),
+            (0.0, 0.25),
+            (-1, 3),
+        )
+    )
+    scratch_rows = []
+    transfer_rows = []
+    baseline_rows = []
+    for index in range(row_count):
+        option_type, maturity, log_moneyness, volatility, premium, exercise_step = states[
+            (index * 17) % len(states)
+        ]
+        spot = 100.0 * math.exp(log_moneyness)
+        reference_price = 10.0 + premium + 0.01 * (index % 11)
+        common = {
+            "sample_id": f"sample-{index:05d}",
+            "option_type": option_type,
+            "spot": spot,
+            "strike": 100.0,
+            "maturity": maturity,
+            "dividend_yield": 0.01,
+            "volatility": volatility,
+            "early_exercise_premium": premium,
+            "earliest_exercise_step": exercise_step,
+            "reference_price": reference_price,
+        }
+        scratch_error = 0.01 + 0.001 * (index % 17)
+        transfer_error = 0.008 + 0.0008 * (index % 17)
+        scratch = _audit_row(prediction=reference_price + scratch_error)
+        scratch.update(common)
+        transfer = _audit_row(prediction=reference_price + transfer_error)
+        transfer.update(common)
+        if option_type == "put":
+            for row in (scratch, transfer):
+                row["diagnostic_violations"]["american_call_upper_bound"] = None
+                row["diagnostic_violations"]["american_put_rate_aware_upper_bound"] = -1.0
+        baseline = _audit_row(baseline=True)
+        baseline.update(common)
+        baseline["prediction"] = reference_price - premium
+        scratch_rows.append(scratch)
+        transfer_rows.append(transfer)
+        baseline_rows.append(baseline)
+    return {
+        "scratch": _model_from_rows(acceptance, scratch_rows),
+        "transfer": _model_from_rows(acceptance, transfer_rows),
+        "european_crr_baseline": _model_from_rows(acceptance, baseline_rows, baseline=True),
+    }
+
+
+def _install_varied_models(validation: dict, final: dict, acceptance: dict, row_count: int) -> None:
+    module = _module()
+    models = _varied_models(acceptance, row_count)
+    validation["validation"] = models
+    validation["interpretation"]["outcome"] = module._outcome(
+        models,
+        models,
+        validation["latency"],
+        validation["implied_volatility"],
+        acceptance,
+        "validation",
+        True,
+    )
+    final_models = copy.deepcopy(models)
+    final["models_and_baseline"] = final_models
+    final["outcome"] = module._outcome(
+        final_models,
+        models,
+        validation["latency"],
+        validation["implied_volatility"],
+        acceptance,
+        "final",
+        True,
+    )
 
 
 def _pde(protocol: dict) -> dict:
@@ -838,6 +1005,47 @@ def test_snapshot_round_trip_recomputes_published_metrics_and_verdict(tmp_path) 
             ]["p99"].update({"lower_value": 0.01, "upper_value": 0.01}),
             "primitive|recomputation",
         ),
+        (
+            lambda audit: audit["models"]["scratch"]["slices"]["overall"]["normalized"].update(
+                {
+                    "sum_squared_error": audit["models"]["scratch"]["slices"]["overall"][
+                        "normalized"
+                    ]["sum_squared_error"]
+                    * 1.1
+                }
+            ),
+            "primitive|recomputation",
+        ),
+        (
+            lambda audit: audit["models"]["scratch"]["slices"]["overall"]["normalized"].update(
+                {
+                    "maximum_absolute_error": audit["models"]["scratch"]["slices"]["overall"][
+                        "normalized"
+                    ]["maximum_absolute_error"]
+                    * 1.1
+                }
+            ),
+            "primitive|recomputation|maximum-rank",
+        ),
+        (
+            lambda audit: audit["models"]["scratch"]["slices"]["overall"]["normalized"][
+                "quantiles"
+            ]["p95"].update({"interpolation_fraction": 0.123}),
+            "rank primitive",
+        ),
+        (
+            lambda audit: audit["models"]["scratch"]["slices"]["overall"]["normalized"][
+                "quantiles"
+            ]["p95"].update(
+                {
+                    "lower_rank": audit["models"]["scratch"]["slices"]["overall"]["normalized"][
+                        "quantiles"
+                    ]["p95"]["lower_rank"]
+                    - 1
+                }
+            ),
+            "rank primitive",
+        ),
         (lambda audit: audit.update({"row_count": 2}), "overall count"),
         (
             lambda audit: audit["models"]["scratch"]["diagnostics"]["checks"][
@@ -850,6 +1058,12 @@ def test_snapshot_round_trip_recomputes_published_metrics_and_verdict(tmp_path) 
 def test_compact_snapshot_rejects_sufficient_statistic_drift(tmp_path, mutation, match) -> None:
     module = _module()
     validation, final, _, acceptance, _, _ = _reports()
+    _install_varied_models(validation, final, acceptance, 12)
+    fixture_rows = validation["validation"]["scratch"]["audit_rows"]
+    fixture_errors = {abs(row["prediction"] - row["reference_price"]) for row in fixture_rows}
+    assert len(fixture_rows) == 12
+    assert len(fixture_errors) > 1
+    assert min(fixture_errors) > 0.0
     validation_path = tmp_path / "validation.json"
     final_path = tmp_path / "final.json"
     validation_path.write_text(json.dumps(validation))
@@ -862,6 +1076,14 @@ def test_compact_snapshot_rejects_sufficient_statistic_drift(tmp_path, mutation,
         validation_path=validation_path,
         final_path=final_path,
         acceptance=acceptance,
+    )
+    overall = snapshot["audit"]["validation"]["models"]["scratch"]["slices"]["overall"][
+        "normalized"
+    ]
+    assert overall["sum_absolute_error"] > 0.0
+    assert all(
+        primitive["normalized"] is not None
+        for primitive in snapshot["audit"]["validation"]["models"]["scratch"]["slices"].values()
     )
     mutation(snapshot["audit"]["validation"])
     compact = {arm: snapshot["arms"][arm]["validation"] for arm in ("scratch", "transfer")}
@@ -1063,31 +1285,7 @@ def test_realistic_partition_snapshot_stays_below_two_mib(tmp_path) -> None:
     module = _module()
     validation, final, protocol, acceptance, latency, iv = _reports()
     row_count = 25_000
-    arm_rows = []
-    baseline_rows = []
-    for index in range(row_count):
-        arm_row = _audit_row()
-        arm_row["sample_id"] = f"sample-{index:05d}"
-        arm_rows.append(arm_row)
-        baseline_row = _audit_row(baseline=True)
-        baseline_row["sample_id"] = arm_row["sample_id"]
-        baseline_rows.append(baseline_row)
-    models = validation["validation"]
-    models["scratch"]["audit_rows"] = arm_rows
-    models["transfer"]["audit_rows"] = arm_rows
-    models["european_crr_baseline"]["audit_rows"] = baseline_rows
-    for name, model in models.items():
-        for entry in model["slices"].values():
-            if entry["rows"]:
-                entry["rows"] = row_count
-                entry["physical"]["rows"] = row_count
-                entry["normalized"]["rows"] = row_count
-        if name in ("scratch", "transfer"):
-            for check_name, check in model["diagnostics"]["checks"].items():
-                check["eligible_rows"] = (
-                    0 if check_name == "american_put_rate_aware_upper_bound" else row_count
-                )
-    final["models_and_baseline"] = models
+    _install_varied_models(validation, final, acceptance, row_count)
     validation_path = tmp_path / "validation.json"
     final_path = tmp_path / "final.json"
     validation_path.write_text("fixture", encoding="utf-8")
@@ -1109,5 +1307,13 @@ def test_realistic_partition_snapshot_stays_below_two_mib(tmp_path) -> None:
         latency,
         iv,
     )
+    expected_slices = module._slice_names(acceptance)
+    for partition in ("validation", "final"):
+        for model in module.MODEL_NAMES:
+            slices = snapshot["audit"][partition]["models"][model]["slices"]
+            assert set(slices) == expected_slices
+            for primitive in slices.values():
+                assert primitive["physical"] is not None
+                assert primitive["normalized"] is not None
     snapshot_size = len(module.serialise(snapshot).encode("utf-8"))
     assert snapshot_size < 2 * 1024 * 1024

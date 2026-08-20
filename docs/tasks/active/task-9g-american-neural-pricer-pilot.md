@@ -2,14 +2,20 @@
 
 ## Status
 
-`Protocol and implementation built — REQUEST CHANGES findings addressed;
-awaiting fresh approval and merge; no locked run.`
+`Protocol and implementation approved for merge at 8d27c23 — approval record
+and three minor corrections await final cumulative review and branch merge; no
+locked run and no numerical result.`
 This specification defines the next active task after the task 9E planning
 reconciliation. Fresh independent review of that reconciliation is discharged
 by `APPROVE PLANNING RECONCILIATION` (DEC-035). The protocol-and-implementation
-change is now built (DEC-036). Its first fresh implementation review returned
-`REQUEST CHANGES`, so that review gate remains open and no experiment may run
-until the fixes receive a subsequent fresh approval and the change is merged.
+change is now built (DEC-036). After its first fresh implementation review's
+`REQUEST CHANGES` findings were addressed, a fresh top-level review of the
+cumulative branch at `8d27c23` returned exactly `APPROVE TASK 9G IMPLEMENTATION
+FOR MERGE` (DEC-037). That approval covers implementation merge and a later
+human-invoked `run-to-validation` only. Execution remains blocked until the
+approval-recording/minor-fix commit receives final cumulative review and the
+implementation branch is merged. `final-evaluate` remains separately gated on
+the validation outcome and review; no numerical result is approved or exists.
 
 ## Objective
 
