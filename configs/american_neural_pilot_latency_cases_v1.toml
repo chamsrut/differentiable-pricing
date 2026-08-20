@@ -1,0 +1,99 @@
+schema_version = "american-neural-pilot-latency/1"
+name = "task-9g-american-neural-pilot-latency-v1"
+clock = "time.perf_counter_ns"
+crr_depths = [256, 512, 1024, 2048, 4096]
+crr_operation = "0.5 * (CRR(N) + CRR(N+1))"
+neural_end_to_end = "feature construction + standardization + inference + inverse target transform + physical reconstruction"
+request_shapes = ["single", "batch8"]
+batch_sizes = [1, 8]
+thread_budgets = [1, 4]
+torch_interop_threads = 1
+warmups = 2
+repetitions = 7
+measurement_order = "deterministic cyclic rotation by repetition"
+speedup_statistic = "median of paired CRR-adjacent-average nanoseconds divided by neural end-to-end nanoseconds"
+median_confidence_interval = "distribution-free [minimum, maximum] paired-speedup order-statistic interval; actual coverage 0.984375 for n=7"
+
+[request_case_names]
+single = ["call_short_negative_rate"]
+batch8 = ["call_short_negative_rate", "put_short_high_yield", "call_core", "put_core", "call_long_high_yield", "put_long_high_rate", "call_deep_otm_high_vol", "put_deep_otm_low_vol"]
+
+[[cases]]
+name = "call_short_negative_rate"
+option_type = "call"
+spot = 100.0
+strike = 105.0
+maturity = 0.08
+rate = -0.015
+dividend_yield = 0.0
+volatility = 0.25
+
+[[cases]]
+name = "put_short_high_yield"
+option_type = "put"
+spot = 95.0
+strike = 100.0
+maturity = 0.1
+rate = 0.02
+dividend_yield = 0.12
+volatility = 0.4
+
+[[cases]]
+name = "call_core"
+option_type = "call"
+spot = 105.0
+strike = 100.0
+maturity = 1.0
+rate = 0.04
+dividend_yield = 0.02
+volatility = 0.2
+
+[[cases]]
+name = "put_core"
+option_type = "put"
+spot = 95.0
+strike = 100.0
+maturity = 1.0
+rate = 0.04
+dividend_yield = 0.02
+volatility = 0.2
+
+[[cases]]
+name = "call_long_high_yield"
+option_type = "call"
+spot = 120.0
+strike = 100.0
+maturity = 3.0
+rate = 0.06
+dividend_yield = 0.1
+volatility = 0.35
+
+[[cases]]
+name = "put_long_high_rate"
+option_type = "put"
+spot = 80.0
+strike = 100.0
+maturity = 3.0
+rate = 0.12
+dividend_yield = 0.0
+volatility = 0.3
+
+[[cases]]
+name = "call_deep_otm_high_vol"
+option_type = "call"
+spot = 60.0
+strike = 110.0
+maturity = 1.5
+rate = 0.01
+dividend_yield = 0.04
+volatility = 0.75
+
+[[cases]]
+name = "put_deep_otm_low_vol"
+option_type = "put"
+spot = 140.0
+strike = 90.0
+maturity = 2.0
+rate = -0.01
+dividend_yield = 0.01
+volatility = 0.1

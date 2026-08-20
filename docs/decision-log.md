@@ -1122,3 +1122,82 @@ snapshot, which remains authoritative for the numbers.
   [tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md),
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
   DEC-033, DEC-034
+
+### DEC-036 — Lock Task 9G's bounded protocol and implementation before execution
+
+- **Status:** Active. Implements DEC-034; it does not execute or interpret the
+  pilot.
+- **Source and dataset gates:** The ignored unconstrained European manifest and
+  weights were recovered and preflighted at SHA-256 `054ca945…` and
+  `42670774…`; the existing loader reconstructed the expected float64
+  `3 -> [64,64,64] -> 1` tanh model. The master protocol pins schema
+  `american-option-dataset/1`, generator `1.0.0`, configuration `d18485c6…`,
+  manifest `25285892…`, train `ff7a114f…`, validation `6f53a72e…`, and locked
+  final `f006a17c…`. Runtime entry checks open and hash train and validation
+  only; the final file remains unavailable before the atomic one-shot
+  reservation.
+- **Admission invariant closed:** every loaded row must now satisfy
+  `label_policy == manifest.label_policy.name` and
+  `label_steps == manifest.label_policy.steps`. Focused fixtures cover pass,
+  name mismatch, step mismatch, and mixed-column mismatch. Existing European
+  and American named-schema loading is unchanged.
+- **Representation and lift:** `american_forward_carry_v1` is implemented only
+  in task-specific code, with target and physical reconstruction inside the
+  PyTorch graph and no output projection. American standardization is fitted on
+  the selected train rows only. The task-specific lift rebases the three shared
+  first-layer coordinates and output layer algebraically, sets the `rT` and
+  `qT` columns exactly to zero, and copies all other parameters. Against the
+  recovered source and actual locked train-only scaling, eight physical probes
+  passed `rtol=atol=1e-12`; maximum absolute price difference was
+  `1.4210854715202004e-14`, maximum relative difference
+  `3.6214823824845716e-13`.
+- **Fixed pilot design:** exactly scratch seed `2909056561` and transfer seed
+  `2009073353`, each publicly derived as the first four big-endian bytes of
+  SHA-256 over its stable label; 32,768 deterministic train rows; one
+  `5 -> [64,64,64] -> 1` float64 CPU model per arm; price-only AdamW at
+  `1e-3` with `1e-6` weight decay and a 120-epoch cosine schedule; batch size
+  2,048; four threads; no early stopping; minimum validation standardized-target
+  MSE checkpoint with earliest exact tie. There is no sweep, recovery run, or
+  extra arm.
+- **Independent check:** the existing PDE is a valid unrelated comparator under
+  its normative equation by setting `continuous_carry=q`, a flat rate curve,
+  and an explicitly empty cash-dividend schedule. One validation row per
+  `(stratum, option_type)` is selected by the lowest salted SHA-256 of
+  `sample_id`, using identifiers and physical inputs only. The 21 selected IDs
+  and inputs are pinned before execution. Coarse `400x200` and fine `800x400`
+  grids use a four-times spot/strike domain; normalized refinement and fine-PDE
+  versus CRR differences must be at most `5e-4` and `1e-3`. This is only a
+  mapping-consistency check. It has not run.
+- **Evidence and lifecycle:** physical and normalized MAE/RMSE/p95/p99/max are
+  locked overall and by option type, expiry, moneyness, volatility, premium,
+  and exercise status. Bound and local monotonicity/convexity diagnostics make
+  no Greek claim. The no-learning baseline is stored `european_crr_price`.
+  Latency uses actual adjacent averages at `[256,512,1024,2048,4096]`, matched
+  single/batch-eight requests, thread budgets, two warm-ups and seven
+  repetitions. Six multi-maturity synthetic cases use one safeguarded bisection
+  rule and are called an IV surface. The runner exposes only
+  `run-to-validation`, `status`, and confirmed `final-evaluate`; an atomic marker
+  consumes the sole final attempt before the final partition is touched. A
+  caught error or interruption after reservation writes a strict consumed-
+  failure report, records it in the ledger, forbids retry, and remains
+  freezable without manufacturing final metrics.
+- **Artifacts and freezing:** the new `american-neural-artifact/1` schema pins
+  scaling, representation, architecture, dataset/protocol/code identity,
+  deterministic NPZ weights, and transfer lineage. The designated raw-report
+  validator and snapshot freeze/check tool reject schema, finiteness, digest,
+  lifecycle, and recomputation defects. The eventual tracked snapshot retains
+  only shared non-reconstructive slice/error/diagnostic primitives needed for
+  offline recomputation; it does not copy sample IDs, economic inputs, labels,
+  or predictions from the ignored dataset/report. No Task 9G result snapshot or
+  figure is created by this implementation change.
+- **Execution state and next action:** no PDE cross-check, optimization,
+  training, latency study, IV inversion, or final evaluation ran. The next
+  same-session preliminary code and numerical reviews were used to resolve
+  implementation findings and are not approval. The next action is a fresh
+  top-level review and merge. Only then may a human invoke the locked `run-to-
+  validation` command. One seed and one budget cannot establish H2.
+- **Authoritative links:**
+  `configs/american_neural_pilot_protocol_v1.toml`,
+  [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
+  [architecture.md](architecture.md), [research-contract.md](research-contract.md),
+  DEC-034, DEC-035

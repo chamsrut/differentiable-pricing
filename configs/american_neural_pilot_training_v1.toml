@@ -1,0 +1,144 @@
+# Locked one-budget training design for Task 9G. No sweep or recovery run.
+schema_version = "american-neural-pilot-training/1"
+experiment_name = "task-9g-american-neural-pilot-v1"
+representation = "american_forward_carry_v1"
+physical_feature_order = ["option_type", "spot", "strike", "maturity", "rate", "dividend_yield", "volatility"]
+network_feature_order = ["option_type", "log_forward_moneyness", "total_volatility", "rate_time", "yield_time"]
+target = "u = V / (S * exp(-q * T))"
+physical_reconstruction = "V = S * exp(-q * T) * u"
+dtype = "float64"
+device = "cpu"
+
+[architecture]
+hidden_dimensions = [64, 64, 64]
+activation = "tanh"
+output_dimension = 1
+
+[arms]
+names = ["scratch", "transfer"]
+scratch_seed_label = "task-9g-american-neural-pilot-v1/scratch"
+scratch_seed = 2909056561
+transfer_seed_label = "task-9g-american-neural-pilot-v1/transfer"
+transfer_seed = 2009073353
+seed_derivation = "first four bytes of SHA-256(label), unsigned big-endian"
+
+[row_selection]
+partition = "train"
+row_budget = 32768
+rule = "lowest SHA-256(salt + NUL + sample_id), sample_id tie-break"
+salt = "task-9g-train-subset-v1"
+
+[standardization]
+fit_partition = "selected train rows only"
+population_standard_deviation_ddof = 0
+shared_between_arms = true
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 0.00000001
+amsgrad = false
+maximize = false
+foreach = false
+capturable = false
+differentiable = false
+fused = false
+schedule = "cosine_annealing"
+minimum_learning_rate = 0.0
+schedule_period_epochs = 120
+schedule_last_epoch = -1
+
+[training]
+objective = "standardized target mean squared error"
+batch_size = 2048
+epochs = 120
+num_threads = 4
+deterministic_algorithms = true
+shuffle = "torch.randperm from the arm seed once per epoch"
+
+[checkpoint]
+selection_partition = "validation"
+metric = "standardized_target_mse"
+rule = "minimum metric; earliest epoch wins exact ties"
+early_stopping = false
+
+[exact_lift]
+source_representation = "forward_normalized_v1"
+source_output = "unconstrained"
+relative_tolerance = 0.000000000001
+absolute_tolerance = 0.000000000001
+
+[[exact_lift.probes]]
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 0.019178082191780823
+rate = -0.02
+dividend_yield = 0.0
+volatility = 0.05
+
+[[exact_lift.probes]]
+option_type = "put"
+spot = 100.0
+strike = 120.0
+maturity = 0.08
+rate = 0.12
+dividend_yield = 0.12
+volatility = 0.8
+
+[[exact_lift.probes]]
+option_type = "call"
+spot = 150.0
+strike = 75.0
+maturity = 3.0
+rate = 0.08
+dividend_yield = 0.0
+volatility = 0.2
+
+[[exact_lift.probes]]
+option_type = "put"
+spot = 50.0
+strike = 100.0
+maturity = 3.0
+rate = -0.01
+dividend_yield = 0.1
+volatility = 0.6
+
+[[exact_lift.probes]]
+option_type = "call"
+spot = 90.0
+strike = 110.0
+maturity = 1.5
+rate = 0.03
+dividend_yield = 0.08
+volatility = 0.35
+
+[[exact_lift.probes]]
+option_type = "put"
+spot = 125.0
+strike = 95.0
+maturity = 0.5
+rate = 0.0
+dividend_yield = 0.02
+volatility = 0.15
+
+[[exact_lift.probes]]
+option_type = "call"
+spot = 70.0
+strike = 90.0
+maturity = 2.25
+rate = 0.1
+dividend_yield = 0.12
+volatility = 0.75
+
+[[exact_lift.probes]]
+option_type = "put"
+spot = 140.0
+strike = 130.0
+maturity = 0.25
+rate = -0.015
+dividend_yield = 0.0
+volatility = 0.4

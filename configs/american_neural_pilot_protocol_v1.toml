@@ -1,0 +1,499 @@
+# Locked Task 9G protocol. This file and every pinned input must be reviewed and
+# merged before the human invokes any cross-check, training, latency, IV, or
+# final-evaluation command.
+schema_version = "american-neural-pilot-protocol/1"
+name = "task-9g-american-neural-pilot-v1"
+
+[paths]
+protocol = "configs/american_neural_pilot_protocol_v1.toml"
+training_config = "configs/american_neural_pilot_training_v1.toml"
+acceptance_config = "configs/american_neural_pilot_acceptance_v1.toml"
+latency_config = "configs/american_neural_pilot_latency_cases_v1.toml"
+iv_config = "configs/american_neural_pilot_iv_cases_v1.toml"
+dataset = "data/american-option-v1"
+dataset_manifest = "data/american-option-v1/manifest.json"
+source_artifact = "artifacts/european-neural-forward-differential-replication-v1"
+output_directory = "artifacts/task-9g-american-neural-pilot-v1"
+execution_ledger = "runs/task-9g-american-neural-pilot-v1/execution.json"
+raw_report = "artifacts/task-9g-american-neural-pilot-v1/validation-report.json"
+final_report = "artifacts/task-9g-american-neural-pilot-v1/final-report.json"
+final_failure_report = "artifacts/task-9g-american-neural-pilot-v1/final-attempt-failure-report.json"
+result_snapshot = "docs/results/american_neural_pilot_results_v1.json"
+
+[dataset]
+schema_version = "american-option-dataset/1"
+generator_version = "1.0.0"
+config_sha256 = "d18485c66b92c720c57bef6820e7f6cdb7204159c2dcf8d47d8f9c744cb28c98"
+manifest_sha256 = "252858929f3a981717dafc54c1639e1bd8159c5ad000aec7a0cc0cf24e9630d2"
+train_sha256 = "ff7a114f5bee260dba04c99afc78b0c9098fd9dfdd18c7a9dc952ce249ef50a9"
+validation_sha256 = "6f53a72e26a917f44324d3df86bffc4924eaf4739655f0563e63a0ad91f839c9"
+locked_final_sha256 = "f006a17cf5818f5950b0402e8942e6738726f2547e2e3c309038a836a1ed1058"
+
+[source_artifact]
+schema_version = "european-neural-artifact/v1"
+representation = "forward_normalized_v1"
+architecture = [3, 64, 64, 64, 1]
+manifest_sha256 = "054ca945de851b4e5b2a10455e93be44546770410bcf698e0051175fe8d19f51"
+weights_sha256 = "42670774f736383e50818b6e6c1db9374a77988173e35423ffc34b3c4297ecb8"
+
+[model]
+representation = "american_forward_carry_v1"
+network_feature_order = ["option_type", "log_forward_moneyness", "total_volatility", "rate_time", "yield_time"]
+target = "u = V / (S * exp(-q * T))"
+physical_reconstruction = "V = S * exp(-q * T) * u"
+architecture = [5, 64, 64, 64, 1]
+activation = "tanh"
+dtype = "float64"
+device = "cpu"
+output_constraint = "none"
+
+[lifecycle]
+public_modes = ["run-to-validation", "status", "final-evaluate --confirm-locked-final-evaluation"]
+selection_partition = "validation"
+final_partition = "interpolation_test"
+maximum_final_attempts = 1
+reserve_before_final_access = true
+interruption_consumes_attempt = true
+second_attempt_allowed = false
+failure_action = "record_failure; new protocol and fresh final partition required"
+
+[output_schemas]
+execution_ledger = "american-neural-pilot-execution/1"
+validation_raw_report = "american-neural-pilot-raw-report/1"
+entry_failure_raw_report = "american-neural-pilot-entry-failure-report/1"
+final_raw_report = "american-neural-pilot-final-report/1"
+final_failure_raw_report = "american-neural-pilot-final-attempt-failure-report/1"
+model_artifact = "american-neural-artifact/1"
+result_snapshot = "american-neural-pilot-result/1"
+
+[environment_metadata]
+required = ["python", "numpy", "torch", "platform", "machine", "processor", "logical_cpu_count", "cpu_affinity", "core_version", "build_configuration", "cxx_compiler"]
+timing_clock = "time.perf_counter_ns"
+timestamps_are_evidence_only = true
+portable_latency_claim_allowed = false
+
+[independent_pde_check]
+engine = "dp::finite_difference_price"
+exercise_style = "american"
+continuous_carry_mapping = "continuous_carry = dividend_yield"
+cash_dividends = "declared empty schedule"
+selection_partition = "validation"
+selection_columns = ["sample_id", "stratum", "option_type", "spot", "strike", "maturity", "rate", "dividend_yield", "volatility"]
+selection_rule = "one minimum SHA-256(salt + NUL + sample_id) per (stratum, option_type), sample_id tie-break"
+selection_salt = "task-9g-pde-validation-selection-v1"
+maximum_normalized_refinement_difference = 0.0005
+maximum_normalized_pde_crr_difference = 0.001
+normalization = "spot * exp(-dividend_yield * maturity)"
+interpretation = "mapping-consistency only; not converged truth or semantic-coverage evidence"
+requested_spot_maximum_rule = "factor * max(spot, strike)"
+valuation_time = 0.0
+settlement = "cash"
+contract_multiplier = 1.0
+rannacher_steps = 2
+psor_tolerance = 0.00000000001
+psor_relaxation = 1.2
+psor_maximum_iterations = 50000
+
+[[independent_pde_check.grids]]
+name = "coarse"
+spot_intervals = 400
+time_steps = 200
+spot_maximum_factor = 4.0
+
+[[independent_pde_check.grids]]
+name = "fine"
+spot_intervals = 800
+time_steps = 400
+spot_maximum_factor = 4.0
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000022899"
+selection_sha256 = "001eb2206a0b6ec8ebf6a11331c5c3dfbd098629763f11cddc1755ad03feddeb"
+stratum = "core"
+option_type = "call"
+spot = 121.7654359522492
+strike = 155.14921879536402
+maturity = 1.6146898636893612
+rate = 0.03833335075356705
+dividend_yield = 0.02349204980304176
+volatility = 0.413631198836903
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000007811"
+selection_sha256 = "001a69eb2c6e72790e21168752c697c72ed064d59503052b7b45f7d5c0dd9c7c"
+stratum = "core"
+option_type = "put"
+spot = 121.54432725462493
+strike = 122.11115172404625
+maturity = 0.6699112834095085
+rate = -0.004490445698257195
+dividend_yield = 0.027045187725538128
+volatility = 0.3705427210942142
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000011313"
+selection_sha256 = "002836e464c9914b9948b09b0b0e460f52593ddbed846294fbac97e9ae588f5c"
+stratum = "deep_moneyness_negative"
+option_type = "call"
+spot = 143.90135332447016
+strike = 252.55214469725513
+maturity = 1.4384370137545885
+rate = 0.0009470594398740956
+dividend_yield = 0.03860929817284461
+volatility = 0.5088554698034633
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000010445"
+selection_sha256 = "00183a25a57c596ab7b3dc941b576df63bf6d755672812b5810afee1b2d698f1"
+stratum = "deep_moneyness_negative"
+option_type = "put"
+spot = 100.07053822956303
+strike = 178.9303335365068
+maturity = 1.60852204134786
+rate = 0.06740691371849356
+dividend_yield = 0.006500883160811721
+volatility = 0.5686845684391824
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000018250"
+selection_sha256 = "0076fcf35abe7cb45c04a5b9a1c08b5b928c70a1341e015da9dd335b412557f4"
+stratum = "deep_moneyness_positive"
+option_type = "call"
+spot = 109.93640690438085
+strike = 70.5829225387761
+maturity = 2.4866098091641637
+rate = 0.053923461705103405
+dividend_yield = 0.0052169941546690414
+volatility = 0.2976287037721602
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000014732"
+selection_sha256 = "00054a4a9c1120c81e4749500379ad5dae521fa7e56674fbe6fada78af83589b"
+stratum = "deep_moneyness_positive"
+option_type = "put"
+spot = 131.2527404397637
+strike = 74.19676902399257
+maturity = 0.9676670682137187
+rate = 0.06981617535280998
+dividend_yield = 0.04732244543755002
+volatility = 0.5189574635709993
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000012925"
+selection_sha256 = "0019ad0154d46e42b6d3e87e9781f72ef5dd4a3e751c75001293b7fc853de345"
+stratum = "high_dividend"
+option_type = "call"
+spot = 61.95177264263538
+strike = 68.67535416026216
+maturity = 1.8958052909113687
+rate = 0.06081421732660118
+dividend_yield = 0.08202185227374884
+volatility = 0.4554702539172101
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000021856"
+selection_sha256 = "000ed7fb602e3399e5b7e172c5e56db17948ffcbcc86defb4097764e76430352"
+stratum = "high_dividend"
+option_type = "put"
+spot = 64.58846026828998
+strike = 56.65481185301412
+maturity = 1.9851284356907106
+rate = 0.07383155657279877
+dividend_yield = 0.07424132006740922
+volatility = 0.23680928101520035
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000023729"
+selection_sha256 = "002fd864150329c726a5dc38a07bfe014972884cc25a5425acadb98d3713bee8"
+stratum = "high_rate_low_dividend"
+option_type = "call"
+spot = 87.34405615136862
+strike = 101.68827656004592
+maturity = 1.4329793921733094
+rate = 0.09840993303476497
+dividend_yield = 0.006331580441758438
+volatility = 0.26498020763194874
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000001093"
+selection_sha256 = "0040e0bb87a5c8383224b45b39d44e4888dbee0e0701d3463921ce6005d2cf0b"
+stratum = "high_rate_low_dividend"
+option_type = "put"
+spot = 123.86250415929354
+strike = 158.1923761364751
+maturity = 0.4634942574679386
+rate = 0.11215153929915475
+dividend_yield = 0.013549513057656289
+volatility = 0.4863922985093152
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000018445"
+selection_sha256 = "00648d19bc1f31495ccf8f479aa248ef3d1366792ff74b2585ba48acfc102176"
+stratum = "high_volatility"
+option_type = "call"
+spot = 96.21309241097437
+strike = 56.495395724485505
+maturity = 0.6115919659571413
+rate = 0.012719333037198763
+dividend_yield = 0.03408766265639005
+volatility = 0.6076170877207604
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000023231"
+selection_sha256 = "00204f38bfdcd74d031dcb92c3316f67e8b1e8c8b0ce42a63acbd702406fb3cd"
+stratum = "high_volatility"
+option_type = "put"
+spot = 142.45305533349205
+strike = 172.8065139714354
+maturity = 0.8788662463464195
+rate = 0.03967564363741127
+dividend_yield = 0.03738379058372711
+volatility = 0.7119653324776647
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000020594"
+selection_sha256 = "002ba5c88944141e4b5f3e3179e0eb806733046f3681b26d77fbf422f29ceb96"
+stratum = "long_maturity"
+option_type = "call"
+spot = 78.17239719875383
+strike = 83.28122139122227
+maturity = 2.6432864311289537
+rate = 0.023201003097276122
+dividend_yield = 0.038180639696008434
+volatility = 0.38680032793290675
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000016025"
+selection_sha256 = "0017ffaee98cd50b9a3e5c1b0ae42fb39517955d9ba2e87907cf409db3921efc"
+stratum = "long_maturity"
+option_type = "put"
+spot = 76.64902016613286
+strike = 102.37031827305573
+maturity = 2.8167231772936843
+rate = 0.00037238616598073496
+dividend_yield = 0.0004017970049864428
+volatility = 0.29744999093447577
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000023367"
+selection_sha256 = "0050ba2d9fa92bffb09d7d96eaee68349f99e53b30094bf1f363ce5cdcd8b576"
+stratum = "low_volatility"
+option_type = "call"
+spot = 86.5622580684572
+strike = 85.98754556055297
+maturity = 1.5015551596401808
+rate = 0.0435432716945306
+dividend_yield = 0.014015625944016008
+volatility = 0.1313252419820471
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000006614"
+selection_sha256 = "0028dfb055a27269d3b73de4d219881532ca3855f07b3286dab845ef09f6b7f9"
+stratum = "low_volatility"
+option_type = "put"
+spot = 144.0208691104906
+strike = 128.73788786520745
+maturity = 1.0343389370328282
+rate = 0.023797985635374344
+dividend_yield = 0.04335058879596255
+volatility = 0.13336282545557976
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000004785"
+selection_sha256 = "0054d80a3340651d063bae3a96abbe599e9f3ebb7f1c1bed096a2393759c4696"
+stratum = "negative_rate"
+option_type = "call"
+spot = 146.79528212982007
+strike = 161.3703623226009
+maturity = 1.1635216604094305
+rate = -0.007353089017274699
+dividend_yield = 0.004919964408968336
+volatility = 0.3740890531283455
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000010765"
+selection_sha256 = "000d384c399a7566d4463228e2adfa883f64965e2bb135c62336352e832ad21a"
+stratum = "negative_rate"
+option_type = "put"
+spot = 57.49363736745181
+strike = 76.73125865005285
+maturity = 0.7482199571206267
+rate = -0.015432512315976182
+dividend_yield = 0.01143549116390747
+volatility = 0.4881355190184996
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000015201"
+selection_sha256 = "00175f53d57eae59187abf997e22acfb8f178a9fcc6ba17cac8086e17fb66b2b"
+stratum = "non_dividend_call_control"
+option_type = "call"
+spot = 149.74223245690905
+strike = 146.49412475294673
+maturity = 1.9808317700761955
+rate = 0.061445774131303685
+dividend_yield = 0.0
+volatility = 0.41804764798032723
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000002792"
+selection_sha256 = "00107018051275c510537a16b2c7ebbdb71b46f79f4f71a7dff1034ce8a65af0"
+stratum = "short_maturity"
+option_type = "call"
+spot = 128.67958632698162
+strike = 135.06565133970935
+maturity = 0.1446565624739922
+rate = 0.057239740845578056
+dividend_yield = 0.04060008389595278
+volatility = 0.3456547895830214
+
+[[independent_pde_check.cases]]
+sample_id = "validation-000015766"
+selection_sha256 = "0002d855493d414d7ee3051deaa92eb84e4bdeb51fc516e40f380395c777fd03"
+stratum = "short_maturity"
+option_type = "put"
+spot = 143.15949322166568
+strike = 143.66239459839616
+maturity = 0.08192711977753889
+rate = 0.02417136664714499
+dividend_yield = 0.003959743998177329
+volatility = 0.33925863734406814
+
+[[tracked_inputs]]
+path = "configs/american_neural_pilot_training_v1.toml"
+sha256 = "4c00b7e7bb822166cb5f799633dca618b0a801b1084a8567c77286af57b61133"
+
+[[tracked_inputs]]
+path = "configs/american_neural_pilot_acceptance_v1.toml"
+sha256 = "8ef937872e3cda84b36c766e373630dd6fb5c3471e25f032fe09c56ed310402e"
+
+[[tracked_inputs]]
+path = "configs/american_neural_pilot_latency_cases_v1.toml"
+sha256 = "768a43f0bc3783d727a687b87de450f88555501bf660fbebc1f74984d4d8038b"
+
+[[tracked_inputs]]
+path = "configs/american_neural_pilot_iv_cases_v1.toml"
+sha256 = "f310b35849ade79bab0e810876915dc438ada0de4b6bcd7566d7fed7168546f7"
+
+[[tracked_inputs]]
+path = "configs/american_option_dataset_v1.toml"
+sha256 = "d18485c66b92c720c57bef6820e7f6cdb7204159c2dcf8d47d8f9c744cb28c98"
+
+[[tracked_inputs]]
+path = "docs/architecture.md"
+sha256 = "98bce48828538b09b02b276e2fdd1ea26170b44963a298bd3fd7485471ec8111"
+
+[[tracked_inputs]]
+path = "docs/research-contract.md"
+sha256 = "48baf30f40e00dd12f6ae41c04b760f1995c03b2c6bcd1be9fe21c9837a5dff6"
+
+[[tracked_inputs]]
+path = "docs/american-crr-contract.md"
+sha256 = "6d2b0b2c8179572f7ac5ef93a778cf537a5305d872f4cac9cca19acbe39d2f44"
+
+[[tracked_inputs]]
+path = "docs/american-crr-dataset-admission.md"
+sha256 = "02740113683c7a06fa2ab0fffd3962068a0c1b2aa795b5e9d6eb86f950ee9b55"
+
+[[tracked_inputs]]
+path = "docs/results/european_replication_results_v1.json"
+sha256 = "3fd0a7a3c65da692dd047ee6d5f7576e3061284e593063c24c350854c7d0d7a8"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/data/american_admission.py"
+sha256 = "62f803d4a8693063e49ba4ff18ba99f2f464ab312a0db6333d385c5c3b642d85"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/ml/american.py"
+sha256 = "1b5d5910e41016936be78a8ff16d9c3ff3b010932a4a73945d0342111eb59b05"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/ml/american_artifact.py"
+sha256 = "8d0866c476da7a39955173fdfe7159071474b13be1c62f4e9430f26647d8da14"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/ml/american_pilot.py"
+sha256 = "7adbc621ec09c2b81aab26e9aa9d02e3728c5c07a5876a51b096b96c79f89c15"
+
+[[tracked_inputs]]
+path = "scripts/run_american_neural_pilot.py"
+sha256 = "e85661c6b140e4394e6451590980f204fe3e3471f6b9650fdf0b5d53cce95077"
+
+[[tracked_inputs]]
+path = "scripts/check_american_neural_pilot_protocol.py"
+sha256 = "748a86346e395b36b2e9899744bea7e0769dd01dffb7767d148e2faa59204f18"
+
+[[tracked_inputs]]
+path = "scripts/freeze_american_neural_pilot_results.py"
+sha256 = "db6cc5c71d3ca125d401e6a2170b0f0281cee654d68cc4f502879aca916b3bfb"
+
+[[tracked_inputs]]
+path = "cpp/include/dp/finite_difference_pde.hpp"
+sha256 = "5252c2ae3c1606eafdda74fd8254799e3714656243b47a247bf95685011a735f"
+
+[[tracked_inputs]]
+path = "cpp/src/finite_difference_pde.cpp"
+sha256 = "459f796d0b08f3735024ea4c2de373b53519c85f18915864f480da16eb797df9"
+
+[[tracked_inputs]]
+path = "bindings/python/pde_module.cpp"
+sha256 = "182bb56860028045be342fced31abcfd8e7e58f00a1c2c34d32a2c14fc4a7e82"
+
+[[tracked_inputs]]
+path = "docs/pde-numerical-contract.md"
+sha256 = "8e21617c9535ba3f8a1dfee4fe7c7b2ebb2cf376e04090f377cb3b3c681d53b4"
+
+[[tracked_inputs]]
+path = "pyproject.toml"
+sha256 = "9a69761a1c1f0943aa12724acb0a9abe05c410f91a37b13e75731fee38dfcb7e"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/__init__.py"
+sha256 = "759e9879e25df94dbde5873ef1c50598cfe8a2397fba23d78fbd3fb8c24f160e"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/data/american_schema.py"
+sha256 = "e3c2d07d79004c0c012ba1f9ee283dd669e072d4e12b72fd188d7ade36c5aaf8"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/ml/artifact.py"
+sha256 = "e33cd60388856b767c93a91e0d94be437c64b51a00a8ed827c33bb854dcea259"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/ml/config.py"
+sha256 = "5805f75ad9a5acb76e9289a7fbc7797382bd16094a0f1704c53e969829d3127c"
+
+[[tracked_inputs]]
+path = "python/src/differentiable_pricing/ml/model.py"
+sha256 = "6bc1d91369413f73077f47197a7e4ca99305489bdf6b3189d33d73884b39b449"
+
+[[tracked_inputs]]
+path = "bindings/python/module.cpp"
+sha256 = "f5c7665e40204487bfa47d0ecf04ca8a00ee388f2d1febc8210139f37586bca1"
+
+[[tracked_inputs]]
+path = "cpp/include/dp/binomial_tree.hpp"
+sha256 = "eec8f7965e15c11bb6a63430ecf160a49040a9ad3315a2ac85f2f3b05fa942e3"
+
+[[tracked_inputs]]
+path = "cpp/src/binomial_tree.cpp"
+sha256 = "7dc5d754163ee349e843db59e60b2f8b8456fead19be524fe5c8dd4dd210b1ff"
+
+[[tracked_inputs]]
+path = "cpp/include/dp/black_scholes.hpp"
+sha256 = "0e6bc29fb41190488bee597488bdf35964245e97340a9debc167a7d072d2c792"
+
+[[tracked_inputs]]
+path = "cpp/src/black_scholes.cpp"
+sha256 = "7e17d9ead9564fbeffca938b243ac72217f103b74bb098e7773e021b386bceb6"
+
+[[tracked_inputs]]
+path = "cpp/include/dp/option.hpp"
+sha256 = "6fadda66597f6bd94898f898e6101a811c353a2a0e4d7f48a59e5b0c8f7c52f2"
+
+[[tracked_inputs]]
+path = "cpp/src/option.cpp"
+sha256 = "7049effdc8aadad1059b2270d522195a77eba574c7ae6c1edb33c7db67091b3a"
+
+[[tracked_inputs]]
+path = "CMakeLists.txt"
+sha256 = "8b95ba3652384d81795cd6d0d5cf3e3fcb7f3696a337db50f37a1b30df0f495f"

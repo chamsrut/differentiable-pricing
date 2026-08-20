@@ -225,28 +225,28 @@ any Parquet file is opened. **There is no permissive compatibility fallback.**
 `ml/train.py` and `ml/evaluate.py` still address the label as
 `split.columns["price"]`, so handing them an American split raises `KeyError`
 rather than reading the wrong column — a hard failure, which is the behaviour
-this task wants until a training task exists. `SplitData.target` and
-`SplitData.european_comparator` are what that task will use.
+this task wants. `SplitData.target` and `SplitData.european_comparator` are the
+fields used by the active Task 9G pilot implementation.
 
 `python/src/differentiable_pricing/data/american_admission.py` holds the gates:
 schema, manifest reconciliation, partition labels, row identities and bounds,
 domain containment, identifier uniqueness, exact state uniqueness, and
-cross-partition disjointness. Every gate fails closed.
+cross-partition disjointness. Task 9G added the two row/manifest label-policy
+equalities. Every gate fails closed.
 
 Tests use small fixtures written to `tmp_path`
 (`python/tests/american_admission_fixtures.py`). **No test reads the Git-ignored
-47 MB dataset**, so the suite runs in CI unchanged. 75 focused tests were added:
-27 for the schema contract and its manifest validator, 27 for the gates, 14 for
+47 MB dataset**, so the suite runs in CI unchanged. 79 focused tests were added:
+27 for the schema contract and its manifest validator, 31 for the gates, 14 for
 named-schema loading, and 7 for feature sufficiency.
 
-One required invariant is **not implemented**: the current checks do not
-require every row's `label_policy` to equal `manifest.label_policy.name`, or
-every row's `label_steps` to equal `manifest.label_policy.steps`. Both
-equalities are mandatory implementation work before training. The experiment
-entry checks must also pin the exact dataset `generator_version` (`1.0.0`) and
-the recovered configuration SHA-256
+Task 9G now requires every row's `label_policy` to equal
+`manifest.label_policy.name` and every row's `label_steps` to equal
+`manifest.label_policy.steps`, with focused pass/name/steps/mixed fixtures. Its
+locked protocol also pins dataset generator version `1.0.0` and recovered
+configuration SHA-256
 `d18485c66b92c720c57bef6820e7f6cdb7204159c2dcf8d47d8f9c744cb28c98`.
-This admission record does not implement those changes.
+The independent numerical check remains pending manual execution.
 
 ## Limitations that survive admission
 
@@ -278,10 +278,10 @@ This admission record does not implement those changes.
 9. **No training path exists.** `ml/train.py` and `ml/evaluate.py` are
    unchanged and European-specific; wiring them to the named target is work for
    the training task, not for this one.
-10. **The row/manifest policy invariants are not enforced.** A row can disagree
-    with the manifest's label-policy name or step count without the present
-    admission checks rejecting it. Training remains blocked until both
-    equalities are implemented and tested.
+10. **The original task 9E implementation omitted row/manifest policy
+    invariants.** Task 9G closes that implementation gap. This historical
+    limitation remains listed to preserve the admission chronology; it is no
+    longer an open code defect.
 
 ## Non-claims
 

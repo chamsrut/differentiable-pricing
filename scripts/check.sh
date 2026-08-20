@@ -28,6 +28,9 @@ PY
 
 python3 scripts/check_test_partition.py
 python3 scripts/check_european_replication_protocol.py
+# Task 9G protocol validation is offline: it hashes tracked inputs only and
+# never touches any dataset partition or launches the locked experiment.
+python3 scripts/check_american_neural_pilot_protocol.py
 python3 scripts/plot_european_validation_results.py --check
 python3 scripts/plot_european_replication_results.py --check
 # Both checks use only checked-in files, so they pass with artifacts/ absent.
