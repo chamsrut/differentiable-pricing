@@ -39,8 +39,10 @@ about correlation, and a three-surface vega design — before revisiting the
 labeling-policy question itself. That revisit, task 9C-C3, ran its two
 predeclared stages once each and selected `grid_1600x800`; a fresh top-level
 independent session then returned **APPROVE POLICY AND FREEZE**. What is
-unblocked is *labeling*, and only that: **no American dataset and no American
-neural training exist yet**. In parallel, a real-market track (tasks 9A/9B)
+unblocked is *labeling*, and only that: **no accepted production American
+dataset and no American neural training exist yet**. The local CRR dataset's
+later conditional, mapping-only admission does not change that production
+claim. In parallel, a real-market track (tasks 9A/9B)
 audited a three-session proprietary quote archive and established, read-only,
 which pricing inputs it can and cannot supply — it produces no price, label, or
 calibrated value and stays fully out of Git.
@@ -59,8 +61,13 @@ the next step was a documentation and integrity audit of what this project
 already holds on local disk (DEC-030). That audit, task 9D, is now complete: the
 catalogue is [data-holdings-catalogue.md](data-holdings-catalogue.md), it admits
 nothing, and it leaves the candidate CRR dataset catalogued-but-not-admitted
-with twelve recorded limitations (DEC-031). The active task is now task 9E,
-which decides admission and gives the loader named-schema support (DEC-032).
+with twelve recorded limitations (DEC-031). Task 9E added named-schema support
+and internal gates, but reconciliation found that its independent cross-check,
+near-duplicate gate, and semantic-coverage judgement were not discharged. The
+dataset is now conditionally admitted only for learning the known CRR mapping,
+not for converged American-price accuracy (DEC-034). The active task is task 9G,
+the protocol and implementation for one bounded feasibility pilot; execution is
+blocked on its entry gates.
 **The accepted PDE label policy remains frozen evidence; this roadmap change
 does not reinterpret or rerun it.**
 
@@ -81,7 +88,6 @@ does not reinterpret or rerun it.**
 | Task 9C-C3 predeclaration (criteria, lifecycle, runner, freeze tool) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) |
 | Task 9C-C3: PDE label-policy v2 — **accepted `grid_1600x800`** | [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json) — frozen terminal, externally approved ([decision-log.md](decision-log.md) DEC-025) |
 | Task 9D: local data-holdings catalogue and integrity audit | [data-holdings-catalogue.md](data-holdings-catalogue.md) — audit record, admits nothing ([decision-log.md](decision-log.md) DEC-031) |
-| Task 9E: CRR dataset admission — **implemented, pending fresh review** | [american-crr-dataset-admission.md](american-crr-dataset-admission.md) — admitted for one bounded experiment, no training authorized ([decision-log.md](decision-log.md) DEC-033) |
 
 ## Current implementation state
 
@@ -117,26 +123,37 @@ does not reinterpret or rerun it.**
     has not run.
   No American neural surrogate exists. No parallel or resumable label
   generation exists.
-- **The local candidate CRR dataset is catalogued and, as of task 9E, admitted
-  — preliminarily — solely for the bounded continuous-yield American CRR
-  learnability and latency experiment.** The admission record is
-  [american-crr-dataset-admission.md](american-crr-dataset-admission.md); it is a
-  single-session conclusion and its **material approval is outstanding**.
-  Admission authorizes no training: the first American training run is a
-  separate task with its own gate, and none has been started or routed to. Task
+- **The local candidate CRR dataset is catalogued and conditionally admitted
+  only for learning the known continuous-yield CRR mapping.** The admission
+  record is
+  [american-crr-dataset-admission.md](american-crr-dataset-admission.md). Fresh
+  independent review returned `APPROVE PLANNING RECONCILIATION` (DEC-035),
+  discharging material review only for this conditional, mapping-only
+  admission. This is not acceptance of converged American-price accuracy and
+  authorizes no training. Task
   9E recovered the generating configuration and the two label-policy pilot
   configurations verbatim from `49ef72a` (digest-pinned by a test), recovered the
   "Label policy v1" section into
   [american-crr-contract.md](american-crr-contract.md), ported the schema
   contract as `data/american_schema.py` — **schema only, so the dataset still
   cannot be regenerated from tracked sources** — added strict named-schema loader
-  support with the European path unchanged, and added the integrity and leakage
-  gates in `data/american_admission.py`. Every gate ran over all 250,000 rows and
-  passed. The dataset is **feature-sufficient** under
-  `american_raw_physical_v1`; the European `forward_normalized_v1` representation
-  is **rejected for American labels**, because two contracts sharing a forward
-  and a total volatility differ by 1.2–1.3 % in normalized American price while
-  agreeing to machine precision in European price.
+  support with the European path unchanged, and added integrity,
+  internal-identity, identifier-disjointness, and exact-state-disjointness
+  checks in `data/american_admission.py`; those implemented checks passed over
+  all 250,000 rows. The independent numerical cross-check and semantic-coverage
+  judgement were not performed. No near-duplicate threshold was predeclared
+  before the distances were observed, so that gate cannot be satisfied
+  retroactively. The current checks also do not enforce each row's
+  `label_policy` and `label_steps` against the manifest policy; task 9G must add
+  those invariants and pin generator version `1.0.0` and recovered config digest
+  `d18485c6…` before training. The raw dataset is feature-sufficient, but
+  `american_raw_physical_v1` is not minimal. The pilot uses
+  `american_forward_carry_v1`: encoded type, `log(F/K)`, `sigma*sqrt(T)`, `rT`,
+  and `qT`, with target `V/(S*exp(-q*T))`. The three-input European
+  `forward_normalized_v1` representation remains rejected for American labels,
+  because two contracts sharing a forward and a total volatility differ by
+  1.2–1.3 % in normalized American price while agreeing to machine precision
+  in European price.
 - The dataset itself sits under Git-ignored `data/american-option-v1/`: 250,000 rows
   of synthetic **continuous-dividend-yield American CRR** labels — not a
   no-dividend dataset, and a continuous yield is not a discrete
@@ -158,18 +175,21 @@ does not reinterpret or rerun it.**
 
 ## Exact next task
 
-**A fresh top-level review of task 9E's admission decision.** Task 9E is
-`Implemented, pending fresh review` —
-[tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md),
-record at
-[american-crr-dataset-admission.md](american-crr-dataset-admission.md)
-([decision-log.md](decision-log.md) DEC-033). The work is done and every gate
-passes; what is outstanding is the **material approval**, which by `AGENTS.md`
-requires a fresh top-level session with no anchoring on the implementing one.
+**Task 9G: the protocol-and-implementation PR for the bounded continuous-yield
+American neural-pricer feasibility pilot** —
+[tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md)
+([decision-log.md](decision-log.md) DEC-034). Its first entry gate is a fresh
+top-level review of task 9E's reconciled **conditional** admission; that gate
+is discharged by `APPROVE PLANNING RECONCILIATION` (DEC-035). The PR must
+implement the row/manifest policy invariants, lock dataset and source-
+artifact identities, implement and verify the exact European-to-American lift,
+and freeze seeds, the single training budget, metrics, latency cases, and IV
+cases. It must be reviewed and merged before any manual experiment run.
 
-**No training task exists and none has been routed to.** The first American
-training run is a separate task with its own gate; it is not defined, not
-started, and not authorized by 9E's admission.
+**No training is authorized or started.** Task 9G is active at protocol and
+implementation scope only. The outstanding independent numerical cross-check
+must be completed or explicitly resolved before a training run is authorized;
+`interpolation_test` remains unavailable until the one-shot final evaluation.
 
 What 9E delivered: the generating configuration and both label-policy pilot
 configurations recovered verbatim from `49ef72a` and digest-pinned by a test;
@@ -177,17 +197,17 @@ the "Label policy v1" section recovered into
 [american-crr-contract.md](american-crr-contract.md); the schema contract
 ported as `data/american_schema.py` — **schema only, no generation machinery**;
 strict named-schema loader support with the European path unchanged and unknown
-schemas failing closed; the integrity and leakage gates in
+schemas failing closed; the implemented integrity and exact-disjointness checks in
 `data/american_admission.py`; and 75 focused tests on small fixtures, none of
 which reads the Git-ignored dataset.
 
-What 9E's implementing prompt scoped out, and which therefore survives as open
-work rather than as a finding: an **independent LSM or PDE cross-check** of
-these labels — every identity verified so far is internal to one lattice — and
-a **semantic-coverage judgement** of the sampling design. The near-duplicate
-leakage threshold was **not** predeclared and no gate was built from it: task 9D
-measured those distances first, so any threshold chosen now would be post-hoc,
-and the measurement stays descriptive.
+What 9E did not complete: an **independent LSM or PDE cross-check** of these
+labels and a **semantic-coverage judgement** of the sampling design. The
+near-duplicate threshold was not predeclared before task 9D measured the
+distances, so that gate cannot be satisfied retroactively for this dataset
+version and the measurements stay descriptive. The current checks also omit
+the row/manifest label-policy name and step equalities. These facts make the
+admission conditional and mapping-only; they are not all-gates completion.
 
 **Task 9D is `Completed`.** Its catalogue is
 [data-holdings-catalogue.md](data-holdings-catalogue.md) — every holding under
@@ -293,28 +313,33 @@ now marked `Completed`.
 
 Task 9E's gates, and their exact status:
 
-- **Entry:** discharged — task 9D was complete and its catalogue existed.
+- **Entry:** **not fully discharged** — task 9D was complete, but the
+  near-duplicate convention stayed open until after its distances were
+  observed.
 - **Loader gate:** discharged — the dataset loads under a named, versioned
   schema with manifest-digest verification enforced; unknown schemas and
   unregistered `schema_version` values fail closed with no permissive fallback;
-  the European loading path is unchanged and its tests pass untouched.
+  the European loading path is unchanged and its tests pass untouched. Two
+  mandatory pre-training invariants are missing: row `label_policy` and
+  `label_steps` are not checked against the manifest policy name and steps.
 - **Integrity and internal-identity gates:** discharged — every gate in
   `data/american_admission.py` ran over all 250,000 rows and passed, and the
   gates live in the test suite on small fixtures.
-- **Leakage gate:** discharged for the **exact** properties — identifier and
-  contract-state disjointness. The near-duplicate half was **not** run as a
+- **Leakage gate:** **partially discharged** — identifier and exact
+  contract-state disjointness hold. The near-duplicate half was not run as a
   gate: no threshold was predeclared before task 9D observed the distances, so
-  none is claimed now, and the distances stay descriptive.
-- **Cross-check gate:** **not exercised.** The implementing prompt scoped the
-  admission question to the CRR mapping itself and excluded adding a numerical
-  study, so an independent LSM or PDE cross-check of these labels remains open.
-  Every identity verified so far is internal to one lattice.
+  it cannot be satisfied retroactively for this dataset version.
+- **Cross-check gate:** **not discharged.** An independent LSM or PDE
+  cross-check of these labels remains open; every identity verified so far is
+  internal to one lattice.
+- **Semantic-coverage judgement:** **not discharged.** The recorded zero-
+  premium and no-exercise counts were not judged for suitability.
 - **Provenance gate:** discharged — the branch and label-policy-evidence
   decisions are recorded, with the surviving gaps written down.
-- **Exit:** the admission decision is recorded, and it authorizes the dataset as
-  a phase-1 input and nothing else. It is a single-session conclusion; the
-  **material approval is outstanding**, so 9E is `Implemented, pending fresh
-  review` rather than `Completed`.
+- **Exit:** **not discharged as an unconditional admission.** The reconciled
+  outcome is conditional admission only for learning the known CRR mapping. It
+  received fresh independent approval as `APPROVE PLANNING RECONCILIATION`
+  (DEC-035), and it is not acceptance of converged American-price accuracy.
 - **Explicitly not authorized:** training any network, and regenerating,
   transforming, moving or deleting any dataset. None occurred.
 
@@ -374,11 +399,12 @@ training (DEC-014, DEC-025).
   (DEC-027).
 - Task 9C-B's `no_policy_selected` is a **valid, complete negative result**,
   not an unfinished task — it is frozen and never reinterpreted (DEC-003).
-- The local candidate CRR dataset is **admitted only preliminarily, and only
-  for one bounded experiment**: the continuous-yield American CRR learnability
-  and latency experiment (DEC-033). Admission is not training authorization, its
-  material approval is outstanding, and nothing in the dataset may be cited as a
-  project result on the strength of admission alone.
+- The local candidate CRR dataset is **conditionally admitted only for learning
+  the known continuous-yield CRR mapping** (DEC-033, DEC-034, DEC-035). Its
+  fresh material review is discharged only for that bounded reconciliation.
+  Admission is not training authorization or acceptance of converged
+  American-price accuracy, and nothing in the dataset may be cited as a project
+  result on the strength of admission alone.
 - The CRR dataset is **still not reproducible from tracked sources alone**.
   Task 9E recovered its configuration, its two pilot configurations and its
   label-policy contract section, but deliberately **not** the generation
@@ -391,11 +417,28 @@ training (DEC-014, DEC-025).
   `N = 4096` rather than `N = 1024` (DEC-031, DEC-033).
 - **No independent cross-check of the CRR labels has been run.** Every identity
   verified in tasks 9D and 9E is internal to one lattice; agreement with a
-  numerically unrelated engine is untested (DEC-033).
+  numerically unrelated engine is untested and must be completed or explicitly
+  resolved before training is authorized (DEC-033, DEC-034).
+- Task 9E's near-duplicate measurements are descriptive. Because the distances
+  were observed before a threshold was predeclared, its near-duplicate gate
+  cannot be satisfied retroactively for this dataset version (DEC-034).
+- The implemented admission checks do not enforce row `label_policy` or
+  `label_steps` against the manifest policy. Those invariants, generator version
+  `1.0.0`, and recovered configuration digest `d18485c6…` are mandatory task 9G
+  entry checks (DEC-034).
 - The European `forward_normalized_v1` representation is **inadmissible for
   American labels**: it determines a European price exactly but loses the
   separate dependence on rate and dividend yield that the early-exercise
-  boundary carries (DEC-033).
+  boundary carries (DEC-033). `american_forward_carry_v1` adds `rT` and `qT`
+  to those three inputs; `american_raw_physical_v1` is feature-sufficient but
+  not minimal (DEC-034).
+- The frozen European replication records weights SHA-256 `42670774…`, but the
+  original `weights.npz` is not tracked. Transfer cannot start unless that exact
+  artifact is recovered; no silent retraining or substitution is allowed
+  (DEC-034).
+- Task 9G is a one-seed, one-budget feasibility pilot and cannot establish H2.
+  A promising outcome requires a separate replication with at least five seeds
+  and several predeclared label budgets (DEC-034).
 - In the processed market partitions, **`exercise_style` and
   `contract_multiplier` are 100 % null**. The XSP-European / SPY-American
   distinction that phase 2 depends on is an external convention, not something
@@ -465,7 +508,8 @@ training (DEC-014, DEC-025).
 | PDE label policy v2 (task 9C-C3) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) | [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json) — frozen terminal, accepted `grid_1600x800`. Enforced by `scripts/freeze_pde_label_policy_v2_results.py --check` in `scripts/check.sh` and CI, and pinned by `python/tests/test_pde_label_policy_v2_results_snapshot.py` |
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 | Local data holdings (9D audit) | [data-holdings-catalogue.md](data-holdings-catalogue.md) | none — audit record, not frozen evidence, no generator script |
-| CRR dataset admission (9E) | [american-crr-dataset-admission.md](american-crr-dataset-admission.md), [american-crr-contract.md](american-crr-contract.md) ("Label policy v1") | none — admission record, not frozen evidence; gates live in `data/american_admission.py` |
+| CRR dataset conditional admission (9E) | [american-crr-dataset-admission.md](american-crr-dataset-admission.md), [american-crr-contract.md](american-crr-contract.md) ("Label policy v1") | none — conditional mapping-only admission, not frozen evidence; implemented checks live in `data/american_admission.py` and incomplete gates are recorded |
+| American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | none — protocol and implementation not yet built; no run authorized |
 
 ## New-agent checklist
 

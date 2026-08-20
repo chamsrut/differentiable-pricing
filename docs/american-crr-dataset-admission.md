@@ -13,18 +13,28 @@ v1"; the schema contract lives in code, at
 
 ## Decision
 
-**Admitted, solely for the bounded continuous-yield American CRR learnability
-and latency experiment**, under the schema `american-option-dataset/1` and the
-representation `american_raw_physical_v1`, subject to the limitations in
-"What admission does not grant" and "Limitations that survive admission".
+**Conditionally admitted, solely for learning the known continuous-yield CRR
+mapping in one bounded feasibility pilot**, under the schema
+`american-option-dataset/1`, subject to the limitations in "What admission does
+not grant" and "Limitations that survive admission". This is not acceptance of
+converged American-price accuracy.
 
-Every gate defined in `python/src/differentiable_pricing/data/american_admission.py`
-was run over all 250,000 rows and passed. No gate was weakened, no row was
+Every implemented integrity, internal-identity, identifier-disjointness, and
+exact-state-disjointness check in
+`python/src/differentiable_pricing/data/american_admission.py` was run over all
+250,000 rows and passed. Those checks are only part of task 9E's predeclared
+gates. The independent price cross-check and semantic-coverage judgement were
+not performed. The near-duplicate threshold was not predeclared before task 9D
+observed the distances, so that gate cannot be retroactively satisfied for
+this dataset version. No gate is weakened by this reconciliation, no row was
 dropped, and the dataset was not modified, moved, or regenerated.
 
-**Admission here is a single-session conclusion and therefore preliminary.**
-Material acceptance requires a fresh top-level session with no anchoring on
-this one, per `AGENTS.md`. Task 9E is implemented pending that review.
+Fresh independent review returned the exact verdict
+`APPROVE PLANNING RECONCILIATION` (DEC-035). It approves only this conditional
+admission for learning the known continuous-yield CRR mapping. Task 9E's
+predeclared admission remains incomplete rather than a completed all-gates
+pass, and the approval grants none of the permissions or claims excluded
+below.
 
 ## What admission does not grant
 
@@ -37,7 +47,9 @@ this one, per `AGENTS.md`. Task 9E is implemented pending that review.
   learned here transfers as a claim about discrete-dividend American pricing.
 - **No production label-quality claim.** The labels are synthetic CRR model
   values with lattice discretization error. The stored adjacent-step gap is a
-  refinement diagnostic, not an error bound.
+  refinement diagnostic, not an error bound. The outstanding independent
+  numerical cross-check must be completed or explicitly resolved before a
+  training run is authorized.
 - **No certified Greeks.** No Greek is labelled anywhere in the schema, and a
   finite difference of these prices is not a validated Greek.
 - **No market claim.** These are model values, not prices anyone traded at.
@@ -140,7 +152,9 @@ a caller names the split it wants, and training opens only `train` and
 
 Nearest-neighbour distance between partitions stays **descriptive**. Task 9D
 measured it after the fact, so there is no predeclared threshold, and none is
-claimed retroactively. It is not a gate and no gate was built from it.
+claimed retroactively. It is not an implemented gate, and task 9E's
+predeclared near-duplicate gate cannot be satisfied retroactively for this
+dataset version.
 
 ## Feature sufficiency
 
@@ -172,14 +186,18 @@ The European legs agree at machine precision; the American legs differ by more
 than a percent. That gap is early-exercise value that the normalization cannot
 see.
 
-**Conclusion.** The raw dataset is feature-sufficient. The minimal versioned
-American representation for the next task is therefore
-**`american_raw_physical_v1`** — the same seven raw state variables, named and
-versioned separately so a later task declares it deliberately rather than
-inheriting a European configuration. `forward_normalized_v1` is recorded as
-rejected for this schema, with its reason, in
-`REPRESENTATIONS_REJECTED_FOR_AMERICAN`. Both facts are pinned by
-`python/tests/ml/test_american_feature_sufficiency.py`.
+**Conclusion.** The raw dataset is feature-sufficient, but the seven-input
+`american_raw_physical_v1` form is not minimal. The next task uses
+**`american_forward_carry_v1`** with encoded option type,
+`log_forward_moneyness = log(F/K)`, `total_volatility = sigma*sqrt(T)`,
+`rate_time = r*T`, and `yield_time = q*T`, and learns
+`normalized_price = V/(S*exp(-q*T))`. These coordinates retain spot moneyness
+because `log(S/K) = log(F/K) - rT + qT`. The measured rejection of the
+three-input European `forward_normalized_v1` form remains unchanged; the new
+representation extends it with the two separately required carry coordinates.
+The normative representation and reconstruction contract is in
+[architecture.md](architecture.md), "Phase-1 American surrogate
+representation".
 
 No network was defined, built, or trained to reach this conclusion.
 
@@ -221,6 +239,15 @@ Tests use small fixtures written to `tmp_path`
 27 for the schema contract and its manifest validator, 27 for the gates, 14 for
 named-schema loading, and 7 for feature sufficiency.
 
+One required invariant is **not implemented**: the current checks do not
+require every row's `label_policy` to equal `manifest.label_policy.name`, or
+every row's `label_steps` to equal `manifest.label_policy.steps`. Both
+equalities are mandatory implementation work before training. The experiment
+entry checks must also pin the exact dataset `generator_version` (`1.0.0`) and
+the recovered configuration SHA-256
+`d18485c66b92c720c57bef6820e7f6cdb7204159c2dcf8d47d8f9c744cb28c98`.
+This admission record does not implement those changes.
+
 ## Limitations that survive admission
 
 1. **Not reproducible from tracked sources alone.** The generator is on an
@@ -231,10 +258,8 @@ named-schema loading, and 7 for feature sufficiency.
    selecting pilot was not an uncontaminated predeclaration and that the
    uncontaminated gates would have chosen `N = 4096`.
 3. **No independent price cross-check was run.** Every identity verified here is
-   internal to one lattice. This prompt scoped the admission question to the CRR
-   mapping itself and excluded adding a numerical-policy study, so an LSM or PDE
-   cross-check of these labels remains outstanding and is the obvious first
-   thing a training task should want.
+   internal to one lattice. An LSM or PDE cross-check remains outstanding and
+   must be completed or explicitly resolved before training is authorized.
 4. **No semantic-coverage judgement is made.** 41,966 of 200,000 training rows
    carry zero early-exercise premium and 25,648 carry no early-exercise node at
    all. Those counts are recorded, not judged: whether that mix makes a good
@@ -242,8 +267,9 @@ named-schema loading, and 7 for feature sufficiency.
 5. **One partition only.** There is no boundary, extrapolation/OOD, or scenario
    partition, so any claim from this dataset is an in-envelope interpolation
    claim.
-6. **Near-duplicate leakage is unbounded by any gate**, deliberately — see
-   above.
+6. **Near-duplicate leakage is unbounded by any gate.** The distances were
+   observed before a threshold was fixed, so the predeclared task 9E gate
+   cannot be satisfied retroactively for this dataset version.
 7. **Parquet files carry no embedded provenance.** The manifest→file digest
    binding is one-directional; a file separated from its manifest identifies
    nothing.
@@ -252,11 +278,15 @@ named-schema loading, and 7 for feature sufficiency.
 9. **No training path exists.** `ml/train.py` and `ml/evaluate.py` are
    unchanged and European-specific; wiring them to the named target is work for
    the training task, not for this one.
+10. **The row/manifest policy invariants are not enforced.** A row can disagree
+    with the manifest's label-policy name or step count without the present
+    admission checks rejecting it. Training remains blocked until both
+    equalities are implemented and tested.
 
 ## Non-claims
 
 - Admission is not training, and not authorization to train.
-- Passing every integrity gate says the dataset is internally consistent and
+- Passing the implemented integrity gates says the dataset is internally consistent and
   describable. It does not say the labels are accurate, that the sampling
   design is good, or that a surrogate can learn them.
 - A continuous dividend yield is not a discrete cash-dividend schedule.

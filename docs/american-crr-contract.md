@@ -357,15 +357,17 @@ prices.
   explicit cash dividend; that contract belongs to the finite-difference oracle
   ([pde-numerical-contract.md](pde-numerical-contract.md)).
 - Runtime measurements are machine-specific evidence and are not CI gates.
-- No American training dataset or neural result exists yet. **Task 9E qualifies
-  the first half of that**: `data/american-option-v1/` was admitted,
-  preliminarily and solely for the bounded continuous-yield learnability and
-  latency experiment, as a phase-1 **input**
+- No American neural result exists yet. **Task 9E conditionally qualifies the
+  dataset only for learning the known CRR mapping**:
+  `data/american-option-v1/` is a prospective phase-1 input
   ([american-crr-dataset-admission.md](american-crr-dataset-admission.md),
-  [decision-log.md](decision-log.md) DEC-033). It is Git-ignored, not
+  [decision-log.md](decision-log.md) DEC-033, DEC-034). This is not acceptance
+  of converged American-price accuracy. It is Git-ignored, not
   regenerable from tracked sources, its label policy has no frozen evidence, and
-  its admission authorizes no training. **No American neural result exists**, and
-  no network has been trained.
+  its admission authorizes no training. The independent numerical cross-check,
+  missing row/manifest policy invariants, and task 9G entry gates remain
+  outstanding. **No American neural result exists**, and no network has been
+  trained.
 - Continuous exercise is approximated by exercise at every lattice time
   layer and requires step convergence.
 - Inputs are constant $r$, $q$, and $\sigma$; there is no calibrated

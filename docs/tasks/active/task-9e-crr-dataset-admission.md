@@ -2,10 +2,21 @@
 
 ## Status
 
-`Implemented, pending fresh review` — the work is done and the gates pass; the
-**material approval is outstanding.** Admission decided inside the implementing
-session is preliminary by `AGENTS.md`, so this task is not marked `Completed`
-and **no training task has been started or routed to.**
+`Blocked for training — conditional mapping-only admission freshly approved;
+predeclared gates incomplete`. The
+implemented integrity, internal-identity, identifier-disjointness, and
+exact-state-disjointness checks passed, but task 9E as predeclared did **not**
+complete: the independent price cross-check and semantic-coverage judgement
+were not performed, and the near-duplicate threshold was not fixed before its
+distances were observed. The latter gate cannot be retroactively satisfied for
+this dataset version.
+
+The dataset is conditionally admitted only for learning the known
+continuous-yield CRR mapping. That is not acceptance of converged
+American-price accuracy, and it authorizes no training. Fresh independent
+review returned the exact verdict `APPROVE PLANNING RECONCILIATION` (DEC-035),
+approving only this reconciled conditional admission. The review did not
+discharge the incomplete numerical, semantic, or near-duplicate gates.
 
 It became the active task when task 9D completed
 ([task-9d-data-holdings-audit.md](task-9d-data-holdings-audit.md), `Completed`).
@@ -16,13 +27,13 @@ task 9C-C3 stays `Completed`
 stays `On hold`
 ([task-9f-remote-data-access-plan.md](task-9f-remote-data-access-plan.md)).
 
-**Outcome.** The admission record is
+**Reconciled outcome.** The admission record is
 [../../american-crr-dataset-admission.md](../../american-crr-dataset-admission.md).
-The dataset is **admitted solely for the bounded continuous-yield American CRR
-learnability and latency experiment**, under the schema
-`american-option-dataset/1` and the representation `american_raw_physical_v1`.
-Every gate ran over all 250,000 rows and passed; none was weakened and no row
-was dropped.
+The dataset is **conditionally admitted solely for learning the known
+continuous-yield American CRR mapping** under
+`american-option-dataset/1`. The seven raw inputs are feature-sufficient but
+not minimal; task 9G predeclares `american_forward_carry_v1`. No row was
+dropped and no observed result or frozen gate was changed.
 
 What was delivered: the generating configuration and the two label-policy pilot
 configurations recovered verbatim from `49ef72a` and digest-pinned by a test;
@@ -35,9 +46,17 @@ integrity and leakage gates in `data/american_admission.py`, with **75 focused
 tests** on small fixtures (27 schema, 27 gate, 14 loader, 7
 feature-sufficiency), none of which reads the Git-ignored dataset.
 
-What was scoped out by the implementing prompt and remains open: an independent
-LSM or PDE cross-check of these labels, and a semantic-coverage judgement. Both
-are recorded as surviving limitations in the admission record.
+The independent LSM or PDE price cross-check remains outstanding and must be
+completed or explicitly resolved before training is authorized. The missing
+semantic-coverage judgement bounds the conclusion to feasibility for the known
+mapping. The already-observed near-duplicate distances remain descriptive;
+inventing a threshold now would not discharge the original gate.
+
+The implementation also omits two mandatory row/manifest invariants: every
+row's `label_policy` must equal `manifest.label_policy.name`, and every row's
+`label_steps` must equal `manifest.label_policy.steps`. Task 9G must implement
+and test these before training, and its entry checks must pin generator version
+`1.0.0` and the recovered dataset configuration digest.
 
 **This task authorizes no training.** The first American training run is a
 separate task with its own gate, and it is not defined here.
@@ -216,7 +235,10 @@ Fixed and versioned **before** the corresponding check is evaluated:
 Do not invent a value for any `OPEN` item mid-task. Resolve and version it
 first, and record the resolution in the decision log.
 
-## Acceptance gates
+## Predeclared acceptance gates (preserved)
+
+These are the original task 9E gates. They are preserved so the reconciled
+outcome cannot silently weaken or rewrite them after results were observed.
 
 - **Entry:** task 9D is complete and its catalogue exists; every `OPEN`
   convention above is resolved and versioned before the check it governs runs.
@@ -238,6 +260,26 @@ first, and record the resolution in the decision log.
 - **Failure:** any gate that fails is recorded as a refusal or a conditional
   admission with its cause. It is not worked around by weakening the gate, by
   regenerating the dataset, or by dropping the offending rows.
+
+### Reconciled gate outcome
+
+- **Entry:** not fully discharged; the near-duplicate convention stayed open
+  until after its distances were observed.
+- **Loader:** discharged for named-schema loading and manifest/file digest
+  verification, but the row/manifest label-policy name and step invariants are
+  missing and must be added before training.
+- **Integrity and internal identity:** discharged over all 250,000 rows for the
+  implemented checks.
+- **Leakage:** identifier and exact-state disjointness discharged;
+  near-duplicate gate not discharged and impossible to satisfy retroactively
+  for this dataset version.
+- **Cross-check:** not discharged; no numerically independent American-price
+  comparison was run.
+- **Semantic suitability:** not discharged; no coverage judgement was made.
+- **Exit:** not discharged as an unconditional admission. The honest outcome is
+  conditional admission for learning the known CRR mapping. Fresh review of
+  that bounded reconciliation is discharged; the remaining task 9G entry gates
+  still bind.
 
 ## Manual-run protocol
 
@@ -270,9 +312,11 @@ the leakage gate, and every claim about label provenance or sampling. Both are
 separate-context **preliminary** review
 ([../../agent-system.md](../../agent-system.md)).
 
-**Admission is a material approval** and requires a fresh top-level session
-with no anchoring on the implementer's reasoning. A single-session conclusion
-that the dataset is admissible is not admission.
+**Admission is a material approval.** The required fresh top-level review has
+now approved only the reconciled conditional, mapping-only admission
+(`APPROVE PLANNING RECONCILIATION`, DEC-035). It did not approve unconditional
+admission, authorize training, or discharge the independent cross-check,
+semantic-coverage, or near-duplicate gates.
 
 ## Stop conditions
 

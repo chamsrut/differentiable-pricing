@@ -272,6 +272,80 @@ discounted bound rather than $A\,u$, and no derivative is unique exactly at a
 projection kink. The constraint is a versioned part of the model, recorded in
 the artifact with its source-weight lineage, not a reporting adjustment.
 
+## Phase-1 American surrogate representation
+
+The first continuous-dividend-yield American pilot uses the versioned
+representation **`american_forward_carry_v1`**. For
+
+$$
+F = S e^{(r-q)T}, \qquad A = S e^{-qT},
+$$
+
+its five network inputs, in order, are:
+
+1. encoded option type;
+2. $x=\log(F/K)$, named `log_forward_moneyness`;
+3. $v=\sigma\sqrt{T}$, named `total_volatility`;
+4. $a=rT$, named `rate_time`;
+5. $b=qT$, named `yield_time`.
+
+The normalized target is
+
+$$
+u=\frac{V}{A}=\frac{V}{S e^{-qT}},
+$$
+
+and the physical wrapper reconstructs $V=A u$. The wrapper computes the five
+coordinates from the physical contract and performs target reconstruction
+inside the differentiable graph. Feature and target standardization parameters
+are fitted on `train` only and are part of the model artifact.
+
+These coordinates retain the complete constant-parameter CRR state up to the
+price homogeneity removed by $A$, because
+
+$$
+\log(S/K)=\log(F/K)-rT+qT=x-a+b.
+$$
+
+They therefore retain spot moneyness as well as the separate rate and yield
+dependence of the early-exercise boundary. The seven-input
+`american_raw_physical_v1` representation remains feature-sufficient, but is
+not minimal. The measured counterexample rejecting the three-input European
+`forward_normalized_v1` representation is unchanged: adding $rT$ and $qT$
+extends that representation; it does not reinterpret the counterexample.
+
+### Exact European-to-American transfer lift
+
+The transfer arm is deliberately one exact, bounded construction rather than a
+general transfer framework. It starts from the frozen stage-1 **unconstrained**
+three-input European network and:
+
+- keeps the same hidden architecture;
+- copies the three shared first-layer columns for encoded option type,
+  `log_forward_moneyness`, and `total_volatility`;
+- adds zero-initialized first-layer columns for `rate_time` and `yield_time`;
+- preserves the source feature and target standardization, or algebraically
+  rebases the copied first layer and output layer so that the represented
+  physical function is identical;
+- copies every remaining weight and bias unchanged; and
+- does not carry the European bounds projection into the American output
+  contract. The source is the unconstrained weights; the projection is not an
+  American constraint.
+
+Before fine-tuning, fixed physical probe points must show that the lifted model
+reproduces the source model's **unconstrained physical predictions** to float64
+numerical precision. The probe compares fully reconstructed prices, not merely
+standardized network outputs. If the source architecture or its transforms do
+not permit an exact lift, the experiment stops and reports that result; this
+task does not build a more general transfer mechanism to bypass the failure.
+
+The source artifact itself is an entry gate. The frozen replication snapshot
+records the original `weights.npz` SHA-256 as
+`42670774f736383e50818b6e6c1db9374a77988173e35423ffc34b3c4297ecb8`, but the
+file is not tracked in Git. Transfer training cannot start unless the original
+file is recovered and matches that digest. Failure to recover it stops the
+transfer arm; silent retraining or substitution is forbidden.
+
 ## Evolution rules
 
 - Add products behind product-specific interfaces, not conditionals spread

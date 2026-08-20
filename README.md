@@ -28,9 +28,11 @@ partition that has informed no model choice
 independent reference engines — a CRR tree, an LSM cross-check, and a
 discrete-dividend finite-difference PDE oracle — a first label-policy pilot
 that selected no policy, and a second, separately predeclared study (task
-9C-C3) that **did** select one: `grid_1600x800`, externally approved. There is
-still no American dataset and no neural work: an accepted label policy is not
-an accepted dataset, and both remain separately gated. A parallel real-market
+9C-C3) that **did** select one: `grid_1600x800`, externally approved. A local
+continuous-yield CRR dataset is conditionally admitted only for learning its
+known mapping; it is not accepted as converged American-price evidence and no
+American neural work has run. An accepted label policy is not an accepted
+dataset, and both remain separately gated. A parallel real-market
 track has audited a three-session quote archive and established which pricer
 inputs it can and cannot supply.**
 
@@ -384,9 +386,10 @@ strike set, and fitting variation.
 | PDE label-policy v2 (task 9C-C3) | **Complete, frozen — accepted `grid_1600x800`, externally approved** | [v2 snapshot](docs/results/american_pde_label_policy_v2_results_v1.json), [PDE contract](docs/pde-numerical-contract.md) (Task 9C-C3 section), [decision log](docs/decision-log.md) DEC-025 |
 | Parallel/resumable production generation (task 9C-C2b2) | **Deferred — not started**; resumed only when the XSP/SPY phase needs dataset-scale PDE generation | [deferred task spec](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md), [decision log](docs/decision-log.md) DEC-029 |
 | Local data-holdings catalogue and integrity audit (task 9D) | **Complete** — documentation and audit only, admitted nothing | [catalogue](docs/data-holdings-catalogue.md), [task spec](docs/tasks/active/task-9d-data-holdings-audit.md), [decision log](docs/decision-log.md) DEC-031 |
-| CRR dataset admission (task 9E) | **Implemented, pending fresh review** — admitted for one bounded experiment; authorizes no training | [admission record](docs/american-crr-dataset-admission.md), [task spec](docs/tasks/active/task-9e-crr-dataset-admission.md), [decision log](docs/decision-log.md) DEC-033 |
+| CRR dataset admission (task 9E) | **Reconciled, conditional** — mapping-only use; cross-check, semantic judgement, and near-duplicate gate not discharged; authorizes no training | [admission record](docs/american-crr-dataset-admission.md), [task spec](docs/tasks/active/task-9e-crr-dataset-admission.md), [decision log](docs/decision-log.md) DEC-034 |
 | Private object storage and entitlement-aware vendor ingestion (task 9F) | **On hold** — a plan only, every convention still open | [task spec](docs/tasks/active/task-9f-remote-data-access-plan.md) |
-| The local candidate CRR dataset (continuous dividend yield) | **Catalogued and preliminarily admitted for the bounded CRR learnability experiment only**; still not regenerable from tracked sources | Git-ignored, untracked; generator on an unmerged branch; [catalogue](docs/data-holdings-catalogue.md), [admission record](docs/american-crr-dataset-admission.md) |
+| American neural-pricer feasibility pilot (task 9G) | **Active at protocol/implementation scope; execution blocked on entry gates** | [task spec](docs/tasks/active/task-9g-american-neural-pricer-pilot.md), [decision log](docs/decision-log.md) DEC-034 |
+| The local candidate CRR dataset (continuous dividend yield) | **Catalogued and conditionally admitted only for learning the known CRR mapping**; still not regenerable from tracked sources | Git-ignored, untracked; generator on an unmerged branch; [catalogue](docs/data-holdings-catalogue.md), [admission record](docs/american-crr-dataset-admission.md) |
 | An accepted, versioned American training dataset | Not started | separately gated; **not** authorized by the accepted label policy |
 | American neural training, transfer; swaption stages 3–4 | Not started | no American neural surrogate has yet been trained and accepted |
 | C++ artifact loading and deployment | Not implemented | `SmoothMlp` inference only |
@@ -819,7 +822,10 @@ python scripts/benchmark_american_crr.py \
 The report records every repetition plus CPU affinity, platform, compiler,
 build configuration, batch size, and effective worker count, and requires
 identical prices from every configuration. Timings are never checked in or used
-as CI gates.
+as CI gates. This utility times individual CRR paths; it is **not** the task 9G
+label-generator comparator. The pilot benchmark must time the actual
+`0.5 * (CRR(N) + CRR(N+1))` operation under matched request shapes, batches,
+thread budgets, warm-ups, repetitions, and recorded hardware/software metadata.
 
 ---
 
@@ -900,13 +906,16 @@ claims remain decisive
   SPY American calibration capability. Dividend amounts, borrow and carry, and
   corporate-action adjustments are unavailable in that archive; the SPY
   ex-*date* is officially scheduled and its amount is unverified.
-- **An accepted label policy exists; an accepted dataset does not.** Task
+- **An accepted PDE label policy exists; the local CRR dataset is conditional.** Task
   9C-B returned `no_policy_selected`; task 9C-C3 then selected `grid_1600x800`
   on a separately predeclared question, and a fresh top-level session approved
   it. That covers **labeling only** — price on 22/22 regular cases, delta on
   18/22, vega on 22/22, gamma not at all. The frozen report authorizes neither
-  dataset generation nor training input, so American dataset generation and
-  American neural training remain **separately gated and not started**.
+  dataset generation nor training input. Separately, task 9E conditionally
+  admitted the existing CRR dataset only for learning its known mapping; its
+  independent cross-check and semantic judgement were not performed, and its
+  near-duplicate gate cannot be satisfied retroactively. American neural
+  training remains gated and not started.
 - **In-envelope interpolation only.** No boundary, extrapolation/OOD, or
   scenario-shock partition has been built or evaluated.
 - **No latency claim.** Analytic Black–Scholes can easily be faster than this
@@ -916,13 +925,15 @@ claims remain decisive
   projections assume ideal scaling and are not feasibility claims.
 - **No production or deployment claim.** C++ artifact loading is not
   implemented; the shipped inference core is `SmoothMlp` alone.
-- **No American dataset or neural result yet.** The PDE oracle now exposes
+- **No accepted production American dataset or neural result yet.** The PDE oracle now exposes
   nodewise delta and gamma from its valuation-time slice, cross-checked against
   analytic Black--Scholes on European contracts; for American contracts no
   closed form and no second engine in this repository prices a Greek, so those
   are validated by structure, obstacle identities and a refinement control
   rather than against truth. An accepted label policy now exists, but no
-  American dataset and no American neural result do.
+  accepted PDE-labelled American dataset and no American neural result do. The
+  local CRR dataset's conditional, mapping-only admission is not a converged-
+  price claim.
 
 ---
 
@@ -1045,23 +1056,35 @@ production dataset when it does resume. **Task 9D is complete**: the local data
 holdings — the candidate CRR dataset and the Databento/FRED market-data
 holdings — are catalogued and integrity-audited in
 [docs/data-holdings-catalogue.md](docs/data-holdings-catalogue.md), which admits
-nothing (DEC-031). **Task 9E is implemented pending fresh review**: the dataset
-is admitted **solely for the bounded continuous-yield American CRR learnability
-and latency experiment**, under a named schema and the
-`american_raw_physical_v1` representation, with every integrity and leakage gate
-passing over all 250,000 rows — see the
-[admission record](docs/american-crr-dataset-admission.md) (DEC-033). Admission
-authorizes **no training**: the first American training run is a separate task
-with its own gate, and none has been started. Two things 9E did not do and did
-not claim: no independent cross-check of the labels against a numerically
-unrelated engine, and no near-duplicate leakage threshold, which would have been
-post-hoc. The deferred plan for private object storage and
+nothing (DEC-031). **Task 9E is reconciled as conditional**: the dataset is
+admitted only for learning the known continuous-yield CRR mapping, not as
+evidence of converged American-price accuracy — see the
+[admission record](docs/american-crr-dataset-admission.md) (DEC-034). Its
+implemented internal and exact-disjointness checks passed, but the independent
+cross-check and semantic-coverage judgement were not performed, and the
+near-duplicate gate cannot be satisfied retroactively. Admission authorizes
+**no training**. The raw seven-input form is feature-sufficient but not minimal;
+task 9G uses `american_forward_carry_v1`: encoded type, `log(F/K)`,
+`sigma*sqrt(T)`, `rT`, and `qT`, with target `V/(S*exp(-q*T))`.
+
+**Task 9G is the exact next task**, at protocol-and-implementation scope. It is
+one architecture, one scratch seed, one transfer seed, one budget, no sweep,
+validation model selection, and one-shot `interpolation_test`. Its entry gates
+include fresh review of the conditional admission, the missing row/manifest
+policy invariants, independent-cross-check resolution, recovery of the frozen
+European `weights.npz`, exact float64 transfer-lift identity, and frozen
+training, latency, and IV protocols. No run is authorized before that PR is
+reviewed and merged. One seed and one budget make this a feasibility pilot, not
+an H2 test; a promising result requires a separate replication with at least
+five seeds and several predeclared label budgets.
+
+The deferred plan for private object storage and
 entitlement-aware Databento ingestion is **task 9F**, on hold — a plan only,
 and licensed OPRA/Databento content is never redistributable.
 
-The local candidate CRR dataset is catalogued but has not been validated as
-suitable, reproducibly admitted, or accepted as project evidence; its generator
-is on an unmerged branch and its label policy has no frozen evidence. It carries
+The local candidate CRR dataset is not accepted as converged-price or market
+evidence; its generator is on an unmerged branch and its label policy has no
+frozen evidence. It carries
 a continuous dividend yield and therefore cannot model SPY cash dividends. No accepted, versioned PDE-labelled SPY training dataset exists, and
 no American neural surrogate has yet been trained and accepted. The accepted
 policy authorizes neither a dataset nor a training input, and the accepted PDE

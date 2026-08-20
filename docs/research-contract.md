@@ -157,11 +157,13 @@ cash-distribution schedule and is never treated as equivalent to one
 Its purpose is bounded and entirely about learnability and speed:
 
 - whether American prices are learnable at all at useful accuracy;
-- scratch training versus European-transfer initialization (H2);
+- scratch training versus European-transfer initialization as an H2
+  **feasibility probe**, not an H2 test;
 - out-of-sample inference accuracy;
 - inference scaling against CRR's $O(N^2)$ lattice cost;
-- a small implied-volatility inversion and surface reconstruction built on
-  surrogate inference.
+- a small model-consistent implied-volatility experiment built on surrogate
+  inference. One maturity is called a smile slice; multiple maturities are
+  required before the output is called a surface.
 
 **A local candidate CRR dataset reportedly exists, but it has not yet been
 catalogued, validated, reproducibly admitted, or accepted as project
@@ -180,18 +182,22 @@ is task 9E (DEC-032). Nothing above is relaxed by this update.
 
 **Update, task 9E.** Admission has since been decided:
 [american-crr-dataset-admission.md](american-crr-dataset-admission.md),
-[decision-log.md](decision-log.md) DEC-033. The dataset is **admitted solely for
-the bounded continuous-yield American CRR learnability and latency experiment
-described in phase 1 above**, under the schema `american-option-dataset/1` and
-the representation `american_raw_physical_v1`, with every integrity and leakage
-gate passing over all 250,000 rows. Four limits stand. Admission **authorizes no
-training** — the first American training run is a separate task with its own
-gate. The admission is a **single-session conclusion whose material approval is
-outstanding**. The dataset is **still not regenerable from tracked sources
-alone**: task 9E recovered its configuration, its pilot configurations and its
-label-policy contract section, but deliberately not the generation machinery.
-And its label policy **still has no frozen `docs/results/` evidence**, its
-selection resting on ignored local artifacts. Nothing above is relaxed by this
+[decision-log.md](decision-log.md) DEC-033 and DEC-034. Reconciliation found
+that the predeclared admission was not completed: the independent price
+cross-check and semantic-coverage judgement were not performed, and no
+near-duplicate threshold was predeclared before the distances were observed.
+The dataset is therefore **conditionally admitted only for learning the known
+continuous-yield CRR mapping** under `american-option-dataset/1`; it is not
+accepted as evidence of converged American-price accuracy. Its raw columns are
+feature-sufficient, but the pilot representation is the five-input
+`american_forward_carry_v1` specified in
+[architecture.md](architecture.md), not the non-minimal seven-input raw form.
+The independent cross-check must be completed or explicitly resolved, and the
+missing row/manifest policy invariants implemented, before training is
+authorized. The observed near-duplicate measurements remain descriptive; that
+predeclared gate cannot be satisfied retroactively for this dataset version.
+The dataset also remains unregenerable from tracked sources alone and its label
+policy has no frozen `docs/results/` evidence. Nothing above is relaxed by this
 update, and phase 1 remains a continuous-yield experiment that says nothing
 about discrete dividends.
 
@@ -310,6 +316,23 @@ the prettiest single learning curve.
 
 Negative transfer is a valid result and must be reported.
 
+### Phase-1 feasibility pilot versus an H2 replication
+
+The first continuous-yield American neural-pricer experiment is a **feasibility
+pilot**, not the H2 test. It fixes one architecture, one scratch seed, one
+transfer seed, and one label/training budget; performs no hyperparameter sweep;
+selects checkpoints on `validation`; and evaluates `interpolation_test` once.
+It reports a paired European CRR price as the no-learning baseline, reports
+positive early-exercise-premium rows separately, benchmarks a fixed CRR-depth
+latency ladder, and runs one small model-consistent implied-volatility
+experiment. Negative transfer and failure to learn are valid outcomes.
+
+A one-seed, one-budget pilot cannot establish H2. If it is promising, a
+separate, newly predeclared replication task must use at least five training
+seeds and several label budgets under the matched controls above. Only that
+replication may support the primary H2 claim about target-label requirements or
+training time.
+
 ## Provisional gates
 
 Stage-specific gates live in versioned configuration. Before generating the
@@ -368,23 +391,21 @@ tuning against that dataset.
   schedule. The phase-1 CRR dataset carries a continuous yield and therefore
   **cannot model SPY cash dividends**; nothing learned on it transfers as a
   claim about discrete-dividend American pricing (DEC-001, DEC-030).
-- A local candidate CRR dataset reportedly exists, but it has not yet been
-  catalogued, validated, reproducibly admitted, or accepted as project
-  evidence. Its row count, its parquet files, and its manifest are not evidence
-  until an audit establishes them; no number from it may be cited as a project
-  result before then (DEC-030).
-- Task 9D catalogued that dataset and admitted nothing. Cataloguing a holding
-  is not accepting it: the dataset is still not validated as suitable, not
-  reproducibly admitted, and not accepted as project evidence, and no number
-  from it may be cited as a project result before task 9E's admission gate and
-  a fresh top-level approval (DEC-031, DEC-032).
-- Task 9E admitted that dataset for **one bounded experiment only** — the
-  continuous-yield American CRR learnability and latency experiment — and for
-  nothing else. Admission is not training authorization, not a production
-  label-quality claim, not a certified Greek, and not discrete-dividend
-  coverage; its material approval is outstanding; the dataset remains
-  unregenerable from tracked sources; and its label policy still has no frozen
-  evidence (DEC-033).
+- Before task 9D, the local candidate CRR dataset had not been catalogued or
+  validated; DEC-030 records that historical pre-audit state.
+- Task 9D then catalogued the dataset and admitted nothing. Its audit is not an
+  admission and supplies no project result by itself (DEC-031, DEC-032).
+- Task 9E conditionally admitted that dataset only for learning the known
+  continuous-yield CRR mapping, and for nothing else. Its predeclared
+  independent cross-check and semantic-coverage judgement were not performed,
+  and its near-duplicate gate cannot be satisfied retroactively. This is not
+  training authorization, acceptance of converged American-price accuracy, a
+  production label-quality claim, a certified Greek, or discrete-dividend
+  coverage; the dataset remains unregenerable from tracked sources and its
+  label policy still has no frozen evidence (DEC-033, DEC-034).
+- A one-seed, one-budget feasibility pilot is not evidence for H2. Any H2 claim
+  requires a separate replication with at least five seeds and several
+  predeclared label budgets.
 - No independent cross-check of the CRR labels against a numerically unrelated
   engine has been run. Every identity verified in tasks 9D and 9E is internal to
   one lattice (DEC-033).
