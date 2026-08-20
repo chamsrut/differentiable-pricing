@@ -1247,3 +1247,95 @@ snapshot, which remains authoritative for the numbers.
   [project-state.md](project-state.md),
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
   DEC-034, DEC-035, DEC-036
+
+### DEC-038 — Task 9G's locked run failed its validation gates: frozen `failure_to_learn`
+
+- **Status:** Frozen-terminal for task 9G's numerical result. This is an
+  append-only result record; it changes no locked experimental value, no
+  threshold, no seed, and no earlier decision. It does not itself constitute
+  fresh material approval of the result.
+- **Context:** DEC-036 locked task 9G's bounded protocol and implementation, and
+  DEC-037 recorded the fresh top-level `APPROVE TASK 9G IMPLEMENTATION FOR
+  MERGE` verdict at cumulative commit `8d27c23`. That approval covered
+  implementation merge and one subsequent human-invoked `run-to-validation`
+  only.
+- **Executed identity:** The implementation merged at
+  `e930454d1c0869e22778a99ae22505f093889e73`. The human operator then invoked
+  `python scripts/run_american_neural_pilot.py run-to-validation` exactly once,
+  under protocol `configs/american_neural_pilot_protocol_v1.toml` (SHA-256
+  `6600a46ea2132bd3c834645ddb704ccc71069a0cca84d3762b4c4ca753aac591`). The
+  consumed raw validation report has SHA-256
+  `9a4acdfd3b96eee3d29ef9c12c467ea304297dc44d561f56fdaeb2292ba999a9`; it stays
+  beneath ignored paths and is never edited or regenerated.
+- **Decision:** Freeze the run's outcome as the terminal task 9G result:
+  `status = validation_gates_failed`, `outcome = failure_to_learn`, recorded at
+  `outcome.phase = "validation"` with `lifecycle.state = "validation_terminal"`.
+  This is one of the four predeclared honest outcomes, not an unfinished task,
+  and it is never rerun, retuned, or reinterpreted as a partial success.
+- **Entry gates, all discharged:** The independent PDE mapping check ran before
+  optimization and **passed on 21 of 21 rows**. The exact European-to-American
+  transfer lift **passed** at all eight protocol-pinned probes — maximum
+  absolute difference `1.4210854715202004e-14`, maximum relative difference
+  `3.6214823824845716e-13`, against `1e-12` tolerances. Dataset, generator,
+  configuration and source-artifact identities all verified. No gate was
+  waived, loosened, or retried.
+- **Why it failed:** **Neither arm passed every validation gate.** `scratch`
+  failed all five predeclared checks; `transfer` passed only
+  `normalized_p99_absolute_error` and failed the other four. Both
+  `all_iv_errors_passed` and `all_reference_speedups_passed` are `false`.
+- **Transfer versus scratch:** `transfer_validation_rmse_strictly_better =
+  true` — transfer's validation RMSE was strictly better than scratch's. This
+  is a within-pilot comparison only. The two locked arm seeds also produce
+  different epoch shuffle permutations, so this one-seed pilot cannot attribute
+  the difference solely to transfer initialization. It is not evidence that
+  transfer initialization helps, and it does not convert a failed gate into a
+  pass.
+- **Final-partition non-consumption:** `final_evaluation_attempts = 0` and
+  `final_partition_consumed = false`. `interpolation_test` was never opened,
+  hashed, imported, or counted, by any code path or by any agent.
+- **Final evaluation is forbidden:** `validation_final_entry_passed = false`
+  and `second_attempt_allowed = false`, so the protocol's final-entry rule is
+  unmet and `final-evaluate` may not be invoked under this protocol, now or
+  later. Any future final evaluation requires a new predeclared protocol and a
+  fresh final partition. The unconsumed partition is never tuned against, and a
+  failed pilot is never rescued by opening it.
+- **Frozen evidence:** [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json),
+  schema `american-neural-pilot-result/1`, validated offline by
+  `python3 scripts/freeze_american_neural_pilot_results.py --check`, which is
+  now wired into both `scripts/check.sh` and CI. That check reads only tracked
+  files and reruns no pricing, training, latency measurement, or IV inversion.
+  The snapshot is authoritative for every number and is never hand-edited or
+  regenerated.
+- **Non-claims:** This result establishes **no** H2 result — **one seed and one
+  budget do not establish H2** — and no converged American-price truth, American
+  Greek accuracy, OOD or extrapolation behavior, discrete-dividend
+  applicability, SPY performance, market calibration, bid--ask-relative
+  accuracy, production readiness, or live trading value. The 21-row PDE check is
+  mapping-consistency evidence only, not converged truth and not
+  semantic-coverage evidence, and its fixed-domain 400x200 versus 800x400
+  refinement pair does not independently bound domain-truncation error. The
+  measured speedups failed their gate and would in any case be conditional on
+  the exact matched benchmark contract, not portable beyond the recorded
+  hardware, software, request shapes and thread budgets. The IV experiment is
+  model-consistent synthetic evidence spanning maturities `0.25` and `2.0` —
+  correctly an IV **surface** — and reports no market fit. Offline snapshot
+  checking detects internal inconsistency and tracked-input drift but cannot
+  authenticate a fully coordinated fabricated raw report and snapshot. Task 9E's
+  admission remains conditional and mapping-only, and this result does not
+  upgrade it.
+- **Next intended task, recorded as intent only:** **task 9H**, an explicitly
+  exploratory American neural-pricer development loop on `train` and
+  `validation` data only. Claude or Codex may iteratively implement capacity,
+  feature, target and architecture experiments; the human runs every one of them
+  locally under the standing manual-run rule; every attempt and every failure is
+  documented, including abandoned ones; and `interpolation_test` and every other
+  final partition remain inaccessible throughout. Because selection would happen
+  against `validation`, any model 9H selects carries selection bias and is not a
+  result: it requires a separate, freshly predeclared confirmation on a fresh
+  partition after development ends, as its own task with its own gates and its
+  own review. This entry neither implements, scopes, nor authorizes task 9H.
+- **Authoritative links:**
+  [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json),
+  [project-state.md](project-state.md),
+  [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
+  DEC-034, DEC-035, DEC-036, DEC-037

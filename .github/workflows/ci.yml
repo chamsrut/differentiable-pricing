@@ -70,6 +70,14 @@ jobs:
         # report lives under ignored artifacts/ and is never present here.
         # This job runs the CLI once; nothing else in the workflow invokes it.
         run: python3 scripts/freeze_pde_label_policy_v2_results.py --check
+      - name: Frozen Task 9G American neural pilot result is valid and current
+        # The task 9G snapshot's designated validator, and the offline
+        # counterpart of the same check in scripts/check.sh. It reads only the
+        # tracked protocol and the tracked snapshot: the raw validation report
+        # lives under ignored artifacts/ and is never present here, and no
+        # pricing, training, latency measurement, IV inversion or partition
+        # access happens. Nothing else in this workflow invokes it.
+        run: python3 scripts/freeze_american_neural_pilot_results.py --check
 
   ml:
     name: Neural baseline / CPU

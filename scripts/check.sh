@@ -40,6 +40,11 @@ python3 scripts/plot_american_lsm_results.py --check
 # from the snapshot's own numbers against the checked-in configuration and never
 # reads the ignored raw confirmation report, so it passes with artifacts/ absent.
 python3 scripts/freeze_pde_label_policy_v2_results.py --check
+# The task 9G snapshot's designated validator. Like the checks above it is
+# offline: it reads only the tracked protocol and the tracked snapshot, reruns
+# no pricing, training, latency measurement or IV inversion, and never opens a
+# dataset partition, so it passes with artifacts/ absent.
+python3 scripts/freeze_american_neural_pilot_results.py --check
 
 if command -v ruff >/dev/null 2>&1; then
     ruff check python scripts .claude/hooks

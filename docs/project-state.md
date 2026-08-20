@@ -66,15 +66,21 @@ and internal gates, but reconciliation found that its independent cross-check,
 near-duplicate gate, and semantic-coverage judgement were not discharged. The
 dataset is now conditionally admitted only for learning the known CRR mapping,
 not for converged American-price accuracy (DEC-034). Task 9G's bounded protocol
-and implementation are now built (DEC-036). After the first review's `REQUEST
-CHANGES` findings were addressed, a fresh top-level review of cumulative commit
-`8d27c23` returned exactly `APPROVE TASK 9G IMPLEMENTATION FOR MERGE`
-(DEC-037). That approval covers protocol/implementation merge and the later
-human-invoked `run-to-validation` only; it approves no numerical result and
-does not authorize final evaluation. Execution remains blocked until the
-approval-recording/minor-fix commit receives final cumulative review and the
-implementation branch is merged. The independent PDE mapping check must then
-pass inside the human-invoked run before optimization begins.
+and implementation were built (DEC-036), approved at cumulative commit
+`8d27c23` (DEC-037), and **merged** at `e930454`. The human operator then ran
+the locked `run-to-validation` once, and **it returned a negative result**:
+`status=validation_gates_failed`, `outcome=failure_to_learn`. Every entry gate
+passed — the independent PDE mapping check passed 21 of 21 rows before
+optimization, and the exact European-to-American transfer lift passed all eight
+pinned probes — but **neither arm passed every validation gate**. Transfer's
+validation RMSE was strictly better than scratch's, which is a within-pilot
+observation confounded by the arm-seeded shuffle and is not evidence of transfer
+value. **No final evaluation occurred**: `final_evaluation_attempts = 0`,
+`final_partition_consumed = false`, and final evaluation is forbidden under this
+protocol because its final-entry rule failed. The frozen evidence is
+[results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json)
+(DEC-038). **One seed and one budget do not establish H2**, and this result is
+not H2 evidence.
 **The accepted PDE label policy remains frozen evidence; this roadmap change
 does not reinterpret or rerun it.**
 
@@ -95,6 +101,7 @@ does not reinterpret or rerun it.**
 | Task 9C-C3 predeclaration (criteria, lifecycle, runner, freeze tool) | [pde-numerical-contract.md](pde-numerical-contract.md) (Task 9C-C3 section) |
 | Task 9C-C3: PDE label-policy v2 — **accepted `grid_1600x800`** | [results/american_pde_label_policy_v2_results_v1.json](results/american_pde_label_policy_v2_results_v1.json) — frozen terminal, externally approved ([decision-log.md](decision-log.md) DEC-025) |
 | Task 9D: local data-holdings catalogue and integrity audit | [data-holdings-catalogue.md](data-holdings-catalogue.md) — audit record, admits nothing ([decision-log.md](decision-log.md) DEC-031) |
+| Task 9G: American neural-pricer feasibility pilot — **negative `failure_to_learn`** | [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json) — frozen, `validation_gates_failed`, final partition unconsumed ([decision-log.md](decision-log.md) DEC-038); result acceptance pending fresh review |
 
 ## Current implementation state
 
@@ -175,48 +182,75 @@ does not reinterpret or rerun it.**
   resolved the loader gap and the configuration/contract recovery; the generator
   gap and the label policy's missing frozen evidence survive as recorded
   limitations (DEC-033).
-- Task 9G now supplies the strict five-input representation, exact task-specific
+- Task 9G supplies the strict five-input representation, exact task-specific
   European lift, American artifact schema, protocol validator, validation/final
   lifecycle runner, metrics/diagnostics, matched latency and synthetic-IV
-  implementations, and raw-report freeze/check tool. The recovered source lift
-  was preflighted at eight physical probes after train-only scaling: maximum
-  absolute price difference `1.4210854715202004e-14`, maximum relative
-  difference `3.6214823824845716e-13`. No optimization or locked numerical work
-  ran. Its eventual validation/final audit snapshot uses fixed-size sufficient
-  statistics rather than partition rows; the separately retained 21-case PDE
-  evidence is synthetic and protocol-pinned. The protocol also records the
-  arm-seeded shuffle confound, fixed-domain PDE truncation limitation, and the
-  limits of offline snapshot authentication.
+  implementations, and raw-report freeze/check tool. It is **merged at
+  `e930454`, executed once, and closed with a negative result**. The recovered
+  source lift was preflighted and re-verified in the run at eight physical
+  probes after train-only scaling: maximum absolute price difference
+  `1.4210854715202004e-14`, maximum relative difference
+  `3.6214823824845716e-13`. The validation audit snapshot uses fixed-size
+  sufficient statistics rather than partition rows; the separately retained
+  21-case PDE evidence is synthetic and protocol-pinned, and all 21 rows passed.
+  The protocol records the arm-seeded shuffle confound, the fixed-domain PDE
+  truncation limitation, and the limits of offline snapshot authentication, and
+  all three survive into the frozen result. **An American neural surrogate was
+  trained but not accepted**: neither arm met the predeclared feasibility gates,
+  the latency-speedup and IV-error gates also failed, and no final evaluation
+  ran. The offline snapshot check
+  `python3 scripts/freeze_american_neural_pilot_results.py --check` now runs in
+  both `scripts/check.sh` and CI; it reads only tracked files and reruns no
+  pricing, training, or IV inversion.
 - **No accepted, versioned PDE-labelled SPY training dataset exists**, and no
   SPY neural surrogate exists. **No American neural surrogate has yet been
-  trained and accepted.**
+  trained and accepted** — task 9G trained two arms and accepted neither.
 
 ## Exact next task
 
-**Final cumulative review of the Task 9G approval record and three minor
-corrections, then merge before any execution** —
+**Fresh top-level review and merge of the Task 9G result-only PR on branch
+`results/task-9g-american-neural-pilot-v1`** —
 [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md)
-([decision-log.md](decision-log.md) DEC-034, DEC-036, DEC-037). Fresh top-level
-review of cumulative commit `8d27c23` returned exactly `APPROVE TASK 9G
-IMPLEMENTATION FOR MERGE`, discharging the implementation approval gate only.
-The approval-recording/minor-fix commit still requires final cumulative review,
-and the implementation branch must then be merged. Task 9G's first entry gate
-was a fresh
-top-level review of task 9E's reconciled **conditional** admission; that gate
-is discharged by `APPROVE PLANNING RECONCILIATION` (DEC-035). The PR now
-implements the row/manifest policy invariants, locks dataset and source-artifact
-identities, implements and verifies the exact European-to-American lift, and
-freezes seeds, the single training budget, metrics, latency cases, and IV cases.
-After final cumulative review and merge, the exact next action is the human-invoked
-`python scripts/run_american_neural_pilot.py run-to-validation`.
+([decision-log.md](decision-log.md) DEC-034, DEC-036, DEC-037, DEC-038). Task
+9G's implementation was merged at
+`e930454d1c0869e22778a99ae22505f093889e73`; the human operator invoked the
+locked `python scripts/run_american_neural_pilot.py run-to-validation` exactly
+once; the run completed; and **its validation gates failed**. The result-only
+PR adds the frozen snapshot
+[results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json)
+(distilled from validation report SHA-256 `9a4acdfd…`), wires
+`python3 scripts/freeze_american_neural_pilot_results.py --check` into
+`scripts/check.sh` and CI, and updates the task spec, this file, and the
+decision log. It changes no config, threshold, seed, protocol value, training
+code, evaluation code, runner behavior, freezer semantics, or frozen evidence.
 
-**No numerical result exists. No training is authorized or started before the
-merge and human invocation.** Task 9G remains at protocol and implementation
-scope. The runner performs the outstanding independent PDE mapping check before
-optimization and stops on failure; it has not been run. `final-evaluate`
-remains separately gated on the validation outcome and its required review;
-the implementation approval does not authorize it. `interpolation_test`
-remains unavailable until that one-shot final-evaluation gate is discharged.
+**The recorded result is `status=validation_gates_failed`,
+`outcome=failure_to_learn`.** Every entry gate passed, including the
+independent PDE mapping check at 21 of 21 rows and the exact transfer lift at
+all eight pinned probes; neither arm then passed every validation gate.
+Transfer's validation RMSE was strictly better than scratch's — a within-pilot
+observation confounded by the arm-seeded epoch shuffle, not evidence of transfer
+value, and not a converted pass. **No final evaluation occurred**:
+`final_evaluation_attempts = 0`, `final_partition_consumed = false`, and
+`final-evaluate` is **forbidden** under this protocol because
+`validation_final_entry_passed = false` and `second_attempt_allowed = false`.
+`interpolation_test` was never opened, hashed, imported, or counted, and it is
+never tuned against. **One seed and one budget do not establish H2.** Material
+acceptance of this result requires its own fresh top-level review; this file
+recording the outcome is not that approval.
+
+**After that review and merge, the next intended task is task 9H**, recorded as
+intent only and **not implemented, scoped, or authorized here**: an explicitly
+exploratory American neural-pricer development loop on `train` and `validation`
+data only. In it, Claude or Codex may iteratively implement capacity, feature,
+target and architecture experiments; the human runs every one of them locally,
+under the standing manual-run rule; every attempt and every failure is
+documented, including abandoned ones; and `interpolation_test` and every other
+final partition remain inaccessible throughout. Because selection would happen
+against `validation`, any model 9H selects carries selection bias and is not a
+result: it would require a separate, freshly predeclared confirmation on a fresh
+partition after development ends, as its own task with its own gates and review.
+Task 9H needs its own spec and its own review before any work begins.
 
 What 9E delivered: the generating configuration and both label-policy pilot
 configurations recovered verbatim from `49ef72a` and digest-pinned by a test;
@@ -441,16 +475,21 @@ training (DEC-014, DEC-025).
   section records that the selecting pilot was **not an uncontaminated
   predeclaration** and that the uncontaminated gates would have chosen
   `N = 4096` rather than `N = 1024` (DEC-031, DEC-033).
-- **No independent cross-check of the CRR labels has been run.** Every identity
-  verified in tasks 9D and 9E is internal to one lattice; agreement with a
-  numerically unrelated engine is untested and must be completed or explicitly
-  resolved before training is authorized (DEC-033, DEC-034).
+- Every identity verified in tasks 9D and 9E is internal to one lattice. Task
+  9G's locked run supplied the first agreement evidence from a numerically
+  unrelated engine: the independent PDE mapping check passed on **21 rows**
+  (DEC-038). That is a 21-row mapping-consistency check, **not** a
+  dataset-scale cross-check of the 250,000 CRR labels and **not** converged
+  American-price truth; the broader cross-check gate remains open
+  (DEC-033, DEC-034).
 - Task 9E's near-duplicate measurements are descriptive. Because the distances
   were observed before a threshold was predeclared, its near-duplicate gate
   cannot be satisfied retroactively for this dataset version (DEC-034).
 - Task 9G closes the admission code's row `label_policy` / `label_steps` gap and
   pins generator version `1.0.0` plus recovered configuration digest
-  `d18485c6…`; the independent PDE check remains unexecuted (DEC-034, DEC-036).
+  `d18485c6…`. Its independent PDE check has now **executed and passed on 21 of
+  21 rows** inside the locked run, as mapping-consistency evidence only
+  (DEC-034, DEC-036, DEC-038).
 - The European `forward_normalized_v1` representation is **inadmissible for
   American labels**: it determines a European price exactly but loses the
   separate dependence on rate and dividend yield that the early-exercise
@@ -463,8 +502,28 @@ training (DEC-014, DEC-025).
   untracked and no silent retraining or substitution is allowed (DEC-034,
   DEC-036).
 - Task 9G is a one-seed, one-budget feasibility pilot and cannot establish H2.
-  A promising outcome requires a separate replication with at least five seeds
-  and several predeclared label budgets (DEC-034).
+  A promising outcome would have required a separate replication with at least
+  five seeds and several predeclared label budgets (DEC-034). **Its outcome was
+  not promising**: `failure_to_learn` (DEC-038).
+- Task 9G's frozen result is a **negative** one and is never reinterpreted as a
+  partial success. Neither arm passed every validation gate; the latency-speedup
+  and IV-error gates also failed; and `transfer_validation_rmse_strictly_better
+  = true` is a within-pilot comparison confounded by the arm-seeded epoch
+  shuffle, so it is **not** evidence that transfer initialization helps
+  (DEC-038).
+- Task 9G's independent PDE check passed 21 of 21 rows, but it is
+  **mapping-consistency evidence only** — not converged American-price truth and
+  not semantic-coverage evidence — and its fixed-domain 400x200 versus 800x400
+  refinement pair does not independently bound domain-truncation error
+  (DEC-038).
+- Task 9G's `interpolation_test` partition is **unconsumed**
+  (`final_evaluation_attempts = 0`, `final_partition_consumed = false`), and
+  final evaluation is **forbidden** under the 9G protocol. Any future final
+  evaluation needs a new predeclared protocol and a fresh final partition
+  (DEC-038).
+- Offline snapshot checking detects internal inconsistency and tracked-input
+  drift, but **cannot authenticate a fully coordinated fabricated raw report and
+  snapshot** (DEC-036, DEC-038).
 - In the processed market partitions, **`exercise_style` and
   `contract_multiplier` are 100 % null**. The XSP-European / SPY-American
   distinction that phase 2 depends on is an external convention, not something
@@ -535,7 +594,7 @@ training (DEC-014, DEC-025).
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 | Local data holdings (9D audit) | [data-holdings-catalogue.md](data-holdings-catalogue.md) | none — audit record, not frozen evidence, no generator script |
 | CRR dataset conditional admission (9E) | [american-crr-dataset-admission.md](american-crr-dataset-admission.md), [american-crr-contract.md](american-crr-contract.md) ("Label policy v1") | none — conditional mapping-only admission, not frozen evidence; implemented checks live in `data/american_admission.py` and incomplete gates are recorded |
-| American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | protocol/implementation approved for merge at `8d27c23` and unexecuted; approval-recording/minor-fix commit still needs final cumulative review and branch merge before the human run; no result snapshot (DEC-036, DEC-037) |
+| American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json) — frozen negative result, `validation_gates_failed` / `failure_to_learn`, final partition unconsumed. Enforced by `scripts/freeze_american_neural_pilot_results.py --check` in `scripts/check.sh` and CI (DEC-036, DEC-037, DEC-038); result acceptance pending fresh top-level review |
 
 ## New-agent checklist
 

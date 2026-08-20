@@ -15,10 +15,15 @@ Also read, before starting work:
 [docs/project-state.md](docs/project-state.md) (current state and the exact
 next task) and, if it applies to the work at hand, the active task spec
 [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
-(task 9G — **protocol and implementation approved for merge at `8d27c23`;
-approval recording and minor corrections await final cumulative review and
-merge; no numerical result**).
-Execution remains blocked until that final review and merge; task 9E's conditional
+(task 9G — **implementation merged at `e930454`; the single human-invoked
+locked `run-to-validation` completed and its validation gates failed;
+`status=validation_gates_failed`, `outcome=failure_to_learn`;
+`final_evaluation_attempts=0`, `final_partition_consumed=false`, and
+`final-evaluate` is forbidden under that protocol**). The frozen result is
+[docs/results/american_neural_pilot_results_v1.json](docs/results/american_neural_pilot_results_v1.json)
+(DEC-038); its acceptance still needs a fresh top-level review of the
+result-only change. One seed and one budget do not establish H2. Do not rerun
+task 9G, retune against it, or open `interpolation_test`; task 9E's conditional
 admission alone authorizes no training. Three other
 specs stay in `docs/tasks/active/` and are **not** work to pick up: task 9C-C2b2 is `Deferred`
 ([docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md)),
@@ -109,17 +114,25 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
 - **Active task:**
   [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
   (task 9G — continuous-yield American neural-pricer feasibility pilot), status
-  `Protocol and implementation approved for merge at 8d27c23; approval record
-  and minor corrections awaiting final cumulative review and merge; no locked
-  run`. The outstanding step is final cumulative review and merge, followed by
-  the human-only locked `run-to-validation`. `final-evaluate` remains separately
-  gated on the validation result and review. Task 9C-C2b2 is deferred,
+  `validation_gates_failed; outcome=failure_to_learn; implementation merged at
+  e930454; locked run complete; final partition unconsumed`. The outstanding
+  step is fresh top-level review and merge of the result-only closure on branch
+  `results/task-9g-american-neural-pilot-v1`. `final-evaluate` is **forbidden**
+  under the 9G protocol: its final-entry rule failed, so no final evaluation
+  may be invoked now or later, and any future one needs a new protocol and a
+  fresh final partition. The next intended task is task 9H, an explicitly
+  exploratory `train`/`validation`-only development loop — recorded as intent
+  only, not implemented, and not to be started without its own spec and review.
+  Task 9C-C2b2 is deferred,
   tasks 9C-C3 and 9D are completed and terminal, and task 9F is on hold; do not
   treat any of those still-present specs as the active one.
 - **Frozen-result checks:** `./scripts/check.sh` and CI both run
-  `python scripts/freeze_pde_label_policy_v2_results.py --check`. The task
-  9C-C3 snapshot it enforces is frozen evidence — never regenerate,
-  reformat, or hand-edit it to make a check pass.
+  `python scripts/freeze_pde_label_policy_v2_results.py --check` and
+  `python scripts/freeze_american_neural_pilot_results.py --check`. Both are
+  offline: they read only tracked files and rerun no pricing, training,
+  latency measurement, or IV inversion. The task 9C-C3 and task 9G snapshots
+  they enforce are frozen evidence — never regenerate, reformat, or hand-edit
+  either to make a check pass.
 
 ## Required workflow
 
