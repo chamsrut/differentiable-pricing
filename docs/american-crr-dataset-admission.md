@@ -275,9 +275,10 @@ The independent numerical check remains pending manual execution.
    nothing.
 8. **The adjacent-step gap is not an error bound**, so the dataset's own
    numerical-error field does not bound label error.
-9. **No training path exists.** `ml/train.py` and `ml/evaluate.py` are
-   unchanged and European-specific; wiring them to the named target is work for
-   the training task, not for this one.
+9. **The shared European training path remains unwired.** `ml/train.py` and
+   `ml/evaluate.py` are unchanged and European-specific. Task 9G supplies a
+   separate task-specific American pilot training path, but that path remains
+   unexecuted and does not make the shared European entry points American-aware.
 10. **The original task 9E implementation omitted row/manifest policy
     invariants.** Task 9G closes that implementation gap. This historical
     limitation remains listed to preserve the admission chronology; it is no

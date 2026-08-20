@@ -1255,6 +1255,7 @@ def execute_validation_run(
         "interpretation": {
             "claim_scope": "one-seed one-budget mapping-only feasibility pilot",
             "locked_experiments_ran": True,
+            "limitations": protocol["limitations"],
             "outcome": outcome,
         },
     }

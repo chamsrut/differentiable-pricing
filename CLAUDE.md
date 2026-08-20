@@ -15,7 +15,8 @@ Also read, before starting work:
 [docs/project-state.md](docs/project-state.md) (current state and the exact
 next task) and, if it applies to the work at hand, the active task spec
 [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
-(task 9G — **protocol and implementation built, pending review and merge**).
+(task 9G — **protocol and implementation built; `REQUEST CHANGES` findings are
+addressed, awaiting fresh approval and merge**).
 Execution remains blocked until that review and merge; task 9E's conditional
 admission alone authorizes no training. Three other
 specs stay in `docs/tasks/active/` and are **not** work to pick up: task 9C-C2b2 is `Deferred`
@@ -107,9 +108,10 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
 - **Active task:**
   [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
   (task 9G — continuous-yield American neural-pricer feasibility pilot), status
-  `Protocol and implementation built; pending review and merge; no locked run`.
-  The outstanding step is fresh review of the protocol/implementation PR,
-  followed by a human-only manual run after merge. Task 9C-C2b2 is deferred,
+  `Protocol and implementation built; REQUEST CHANGES findings addressed;
+  awaiting fresh approval; no locked run`. The outstanding step is a subsequent fresh approval of the
+  corrected protocol/implementation PR, followed by a human-only manual run
+  after merge. Task 9C-C2b2 is deferred,
   tasks 9C-C3 and 9D are completed and terminal, and task 9F is on hold; do not
   treat any of those still-present specs as the active one.
 - **Frozen-result checks:** `./scripts/check.sh` and CI both run

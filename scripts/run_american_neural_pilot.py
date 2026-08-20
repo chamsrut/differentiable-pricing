@@ -320,12 +320,18 @@ def final_evaluate(
         artifact_manifest = output / arm / "artifact.json"
         if sha256_file(artifact_manifest) != validation_report["artifacts"][arm]["manifest_sha256"]:
             raise RunnerError(f"{arm} artifact changed after validation")
-        model, payload = load_american_artifact(output / arm)
+        row_budget = int(training["row_selection"]["row_budget"])
+        fit_partition = str(training["standardization"]["fit_partition"])
+        model, payload = load_american_artifact(
+            output / arm,
+            expected_row_budget=row_budget,
+            expected_fit_partition=fit_partition,
+        )
         expected_dataset = {
             "manifest_sha256": protocol["dataset"]["manifest_sha256"],
             "train_sha256": protocol["dataset"]["train_sha256"],
             "validation_sha256": protocol["dataset"]["validation_sha256"],
-            "selected_train_rows": 32768,
+            "selected_train_rows": row_budget,
         }
         if (
             payload["dataset"] != expected_dataset

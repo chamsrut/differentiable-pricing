@@ -24,7 +24,7 @@ def _model() -> AmericanPriceModel:
     ).eval()
 
 
-def _metadata(arm: str = "scratch") -> dict:
+def _metadata(arm: str = "scratch", *, row_budget: int = 32768) -> dict:
     return {
         "experiment_name": "fixture",
         "arm": arm,
@@ -32,7 +32,7 @@ def _metadata(arm: str = "scratch") -> dict:
             "manifest_sha256": "0" * 64,
             "train_sha256": "1" * 64,
             "validation_sha256": "2" * 64,
-            "selected_train_rows": 32768,
+            "selected_train_rows": row_budget,
         },
         "protocol": {
             "sha256": "3" * 64,
@@ -63,13 +63,21 @@ def _metadata(arm: str = "scratch") -> dict:
     }
 
 
+def _load(directory, *, row_budget: int = 32768):
+    return load_american_artifact(
+        directory,
+        expected_row_budget=row_budget,
+        expected_fit_partition="selected train rows only",
+    )
+
+
 def test_american_artifact_round_trip_is_deterministic(tmp_path) -> None:
     first = tmp_path / "first"
     second = tmp_path / "second"
     save_american_artifact(first, _model(), **_metadata())
     save_american_artifact(second, _model(), **_metadata())
     assert (first / "weights.npz").read_bytes() == (second / "weights.npz").read_bytes()
-    loaded, payload = load_american_artifact(first)
+    loaded, payload = _load(first)
     features = torch.tensor([[1.0, 100.0, 95.0, 1.0, 0.03, 0.01, 0.2]], dtype=torch.float64)
     with torch.no_grad():
         assert torch.equal(loaded(features), _model()(features))
@@ -84,7 +92,7 @@ def test_american_artifact_rejects_unknown_manifest_key(tmp_path) -> None:
     payload["unknown"] = True
     path.write_text(json.dumps(payload))
     with pytest.raises(AmericanArtifactError, match="unknown"):
-        load_american_artifact(directory)
+        _load(directory)
 
 
 def test_transfer_artifact_requires_source_lineage(tmp_path) -> None:
@@ -93,7 +101,7 @@ def test_transfer_artifact_requires_source_lineage(tmp_path) -> None:
     metadata["source_lineage"] = None
     save_american_artifact(directory, _model(), **metadata)
     with pytest.raises(AmericanArtifactError, match="source_lineage"):
-        load_american_artifact(directory)
+        _load(directory)
 
 
 @pytest.mark.parametrize(
@@ -116,7 +124,7 @@ def test_american_artifact_rejects_nested_identity_drift(
     mutation(payload[block])
     path.write_text(json.dumps(payload))
     with pytest.raises(AmericanArtifactError, match=message):
-        load_american_artifact(directory)
+        _load(directory)
 
 
 def test_transfer_artifact_rejects_wrong_lift_identity(tmp_path) -> None:
@@ -127,4 +135,35 @@ def test_transfer_artifact_rejects_wrong_lift_identity(tmp_path) -> None:
     payload["source_lineage"]["lift"] = "invented"
     path.write_text(json.dumps(payload))
     with pytest.raises(AmericanArtifactError, match="lift identity"):
-        load_american_artifact(directory)
+        _load(directory)
+
+
+def test_artifact_round_trip_uses_configured_non_v1_row_budget(tmp_path) -> None:
+    training = {
+        "row_selection": {"row_budget": 17},
+        "standardization": {"fit_partition": "selected train rows only"},
+    }
+    protocol = {"training_config": training}
+    directory = tmp_path / "artifact"
+    save_american_artifact(directory, _model(), **_metadata(row_budget=17))
+
+    _, payload = load_american_artifact(
+        directory,
+        expected_row_budget=protocol["training_config"]["row_selection"]["row_budget"],
+        expected_fit_partition=protocol["training_config"]["standardization"]["fit_partition"],
+    )
+
+    assert payload["dataset"]["selected_train_rows"] == 17
+    assert payload["transform"]["fit_partition"] == training["standardization"]["fit_partition"]
+
+
+def test_artifact_rejects_non_exact_standardization_partition(tmp_path) -> None:
+    directory = tmp_path / "artifact"
+    save_american_artifact(directory, _model(), **_metadata())
+    path = directory / "artifact.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["transform"]["fit_partition"] = "train"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(AmericanArtifactError, match="selected train rows only"):
+        _load(directory)

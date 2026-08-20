@@ -355,6 +355,7 @@ def fit_price_model(
     best_state: dict[str, torch.Tensor] | None = None
     history: list[dict[str, float | int]] = []
     for epoch in range(1, epochs + 1):
+        epoch_learning_rate = float(optimizer.param_groups[0]["lr"])
         network.train()
         order = torch.randperm(x_train.shape[0], generator=generator)
         for start in range(0, x_train.shape[0], batch_size):
@@ -373,7 +374,7 @@ def fit_price_model(
             {
                 "epoch": epoch,
                 "validation_standardized_target_mse": validation_mse,
-                "learning_rate": float(scheduler.get_last_lr()[0]),
+                "learning_rate": epoch_learning_rate,
             }
         )
         if validation_mse < best_mse:

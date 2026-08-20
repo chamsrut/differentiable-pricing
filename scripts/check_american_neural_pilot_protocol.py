@@ -45,6 +45,7 @@ EXPECTED_TOP_KEYS: Final = frozenset(
         "lifecycle",
         "output_schemas",
         "environment_metadata",
+        "limitations",
         "independent_pde_check",
         "tracked_inputs",
     }
@@ -916,6 +917,23 @@ def validate_protocol(
         "portable_latency_claim_allowed": False,
     }:
         raise ProtocolError("environment metadata contract differs")
+    if protocol["limitations"] != {
+        "arm_shuffle_confound": (
+            "scratch and transfer use different arm-seeded epoch permutations as well as "
+            "different initialization; this one-seed pilot cannot attribute an observed arm "
+            "difference solely to transfer initialization"
+        ),
+        "pde_domain_truncation": (
+            "the 400x200 versus 800x400 PDE refinement comparison changes resolution while "
+            "holding spot_maximum fixed and therefore does not independently bound "
+            "domain-truncation error"
+        ),
+        "snapshot_authentication": (
+            "offline --check detects internal inconsistency and tracked-input drift but cannot "
+            "authenticate a fully coordinated fabricated raw report and snapshot"
+        ),
+    }:
+        raise ProtocolError("pilot limitations differ")
     pde = _table(protocol["independent_pde_check"], "protocol.independent_pde_check")
     _exact_keys(
         pde,

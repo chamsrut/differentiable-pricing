@@ -2,12 +2,14 @@
 
 ## Status
 
-`Protocol and implementation built — pending review and merge; no locked run.`
+`Protocol and implementation built — REQUEST CHANGES findings addressed;
+awaiting fresh approval and merge; no locked run.`
 This specification defines the next active task after the task 9E planning
 reconciliation. Fresh independent review of that reconciliation is discharged
 by `APPROVE PLANNING RECONCILIATION` (DEC-035). The protocol-and-implementation
-change is now built (DEC-036), but no experiment may run until it is reviewed
-and merged.
+change is now built (DEC-036). Its first fresh implementation review returned
+`REQUEST CHANGES`, so that review gate remains open and no experiment may run
+until the fixes receive a subsequent fresh approval and the change is merged.
 
 ## Objective
 
@@ -110,6 +112,9 @@ having passed retroactively.
 - Exactly one fixed scratch run and one fixed transfer run, under the same one
   training budget, optimizer schedule, row budget, checkpoint rule, and
   evaluation pipeline. There is no hyperparameter sweep or extra seed.
+- The two locked arm seeds also produce different epoch shuffle permutations,
+  not only different initializations. This one-seed pilot therefore cannot
+  attribute an observed arm difference solely to transfer initialization.
 - Validation-only checkpoint selection. Both arms are evaluated once on the
   same `interpolation_test` after the final-evaluation gate is unlocked.
 - The row's paired `european_crr_price` as the no-learning baseline: its error
@@ -289,6 +294,10 @@ market calibration, bid--ask-relative accuracy, production readiness, or live
 trading value. Any speedup is conditional on the exact matched benchmark
 contract and cannot be generalized beyond its recorded hardware, software,
 request shapes, and thread budgets.
+The fixed-domain PDE refinement pair does not independently bound domain-
+truncation error. Offline snapshot checking detects internal inconsistency and
+tracked-input drift, but cannot authenticate a fully coordinated fabricated raw
+report and snapshot.
 
 ## Completion report
 

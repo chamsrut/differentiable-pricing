@@ -105,6 +105,10 @@ def _runtime() -> dict:
 
 
 def _audit_row(*, prediction: float = 10.0, baseline: bool = False) -> dict:
+    diagnostic_violations = None
+    if not baseline:
+        diagnostic_violations = {name: -1.0 for name in _module().DIAGNOSTIC_CHECKS}
+        diagnostic_violations["american_put_rate_aware_upper_bound"] = None
     return {
         "sample_id": "sample",
         "option_type": "call",
@@ -118,9 +122,7 @@ def _audit_row(*, prediction: float = 10.0, baseline: bool = False) -> dict:
         "reference_price": 10.0,
         "prediction": prediction,
         "diagnostic_tolerance": None if baseline else 0.0001,
-        "diagnostic_violations": (
-            None if baseline else {name: -1.0 for name in _module().DIAGNOSTIC_CHECKS}
-        ),
+        "diagnostic_violations": diagnostic_violations,
     }
 
 
@@ -156,7 +158,7 @@ def _model(acceptance: dict, *, prediction: float = 10.0, baseline: bool = False
                     name: {
                         "material_violations": 0,
                         "maximum_violation": 0.0,
-                        "eligible_rows": 1,
+                        "eligible_rows": int(row["diagnostic_violations"][name] is not None),
                     }
                     for name in _module().DIAGNOSTIC_CHECKS
                 },
@@ -329,6 +331,7 @@ def _reports() -> tuple[dict, dict, dict, dict, dict, dict]:
     protocol = {
         "dataset": dataset,
         "source_artifact": source,
+        "limitations": dict(module.PILOT_LIMITATIONS),
         "independent_pde_check": {
             "interpretation": "mapping-consistency only",
             "maximum_normalized_refinement_difference": 0.0005,
@@ -418,6 +421,7 @@ def _reports() -> tuple[dict, dict, dict, dict, dict, dict]:
         "interpretation": {
             "claim_scope": "one-seed one-budget mapping-only feasibility pilot",
             "locked_experiments_ran": True,
+            "limitations": dict(module.PILOT_LIMITATIONS),
             "outcome": validation_outcome,
         },
     }
@@ -482,7 +486,7 @@ def test_final_report_requires_exact_runtime_metadata() -> None:
             lambda validation: validation["validation"]["scratch"]["slices"]["overall"][
                 "normalized"
             ].update({"rmse": 0.2}),
-            "recomputation",
+            "primitive|recomputation",
         ),
         (lambda validation: validation["latency"].update({"measurements": []}), "evidence"),
         (lambda validation: validation["implied_volatility"].update({"failures": 1}), "failure"),
@@ -661,9 +665,7 @@ def _final_failure_report(protocol: dict, *, stage: str, observed: str | None) -
             "final_partition_consumed": True,
             "second_attempt_allowed": False,
         },
-        "interpretation": (
-            "terminal consumed final-attempt failure; no retry under this protocol"
-        ),
+        "interpretation": ("terminal consumed final-attempt failure; no retry under this protocol"),
     }
 
 
@@ -685,9 +687,7 @@ def test_consumed_final_failure_rejects_stage_identity_drift(
     validation, _, protocol, acceptance, latency, iv = _reports()
     failure = _final_failure_report(protocol, stage=stage, observed=observed)
     with pytest.raises(module.FreezeError, match="stage/identity relationship"):
-        module.validate_raw_reports(
-            validation, failure, protocol, DIGEST, acceptance, latency, iv
-        )
+        module.validate_raw_reports(validation, failure, protocol, DIGEST, acceptance, latency, iv)
 
 
 def test_consumed_final_failure_freezes_without_final_metrics(tmp_path) -> None:
@@ -759,24 +759,95 @@ def test_snapshot_retains_all_slices_and_latency_depths(tmp_path) -> None:
     assert {row["crr_depth"] for row in snapshot["latency"]["measurements"]} == set(
         latency["crr_depths"]
     )
-    assert len(snapshot["audit"]["validation"]["common_rows"]) == 1
+    assert snapshot["audit"]["validation"]["row_count"] == 1
     assert "audit_rows" not in snapshot["arms"]["scratch"]["validation"]
     assert "audit_rows" not in snapshot["arms"]["transfer"]["validation"]
     assert "audit_rows" not in snapshot["baseline"]["validation"]
-    assert set(snapshot["audit"]["validation"]["physical_errors"]) == {
+    assert set(snapshot["audit"]["validation"]["models"]) == {
         "scratch",
         "transfer",
         "european_crr_baseline",
     }
-    common = snapshot["audit"]["validation"]["common_rows"][0]
-    assert set(common) == {
-        "slice_memberships",
-        "normalization_scale",
-        "early_exercise_premium",
-    }
+    overall = snapshot["audit"]["validation"]["models"]["scratch"]["slices"]["overall"][
+        "normalized"
+    ]
+    assert overall["count"] == 1
+    assert set(overall["quantiles"]) == {"p95", "p99"}
 
 
-def test_compact_snapshot_rejects_premium_membership_drift(tmp_path) -> None:
+def test_snapshot_round_trip_recomputes_published_metrics_and_verdict(tmp_path) -> None:
+    module = _module()
+    validation, final, protocol, acceptance, latency, iv = _reports()
+    validation_path = tmp_path / "validation.json"
+    final_path = tmp_path / "final.json"
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    final_path.write_text(json.dumps(final), encoding="utf-8")
+    snapshot = module.extract_snapshot(
+        validation,
+        final,
+        state="final_complete",
+        protocol_path=PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        validation_path=validation_path,
+        final_path=final_path,
+        acceptance=acceptance,
+    )
+    module.validate_snapshot(
+        snapshot,
+        PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        protocol,
+        acceptance,
+        latency,
+        iv,
+    )
+    metric_drift = copy.deepcopy(snapshot)
+    metric_drift["arms"]["scratch"]["validation"]["slices"]["overall"]["normalized"]["rmse"] = 0.5
+    with pytest.raises(module.FreezeError, match="recomputation"):
+        module.validate_snapshot(
+            metric_drift,
+            PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+            protocol,
+            acceptance,
+            latency,
+            iv,
+        )
+    verdict_drift = copy.deepcopy(snapshot)
+    verdict_drift["outcome"]["outcome"] = "promising"
+    with pytest.raises(module.FreezeError, match="outcome"):
+        module.validate_snapshot(
+            verdict_drift,
+            PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+            protocol,
+            acceptance,
+            latency,
+            iv,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        (
+            lambda audit: audit["models"]["scratch"]["slices"]["overall"]["normalized"].update(
+                {"sum_absolute_error": 0.25}
+            ),
+            "primitive|recomputation",
+        ),
+        (
+            lambda audit: audit["models"]["scratch"]["slices"]["overall"]["normalized"][
+                "quantiles"
+            ]["p99"].update({"lower_value": 0.01, "upper_value": 0.01}),
+            "primitive|recomputation",
+        ),
+        (lambda audit: audit.update({"row_count": 2}), "overall count"),
+        (
+            lambda audit: audit["models"]["scratch"]["diagnostics"]["checks"][
+                "spot_monotonicity"
+            ].update({"material_violations": 1}),
+            "diagnostic.*(primitive|relationship)",
+        ),
+    ],
+)
+def test_compact_snapshot_rejects_sufficient_statistic_drift(tmp_path, mutation, match) -> None:
     module = _module()
     validation, final, _, acceptance, _, _ = _reports()
     validation_path = tmp_path / "validation.json"
@@ -792,12 +863,10 @@ def test_compact_snapshot_rejects_premium_membership_drift(tmp_path) -> None:
         final_path=final_path,
         acceptance=acceptance,
     )
-    row = snapshot["audit"]["validation"]["common_rows"][0]
-    row["slice_memberships"].remove("premium_status:zero")
-    row["slice_memberships"].append("premium_status:positive")
+    mutation(snapshot["audit"]["validation"])
     compact = {arm: snapshot["arms"][arm]["validation"] for arm in ("scratch", "transfer")}
     compact["european_crr_baseline"] = snapshot["baseline"]["validation"]
-    with pytest.raises(module.FreezeError, match="premium membership"):
+    with pytest.raises(module.FreezeError, match=match):
         module._validate_compact_partition_models(
             compact,
             snapshot["audit"]["validation"],
@@ -805,3 +874,240 @@ def test_compact_snapshot_rejects_premium_membership_drift(tmp_path) -> None:
             acceptance,
             "validation_final_entry",
         )
+
+
+def test_quantile_primitives_reject_coincident_and_crossed_order_statistics() -> None:
+    module = _module()
+    coincident = module._metric_primitive([1.0])
+    coincident["quantiles"]["p95"]["lower_value"] = 0.5
+    with pytest.raises(module.FreezeError, match=r"coincident|maximum-rank"):
+        module._statistics_from_primitive(coincident, "coincident")
+
+    crossed = module._metric_primitive([float(value) for value in range(100)])
+    crossed["quantiles"]["p95"]["upper_value"] = 99.0
+    with pytest.raises(module.FreezeError, match="cross-quantile"):
+        module._statistics_from_primitive(crossed, "crossed")
+
+    contradictory = module._metric_primitive([0.0] * 99 + [1.0])
+    for label in ("p95", "p99"):
+        contradictory["quantiles"][label]["lower_value"] = 1.0
+        contradictory["quantiles"][label]["upper_value"] = 1.0
+    with pytest.raises(module.FreezeError, match="stored moments"):
+        module._statistics_from_primitive(contradictory, "contradictory")
+
+
+def test_large_constant_metric_primitive_remains_numerically_consistent() -> None:
+    module = _module()
+    values = [0.123456789] * 25_000
+    primitive = module._metric_primitive(values)
+
+    statistics = module._statistics_from_primitive(primitive, "constant")
+
+    assert statistics["rows"] == 25_000
+    assert statistics["mae"] == pytest.approx(0.123456789)
+    assert statistics["rmse"] == pytest.approx(0.123456789)
+    assert statistics["p95_absolute_error"] == pytest.approx(0.123456789)
+    assert statistics["p99_absolute_error"] == pytest.approx(0.123456789)
+
+
+@pytest.mark.parametrize(
+    ("check_name", "related_check"),
+    [
+        ("american_call_upper_bound", None),
+        ("intrinsic_lower_bound", None),
+        ("spot_monotonicity", "spot_convexity"),
+    ],
+)
+def test_compact_snapshot_rejects_diagnostic_eligibility_drift(
+    tmp_path, check_name, related_check
+) -> None:
+    module = _module()
+    validation, final, _, acceptance, _, _ = _reports()
+    validation_path = tmp_path / "validation.json"
+    final_path = tmp_path / "final.json"
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    final_path.write_text(json.dumps(final), encoding="utf-8")
+    snapshot = module.extract_snapshot(
+        validation,
+        final,
+        state="final_complete",
+        protocol_path=PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        validation_path=validation_path,
+        final_path=final_path,
+        acceptance=acceptance,
+    )
+    primitive = snapshot["audit"]["validation"]["models"]["scratch"]["diagnostics"]["checks"][
+        check_name
+    ]
+    published = snapshot["arms"]["scratch"]["validation"]["diagnostics"]["checks"][check_name]
+    primitive["eligible_rows"] = 0
+    published["eligible_rows"] = 0
+    if related_check is not None:
+        assert (
+            snapshot["audit"]["validation"]["models"]["scratch"]["diagnostics"]["checks"][
+                related_check
+            ]["eligible_rows"]
+            == 1
+        )
+    compact = {arm: snapshot["arms"][arm]["validation"] for arm in ("scratch", "transfer")}
+    compact["european_crr_baseline"] = snapshot["baseline"]["validation"]
+    with pytest.raises(module.FreezeError, match="eligibility"):
+        module._validate_compact_partition_models(
+            compact,
+            snapshot["audit"]["validation"],
+            "snapshot.validation",
+            acceptance,
+            "validation_final_entry",
+        )
+
+
+def test_validation_passed_can_freeze_without_advancing_to_final(tmp_path) -> None:
+    module = _module()
+    validation, _, protocol, acceptance, latency, iv = _reports()
+    assert (
+        module.validate_raw_reports(validation, None, protocol, DIGEST, acceptance, latency, iv)
+        == "validation_passed_not_advanced"
+    )
+    validation_path = tmp_path / "validation.json"
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    snapshot = module.extract_snapshot(
+        validation,
+        None,
+        state="validation_passed_not_advanced",
+        protocol_path=PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        validation_path=validation_path,
+        final_path=None,
+        acceptance=acceptance,
+    )
+    module.validate_snapshot(
+        snapshot,
+        PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        protocol,
+        acceptance,
+        latency,
+        iv,
+    )
+    assert snapshot["lifecycle"]["final_partition_consumed"] is False
+    assert snapshot["outcome"] == {
+        "phase": "validation",
+        "outcome": "validation_passed_not_advanced",
+        "final_eligibility_approved": False,
+        "neural_result_approved": False,
+    }
+    inconsistent_snapshots = []
+    consumed = copy.deepcopy(snapshot)
+    consumed["lifecycle"]["final_partition_consumed"] = True
+    inconsistent_snapshots.append(consumed)
+    attempted = copy.deepcopy(snapshot)
+    attempted["lifecycle"]["final_evaluation_attempts"] = 1
+    inconsistent_snapshots.append(attempted)
+    final_source = copy.deepcopy(snapshot)
+    final_source["source_reports"]["final"] = {"file": "final.json", "sha256": DIGEST}
+    inconsistent_snapshots.append(final_source)
+    for inconsistent in inconsistent_snapshots:
+        with pytest.raises(module.FreezeError, match="lifecycle"):
+            module.validate_snapshot(
+                inconsistent,
+                PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+                protocol,
+                acceptance,
+                latency,
+                iv,
+            )
+
+
+@pytest.mark.parametrize("state", ["validation_passed_not_advanced", "final_complete"])
+@pytest.mark.parametrize("evidence", ["latency", "iv"])
+def test_passing_snapshot_recomputes_required_evidence(tmp_path, state, evidence) -> None:
+    module = _module()
+    validation, final, protocol, acceptance, latency, iv = _reports()
+    validation_path = tmp_path / "validation.json"
+    final_path = tmp_path / "final.json"
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    final_path.write_text(json.dumps(final), encoding="utf-8")
+    include_final = state == "final_complete"
+    snapshot = module.extract_snapshot(
+        validation,
+        final if include_final else None,
+        state=state,
+        protocol_path=PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        validation_path=validation_path,
+        final_path=final_path if include_final else None,
+        acceptance=acceptance,
+    )
+    if evidence == "latency":
+        snapshot["latency"]["measurements"].pop()
+    else:
+        inversion = snapshot["implied_volatility"]["rows"][0]["inversions"]["scratch"]
+        inversion.update(
+            {
+                "status": "unbracketed",
+                "volatility": None,
+                "iterations": 0,
+                "absolute_error_vs_label_iv": None,
+            }
+        )
+        snapshot["implied_volatility"]["failures"] = 1
+    with pytest.raises(module.FreezeError, match="final-entry gate"):
+        module.validate_snapshot(
+            snapshot,
+            PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+            protocol,
+            acceptance,
+            latency,
+            iv,
+        )
+
+
+def test_realistic_partition_snapshot_stays_below_two_mib(tmp_path) -> None:
+    module = _module()
+    validation, final, protocol, acceptance, latency, iv = _reports()
+    row_count = 25_000
+    arm_rows = []
+    baseline_rows = []
+    for index in range(row_count):
+        arm_row = _audit_row()
+        arm_row["sample_id"] = f"sample-{index:05d}"
+        arm_rows.append(arm_row)
+        baseline_row = _audit_row(baseline=True)
+        baseline_row["sample_id"] = arm_row["sample_id"]
+        baseline_rows.append(baseline_row)
+    models = validation["validation"]
+    models["scratch"]["audit_rows"] = arm_rows
+    models["transfer"]["audit_rows"] = arm_rows
+    models["european_crr_baseline"]["audit_rows"] = baseline_rows
+    for name, model in models.items():
+        for entry in model["slices"].values():
+            if entry["rows"]:
+                entry["rows"] = row_count
+                entry["physical"]["rows"] = row_count
+                entry["normalized"]["rows"] = row_count
+        if name in ("scratch", "transfer"):
+            for check_name, check in model["diagnostics"]["checks"].items():
+                check["eligible_rows"] = (
+                    0 if check_name == "american_put_rate_aware_upper_bound" else row_count
+                )
+    final["models_and_baseline"] = models
+    validation_path = tmp_path / "validation.json"
+    final_path = tmp_path / "final.json"
+    validation_path.write_text("fixture", encoding="utf-8")
+    final_path.write_text("fixture", encoding="utf-8")
+    snapshot = module.extract_snapshot(
+        validation,
+        final,
+        state="final_complete",
+        protocol_path=PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        validation_path=validation_path,
+        final_path=final_path,
+        acceptance=acceptance,
+    )
+    module.validate_snapshot(
+        snapshot,
+        PROJECT_ROOT / "configs/american_neural_pilot_protocol_v1.toml",
+        protocol,
+        acceptance,
+        latency,
+        iv,
+    )
+    snapshot_size = len(module.serialise(snapshot).encode("utf-8"))
+    assert snapshot_size < 2 * 1024 * 1024

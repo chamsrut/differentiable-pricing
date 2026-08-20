@@ -66,9 +66,11 @@ and internal gates, but reconciliation found that its independent cross-check,
 near-duplicate gate, and semantic-coverage judgement were not discharged. The
 dataset is now conditionally admitted only for learning the known CRR mapping,
 not for converged American-price accuracy (DEC-034). Task 9G's bounded protocol
-and implementation are now built (DEC-036); execution remains blocked until
-fresh review and merge, and its independent PDE mapping check must pass inside
-the later human-invoked run before optimization begins.
+and implementation are now built (DEC-036). A fresh review returned `REQUEST
+CHANGES`; its actionable findings are addressed, and the implementation review
+gate remains open pending a subsequent fresh approval. Execution stays blocked until that approval
+approval and merge, and the independent PDE mapping check must pass inside the
+later human-invoked run before optimization begins.
 **The accepted PDE label policy remains frozen evidence; this roadmap change
 does not reinterpret or rerun it.**
 
@@ -176,23 +178,29 @@ does not reinterpret or rerun it.**
   was preflighted at eight physical probes after train-only scaling: maximum
   absolute price difference `1.4210854715202004e-14`, maximum relative
   difference `3.6214823824845716e-13`. No optimization or locked numerical work
-  ran.
+  ran. Its eventual validation/final audit snapshot uses fixed-size sufficient
+  statistics rather than partition rows; the separately retained 21-case PDE
+  evidence is synthetic and protocol-pinned. The protocol also records the
+  arm-seeded shuffle confound, fixed-domain PDE truncation limitation, and the
+  limits of offline snapshot authentication.
 - **No accepted, versioned PDE-labelled SPY training dataset exists**, and no
   SPY neural surrogate exists. **No American neural surrogate has yet been
   trained and accepted.**
 
 ## Exact next task
 
-**Fresh top-level review of Task 9G's protocol-and-implementation PR, then merge
-before any execution** —
+**Obtain a new fresh top-level approval for the completed Task 9G review fixes, then
+merge before any execution** —
 [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md)
-([decision-log.md](decision-log.md) DEC-034, DEC-036). Its first entry gate is a fresh
+([decision-log.md](decision-log.md) DEC-034, DEC-036). The latest fresh review
+returned `REQUEST CHANGES`; it did not discharge the implementation review
+gate. Its first entry gate is a fresh
 top-level review of task 9E's reconciled **conditional** admission; that gate
 is discharged by `APPROVE PLANNING RECONCILIATION` (DEC-035). The PR now
 implements the row/manifest policy invariants, locks dataset and source-artifact
 identities, implements and verifies the exact European-to-American lift, and
 freezes seeds, the single training budget, metrics, latency cases, and IV cases.
-It must be reviewed and merged before the human invokes
+After the fixes, it must be freshly re-reviewed, approved, and merged before the human invokes
 `python scripts/run_american_neural_pilot.py run-to-validation`.
 
 **No training is authorized or started.** Task 9G remains at protocol and

@@ -83,7 +83,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _scaling(payload: Mapping[str, Any]) -> Scaling:
+def _scaling(payload: Mapping[str, Any], *, expected_fit_partition: str) -> Scaling:
     transform = payload.get("transform")
     if not isinstance(transform, Mapping):
         raise AmericanArtifactError("artifact.transform must be an object")
@@ -102,10 +102,13 @@ def _scaling(payload: Mapping[str, Any]) -> Scaling:
         "artifact.transform",
     )
     if (
-        transform["fit_partition"] != "train"
+        expected_fit_partition != "selected train rows only"
+        or transform["fit_partition"] != expected_fit_partition
         or transform["population_standard_deviation_ddof"] != 0
     ):
-        raise AmericanArtifactError("artifact scaling must be train-fitted with ddof=0")
+        raise AmericanArtifactError(
+            "artifact scaling must be fitted on selected train rows only with ddof=0"
+        )
     mean = np.asarray(transform["feature_mean"], dtype=np.float64)
     scale = np.asarray(transform["feature_scale"], dtype=np.float64)
     target_mean = transform["target_mean"]
@@ -164,7 +167,7 @@ def artifact_payload(
             "output_dimension": 1,
         },
         "transform": {
-            "fit_partition": "train",
+            "fit_partition": "selected train rows only",
             "feature_mean": model.feature_mean.detach().cpu().tolist(),
             "feature_scale": model.feature_scale.detach().cpu().tolist(),
             "target_mean": float(model.price_mean),
@@ -212,8 +215,19 @@ def save_american_artifact(
     return payload
 
 
-def load_american_artifact(directory: Path) -> tuple[AmericanPriceModel, dict[str, Any]]:
+def load_american_artifact(
+    directory: Path,
+    *,
+    expected_row_budget: int,
+    expected_fit_partition: str,
+) -> tuple[AmericanPriceModel, dict[str, Any]]:
     """Fail closed on schema, identity, scaling, architecture, and NPZ state."""
+    if (
+        isinstance(expected_row_budget, bool)
+        or not isinstance(expected_row_budget, int)
+        or expected_row_budget <= 0
+    ):
+        raise AmericanArtifactError("expected row budget must be a positive integer")
     directory = Path(directory)
     try:
         payload = json.loads((directory / ARTIFACT_MANIFEST).read_text(encoding="utf-8"))
@@ -307,7 +321,7 @@ def load_american_artifact(directory: Path) -> tuple[AmericanPriceModel, dict[st
     )
     for key in ("manifest_sha256", "train_sha256", "validation_sha256"):
         _digest(dataset[key], f"artifact.dataset.{key}")
-    if dataset["selected_train_rows"] != 32768:
+    if dataset["selected_train_rows"] != expected_row_budget:
         raise AmericanArtifactError("artifact selected train-row budget differs")
     protocol = payload["protocol"]
     if not isinstance(protocol, Mapping):
@@ -380,4 +394,10 @@ def load_american_artifact(directory: Path) -> tuple[AmericanPriceModel, dict[st
         raise AmericanArtifactError("artifact limitations must be non-empty strings")
     if payload["checkpoint_security"] != CHECKPOINT_WARNING:
         raise AmericanArtifactError("artifact checkpoint warning differs")
-    return AmericanPriceModel(network, _scaling(payload)).eval(), payload
+    return (
+        AmericanPriceModel(
+            network,
+            _scaling(payload, expected_fit_partition=expected_fit_partition),
+        ).eval(),
+        payload,
+    )

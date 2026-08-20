@@ -50,7 +50,9 @@ jobs:
       - name: Every test file is claimed by exactly one CI job
         run: python3 scripts/check_test_partition.py
       - name: Replication protocol is internally consistent
-        run: python3 scripts/check_european_replication_protocol.py
+        run: |
+          python3 scripts/check_european_replication_protocol.py
+          python3 scripts/check_american_neural_pilot_protocol.py
       - name: Versioned result figures are current
         run: |
           python3 scripts/plot_european_validation_results.py --check

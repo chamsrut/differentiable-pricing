@@ -8,7 +8,9 @@ import torch
 from differentiable_pricing.ml.american import (
     AmericanPriceModel,
     american_representation_arrays,
+    fit_price_model,
     lift_european_network,
+    scaling_from_arrays,
     select_rows_by_hash,
     verify_exact_lift,
 )
@@ -160,3 +162,35 @@ def test_hash_row_selection_is_order_independent() -> None:
         reversed_ids[index] for index in select_rows_by_hash(reversed_ids, 2, "salt")
     }
     assert chosen == reversed_chosen
+
+
+def test_training_history_records_learning_rate_used_by_each_epoch() -> None:
+    features = _features()
+    prices = np.asarray([7.0, 18.0], dtype=np.float64)
+    result = fit_price_model(
+        features,
+        prices,
+        features,
+        prices,
+        scaling_from_arrays(features, prices),
+        seed=11,
+        batch_size=2,
+        epochs=2,
+        learning_rate=0.001,
+        weight_decay=0.0,
+        beta1=0.9,
+        beta2=0.999,
+        epsilon=1.0e-8,
+        amsgrad=False,
+        maximize=False,
+        foreach=False,
+        capturable=False,
+        differentiable=False,
+        fused=False,
+        minimum_learning_rate=0.0,
+        schedule_period_epochs=2,
+        schedule_last_epoch=-1,
+        num_threads=1,
+    )
+
+    assert [record["learning_rate"] for record in result.history] == pytest.approx([0.001, 0.0005])

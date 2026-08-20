@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _module():
@@ -314,7 +314,11 @@ def test_first_locked_final_file_access_occurs_after_atomic_reservation(
             protocol
             if path == protocol_path
             else (
-                {"training": {"batch_size": 1, "num_threads": 1}}
+                {
+                    "training": {"batch_size": 1, "num_threads": 1},
+                    "row_selection": {"row_budget": 32768},
+                    "standardization": {"fit_partition": "selected train rows only"},
+                }
                 if path.name == "training.toml"
                 else ({"torch_interop_threads": 1} if path.name == "latency.toml" else {})
             )
@@ -349,7 +353,15 @@ def test_first_locked_final_file_access_occurs_after_atomic_reservation(
         "protocol": {"sha256": protocol_digest, "schema_version": "fixture"},
         "weights": {"sha256": "d" * 64},
     }
-    monkeypatch.setattr(runner, "load_american_artifact", lambda path: (object(), payload))
+
+    def load_artifact(path, **expected):
+        assert expected == {
+            "expected_row_budget": 32768,
+            "expected_fit_partition": "selected train rows only",
+        }
+        return object(), payload
+
+    monkeypatch.setattr(runner, "load_american_artifact", load_artifact)
     marker_created = False
     original_reserve = runner._reserve_final_attempt
 

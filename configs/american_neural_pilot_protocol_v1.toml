@@ -72,6 +72,11 @@ timing_clock = "time.perf_counter_ns"
 timestamps_are_evidence_only = true
 portable_latency_claim_allowed = false
 
+[limitations]
+arm_shuffle_confound = "scratch and transfer use different arm-seeded epoch permutations as well as different initialization; this one-seed pilot cannot attribute an observed arm difference solely to transfer initialization"
+pde_domain_truncation = "the 400x200 versus 800x400 PDE refinement comparison changes resolution while holding spot_maximum fixed and therefore does not independently bound domain-truncation error"
+snapshot_authentication = "offline --check detects internal inconsistency and tracked-input drift but cannot authenticate a fully coordinated fabricated raw report and snapshot"
+
 [independent_pde_check]
 engine = "dp::finite_difference_price"
 exercise_style = "american"
@@ -392,7 +397,7 @@ sha256 = "6d2b0b2c8179572f7ac5ef93a778cf537a5305d872f4cac9cca19acbe39d2f44"
 
 [[tracked_inputs]]
 path = "docs/american-crr-dataset-admission.md"
-sha256 = "02740113683c7a06fa2ab0fffd3962068a0c1b2aa795b5e9d6eb86f950ee9b55"
+sha256 = "64794af5aee370e830a868c28e4a6b3e0abed8dbffb5be6ec4b757a6acb7194a"
 
 [[tracked_inputs]]
 path = "docs/results/european_replication_results_v1.json"
@@ -404,27 +409,27 @@ sha256 = "62f803d4a8693063e49ba4ff18ba99f2f464ab312a0db6333d385c5c3b642d85"
 
 [[tracked_inputs]]
 path = "python/src/differentiable_pricing/ml/american.py"
-sha256 = "1b5d5910e41016936be78a8ff16d9c3ff3b010932a4a73945d0342111eb59b05"
+sha256 = "c804c9917d85e53cc8749de3629244100ed9e6c2b80bf7ad3d1265af7c505f59"
 
 [[tracked_inputs]]
 path = "python/src/differentiable_pricing/ml/american_artifact.py"
-sha256 = "8d0866c476da7a39955173fdfe7159071474b13be1c62f4e9430f26647d8da14"
+sha256 = "bb549b8ba438de7b4ea6fae87962182214f62e5de6775a675cfb67308cab141f"
 
 [[tracked_inputs]]
 path = "python/src/differentiable_pricing/ml/american_pilot.py"
-sha256 = "7adbc621ec09c2b81aab26e9aa9d02e3728c5c07a5876a51b096b96c79f89c15"
+sha256 = "29d1693d9516d7dab0e59fd424d8128a70fd0fc07c68fc38964223a879e8be88"
 
 [[tracked_inputs]]
 path = "scripts/run_american_neural_pilot.py"
-sha256 = "e85661c6b140e4394e6451590980f204fe3e3471f6b9650fdf0b5d53cce95077"
+sha256 = "3c1aa743978cb8994fccf87193affe42f344a5d971e34d693b04f18328d97deb"
 
 [[tracked_inputs]]
 path = "scripts/check_american_neural_pilot_protocol.py"
-sha256 = "748a86346e395b36b2e9899744bea7e0769dd01dffb7767d148e2faa59204f18"
+sha256 = "93b7ab49253895acf4e723f4cec5ed0120e05944384324268fdeb70b307ea5d7"
 
 [[tracked_inputs]]
 path = "scripts/freeze_american_neural_pilot_results.py"
-sha256 = "db6cc5c71d3ca125d401e6a2170b0f0281cee654d68cc4f502879aca916b3bfb"
+sha256 = "82a94f48574d2e97ca2e5c000a641b8593e8a81b3f3ab303cffb0429a167c1e4"
 
 [[tracked_inputs]]
 path = "cpp/include/dp/finite_difference_pde.hpp"

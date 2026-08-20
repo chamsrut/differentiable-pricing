@@ -1167,7 +1167,9 @@ snapshot, which remains authoritative for the numbers.
   and inputs are pinned before execution. Coarse `400x200` and fine `800x400`
   grids use a four-times spot/strike domain; normalized refinement and fine-PDE
   versus CRR differences must be at most `5e-4` and `1e-3`. This is only a
-  mapping-consistency check. It has not run.
+  mapping-consistency check. The refinement pair changes resolution while
+  holding `spot_maximum` fixed, so it does not independently bound domain-
+  truncation error. It has not run.
 - **Evidence and lifecycle:** physical and normalized MAE/RMSE/p95/p99/max are
   locked overall and by option type, expiry, moneyness, volatility, premium,
   and exercise status. Bound and local monotonicity/convexity diagnostics make
@@ -1181,21 +1183,30 @@ snapshot, which remains authoritative for the numbers.
   caught error or interruption after reservation writes a strict consumed-
   failure report, records it in the ledger, forbids retry, and remains
   freezable without manufacturing final metrics.
+- **Pilot confound:** scratch and transfer retain their locked, distinct arm
+  seeds. Those seeds control epoch permutations as well as initialization, so
+  this one-seed feasibility pilot cannot attribute an observed arm difference
+  solely to transfer initialization.
 - **Artifacts and freezing:** the new `american-neural-artifact/1` schema pins
   scaling, representation, architecture, dataset/protocol/code identity,
   deterministic NPZ weights, and transfer lineage. The designated raw-report
   validator and snapshot freeze/check tool reject schema, finiteness, digest,
-  lifecycle, and recomputation defects. The eventual tracked snapshot retains
-  only shared non-reconstructive slice/error/diagnostic primitives needed for
-  offline recomputation; it does not copy sample IDs, economic inputs, labels,
-  or predictions from the ignored dataset/report. No Task 9G result snapshot or
-  figure is created by this implementation change.
+  lifecycle, and recomputation defects. The compact validation/final partition
+  audit retains only per-model/per-slice sufficient statistics needed for
+  offline recomputation; that audit does not copy sample IDs, economic inputs,
+  labels, or predictions from the ignored dataset/report. Separately, the
+  independent PDE entry-check block deliberately retains its 21 protocol-pinned
+  identifiers, synthetic economic inputs, CRR labels, and solve evidence. Those
+  synthetic cases create no market- or proprietary-data claim. Offline
+  `--check` detects internal inconsistency and tracked-input drift, but cannot
+  authenticate a fully coordinated fabricated raw report and snapshot. No Task
+  9G result snapshot or figure is created by this implementation change.
 - **Execution state and next action:** no PDE cross-check, optimization,
-  training, latency study, IV inversion, or final evaluation ran. The next
-  same-session preliminary code and numerical reviews were used to resolve
-  implementation findings and are not approval. The next action is a fresh
-  top-level review and merge. Only then may a human invoke the locked `run-to-
-  validation` command. One seed and one budget cannot establish H2.
+  training, latency study, IV inversion, or final evaluation ran. Same-session
+  preliminary code and numerical reviews were used to resolve implementation
+  findings; they are not approval. The next action is a fresh top-level review
+  and merge. Only then may a human invoke the locked `run-to-validation`
+  command. One seed and one budget cannot establish H2.
 - **Authoritative links:**
   `configs/american_neural_pilot_protocol_v1.toml`,
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),

@@ -28,6 +28,22 @@ DEFAULT_SNAPSHOT: Final = PROJECT_ROOT / "docs/results/american_neural_pilot_res
 SNAPSHOT_SCHEMA: Final = "american-neural-pilot-result/1"
 ARMS: Final = ("scratch", "transfer")
 MODEL_NAMES: Final = frozenset({*ARMS, "european_crr_baseline"})
+PILOT_LIMITATIONS: Final = {
+    "arm_shuffle_confound": (
+        "scratch and transfer use different arm-seeded epoch permutations as well as "
+        "different initialization; this one-seed pilot cannot attribute an observed arm "
+        "difference solely to transfer initialization"
+    ),
+    "pde_domain_truncation": (
+        "the 400x200 versus 800x400 PDE refinement comparison changes resolution while "
+        "holding spot_maximum fixed and therefore does not independently bound "
+        "domain-truncation error"
+    ),
+    "snapshot_authentication": (
+        "offline --check detects internal inconsistency and tracked-input drift but cannot "
+        "authenticate a fully coordinated fabricated raw report and snapshot"
+    ),
+}
 METRIC_KEYS: Final = frozenset(
     {
         "rows",
@@ -344,8 +360,8 @@ def _statistics(reference: list[float], prediction: list[float]) -> dict[str, An
     errors = [abs(left - right) for left, right in zip(reference, prediction, strict=True)]
     return {
         "rows": len(errors),
-        "mae": sum(errors) / len(errors),
-        "rmse": math.sqrt(sum(value * value for value in errors) / len(errors)),
+        "mae": math.fsum(errors) / len(errors),
+        "rmse": math.sqrt(math.fsum(value * value for value in errors) / len(errors)),
         "p95_absolute_error": _linear_quantile(errors, 0.95),
         "p99_absolute_error": _linear_quantile(errors, 0.99),
         "maximum_absolute_error": max(errors),
@@ -1261,12 +1277,14 @@ def validate_validation_report(
     interpretation = _mapping(report["interpretation"], "validation.interpretation")
     _exact_keys(
         interpretation,
-        frozenset({"claim_scope", "locked_experiments_ran", "outcome"}),
+        frozenset({"claim_scope", "locked_experiments_ran", "outcome", "limitations"}),
         "validation.interpretation",
     )
     if (
         interpretation["claim_scope"] != "one-seed one-budget mapping-only feasibility pilot"
         or interpretation["locked_experiments_ran"] is not True
+        or interpretation["limitations"] != protocol["limitations"]
+        or interpretation["limitations"] != PILOT_LIMITATIONS
     ):
         raise FreezeError("validation interpretation differs")
     _check_outcome(
@@ -1414,7 +1432,7 @@ def validate_raw_reports(
             raise FreezeError("failed validation entry gate must not have a final report")
         return "validation_terminal"
     if final is None:
-        raise FreezeError("passed validation entry gate requires the one-shot final report")
+        return "validation_passed_not_advanced"
     if final.get("schema_version") == "american-neural-pilot-final-attempt-failure-report/1":
         validate_final_failure_report(final, protocol, protocol_sha256)
         return "final_failed_consumed"
@@ -1422,11 +1440,178 @@ def validate_raw_reports(
     return "final_complete"
 
 
+def _quantile_primitive(values: list[float], probability: float) -> dict[str, Any]:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * probability
+    lower_rank = math.floor(position)
+    upper_rank = math.ceil(position)
+    return {
+        "probability": probability,
+        "lower_rank": lower_rank,
+        "upper_rank": upper_rank,
+        "interpolation_fraction": position - lower_rank,
+        "lower_value": ordered[lower_rank],
+        "upper_value": ordered[upper_rank],
+    }
+
+
+def _metric_primitive(values: list[float]) -> dict[str, Any]:
+    return {
+        "count": len(values),
+        "sum_absolute_error": math.fsum(values),
+        "sum_squared_error": math.fsum(value * value for value in values),
+        "maximum_absolute_error": max(values),
+        "quantiles": {
+            "p95": _quantile_primitive(values, 0.95),
+            "p99": _quantile_primitive(values, 0.99),
+        },
+    }
+
+
+def _statistics_from_primitive(value: Any, where: str) -> dict[str, Any]:
+    primitive = _mapping(value, where)
+    _exact_keys(
+        primitive,
+        frozenset(
+            {
+                "count",
+                "sum_absolute_error",
+                "sum_squared_error",
+                "maximum_absolute_error",
+                "quantiles",
+            }
+        ),
+        where,
+    )
+    count = primitive["count"]
+    if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        raise FreezeError(f"{where}.count must be a positive integer")
+    total = _finite_number(primitive["sum_absolute_error"], f"{where}.sum_absolute_error")
+    squared = _finite_number(primitive["sum_squared_error"], f"{where}.sum_squared_error")
+    maximum = _finite_number(primitive["maximum_absolute_error"], f"{where}.maximum_absolute_error")
+    if min(total, squared, maximum) < 0.0:
+        raise FreezeError(f"{where} aggregate errors must be non-negative")
+    if total > count * maximum * (1.0 + 2.0e-14) + 1.0e-15:
+        raise FreezeError(f"{where} absolute-error sum exceeds its maximum")
+    if squared > count * maximum * maximum * (1.0 + 2.0e-14) + 1.0e-15:
+        raise FreezeError(f"{where} squared-error sum exceeds its maximum")
+    if (
+        maximum > total * (1.0 + 2.0e-14) + 1.0e-15
+        or maximum * maximum > squared * (1.0 + 2.0e-14) + 1.0e-15
+        or total * total > count * squared * (1.0 + 2.0e-14) + 1.0e-15
+    ):
+        raise FreezeError(f"{where} aggregate-error moments are internally inconsistent")
+    quantiles = _mapping(primitive["quantiles"], f"{where}.quantiles")
+    _exact_keys(quantiles, frozenset({"p95", "p99"}), f"{where}.quantiles")
+    computed: dict[str, float] = {}
+    ranked_values: list[tuple[int, float, str]] = []
+    for label, probability in (("p95", 0.95), ("p99", 0.99)):
+        quantile = _mapping(quantiles[label], f"{where}.quantiles.{label}")
+        _exact_keys(
+            quantile,
+            frozenset(
+                {
+                    "probability",
+                    "lower_rank",
+                    "upper_rank",
+                    "interpolation_fraction",
+                    "lower_value",
+                    "upper_value",
+                }
+            ),
+            f"{where}.quantiles.{label}",
+        )
+        position = (count - 1) * probability
+        lower_rank = math.floor(position)
+        upper_rank = math.ceil(position)
+        fraction = position - lower_rank
+        if (
+            quantile["probability"] != probability
+            or quantile["lower_rank"] != lower_rank
+            or quantile["upper_rank"] != upper_rank
+            or not math.isclose(
+                _finite_number(
+                    quantile["interpolation_fraction"],
+                    f"{where}.quantiles.{label}.interpolation_fraction",
+                ),
+                fraction,
+                rel_tol=0.0,
+                abs_tol=1.0e-15,
+            )
+        ):
+            raise FreezeError(f"{where}.{label} rank primitive differs")
+        lower = _finite_number(quantile["lower_value"], f"{where}.{label}.lower_value")
+        upper = _finite_number(quantile["upper_value"], f"{where}.{label}.upper_value")
+        if lower < 0.0 or upper < lower or upper > maximum:
+            raise FreezeError(f"{where}.{label} order-statistic primitive is invalid")
+        if lower_rank == upper_rank and lower != upper:
+            raise FreezeError(f"{where}.{label} coincident rank values differ")
+        for rank, value, endpoint in (
+            (lower_rank, lower, "lower"),
+            (upper_rank, upper, "upper"),
+        ):
+            if rank == count - 1 and value != maximum:
+                raise FreezeError(f"{where}.{label} maximum-rank value differs")
+            tail_sum = (count - rank) * value
+            tail_squared = (count - rank) * value * value
+            head_sum_bound = (rank + 1) * value + (count - rank - 1) * maximum
+            head_squared_bound = (rank + 1) * value * value + (count - rank - 1) * maximum * maximum
+            if (
+                total * (1.0 + 2.0e-14) + 1.0e-15 < tail_sum
+                or squared * (1.0 + 2.0e-14) + 1.0e-15 < tail_squared
+                or total > head_sum_bound * (1.0 + 2.0e-14) + 1.0e-15
+                or squared > head_squared_bound * (1.0 + 2.0e-14) + 1.0e-15
+            ):
+                raise FreezeError(f"{where}.{label} order statistic contradicts stored moments")
+            ranked_values.append((rank, value, f"{label}.{endpoint}"))
+        computed[label] = lower + fraction * (upper - lower)
+    for (left_rank, left_value, left_name), (right_rank, right_value, right_name) in pairwise(
+        sorted(ranked_values, key=lambda item: (item[0], item[2]))
+    ):
+        if left_rank == right_rank and left_value != right_value:
+            raise FreezeError(
+                f"{where} order-statistic rank {left_rank} differs between "
+                f"{left_name} and {right_name}"
+            )
+        if left_rank < right_rank and left_value > right_value:
+            raise FreezeError(f"{where} cross-quantile order-statistic values are not ordered")
+    if computed["p95"] > computed["p99"]:
+        raise FreezeError(f"{where} quantile primitives are not ordered")
+    return {
+        "rows": count,
+        "mae": total / count,
+        "rmse": math.sqrt(squared / count),
+        "p95_absolute_error": computed["p95"],
+        "p99_absolute_error": computed["p99"],
+        "maximum_absolute_error": maximum,
+    }
+
+
+def _diagnostic_primitive(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
+    checks = {}
+    for name in DIAGNOSTIC_CHECKS:
+        eligible = [
+            (row["diagnostic_violations"][name], row["diagnostic_tolerance"])
+            for row in rows
+            if row["diagnostic_violations"][name] is not None
+        ]
+        checks[name] = {
+            "eligible_rows": len(eligible),
+            "material_violations": sum(value > tolerance for value, tolerance in eligible),
+            "maximum_violation": max((max(value, 0.0) for value, _ in eligible), default=0.0),
+        }
+    return {"checks": checks}
+
+
 def _compact_partition_audit(
-    models: Mapping[str, Any], acceptance: Mapping[str, Any]
+    models: Mapping[str, Any], acceptance: Mapping[str, Any], section: str
 ) -> dict[str, Any]:
     source_rows = {
-        name: list(_sequence(models[name]["audit_rows"], f"{name}.audit_rows"))
+        name: _audit_rows(
+            models[name]["audit_rows"],
+            f"{name}.audit_rows",
+            baseline=name not in ARMS,
+        )
         for name in MODEL_NAMES
     }
     scratch_rows = source_rows["scratch"]
@@ -1443,35 +1628,77 @@ def _compact_partition_audit(
                 key: scratch_rows[index][key] for key in raw_common_keys
             }:
                 raise FreezeError(f"{name} common audit row differs while compacting")
-    return {
-        "common_rows": [
-            {
-                "slice_memberships": sorted(
-                    name
-                    for name in _slice_names(acceptance)
-                    if _row_in_slice(row, name, acceptance)
-                ),
-                "normalization_scale": row["spot"]
-                * math.exp(-row["dividend_yield"] * row["maturity"]),
-                "early_exercise_premium": row["early_exercise_premium"],
-            }
-            for row in scratch_rows
-        ],
-        "physical_errors": {
-            name: [row["prediction"] - row["reference_price"] for row in source_rows[name]]
-            for name in MODEL_NAMES
-        },
-        "diagnostics": {
-            arm: [
-                {
-                    "diagnostic_tolerance": row["diagnostic_tolerance"],
-                    "diagnostic_violations": row["diagnostic_violations"],
-                }
-                for row in source_rows[arm]
+    summaries: dict[str, Any] = {}
+    for name, rows in source_rows.items():
+        slices = {}
+        for slice_name in _slice_names(acceptance):
+            selected = [
+                index
+                for index, row in enumerate(scratch_rows)
+                if _row_in_slice(row, slice_name, acceptance)
             ]
-            for arm in ARMS
-        },
-    }
+            if not selected:
+                slices[slice_name] = {"physical": None, "normalized": None}
+                continue
+            physical = [
+                abs(rows[index]["prediction"] - rows[index]["reference_price"])
+                for index in selected
+            ]
+            normalized = [
+                value
+                / (
+                    scratch_rows[index]["spot"]
+                    * math.exp(
+                        -scratch_rows[index]["dividend_yield"] * scratch_rows[index]["maturity"]
+                    )
+                )
+                for value, index in zip(physical, selected, strict=True)
+            ]
+            slices[slice_name] = {
+                "physical": _metric_primitive(physical),
+                "normalized": _metric_primitive(normalized),
+            }
+        summaries[name] = {
+            "slices": slices,
+            "diagnostics": _diagnostic_primitive(rows) if name in ARMS else None,
+            "baseline_identity": (
+                None
+                if name in ARMS
+                else {
+                    "count": len(rows),
+                    "mismatch_count": sum(
+                        row["prediction"] - row["reference_price"] != -row["early_exercise_premium"]
+                        for row in rows
+                    ),
+                    "sum_absolute_residual": sum(
+                        abs(
+                            row["prediction"]
+                            - row["reference_price"]
+                            + row["early_exercise_premium"]
+                        )
+                        for row in rows
+                    ),
+                    "maximum_absolute_residual": max(
+                        abs(
+                            row["prediction"]
+                            - row["reference_price"]
+                            + row["early_exercise_premium"]
+                        )
+                        for row in rows
+                    ),
+                }
+            ),
+        }
+    audit = {"row_count": len(scratch_rows), "models": summaries}
+    compact_models = {name: _without_audit(models[name]) for name in MODEL_NAMES}
+    _validate_compact_partition_models(
+        compact_models,
+        audit,
+        "snapshot extraction",
+        acceptance,
+        section,
+    )
+    return audit
 
 
 def _without_audit(entry: Mapping[str, Any]) -> dict[str, Any]:
@@ -1486,57 +1713,14 @@ def _validate_compact_partition_models(
     section: str,
 ) -> dict[str, bool]:
     audit = _mapping(audit_value, f"{where}.audit")
-    _exact_keys(
-        audit,
-        frozenset({"common_rows", "physical_errors", "diagnostics"}),
-        f"{where}.audit",
-    )
-    common = list(_sequence(audit["common_rows"], f"{where}.audit.common_rows"))
-    if not common:
-        raise FreezeError(f"{where}.audit.common_rows must not be empty")
+    _exact_keys(audit, frozenset({"row_count", "models"}), f"{where}.audit")
+    row_count = audit["row_count"]
+    if isinstance(row_count, bool) or not isinstance(row_count, int) or row_count <= 0:
+        raise FreezeError(f"{where}.audit.row_count must be a positive integer")
+    audit_models = _mapping(audit["models"], f"{where}.audit.models")
+    _exact_keys(audit_models, MODEL_NAMES, f"{where}.audit.models")
     slice_names = _slice_names(acceptance)
-    for index, raw in enumerate(common):
-        row = _mapping(raw, f"{where}.audit.common_rows[{index}]")
-        _exact_keys(
-            row,
-            frozenset({"slice_memberships", "normalization_scale", "early_exercise_premium"}),
-            f"{where}.audit.common_rows[{index}]",
-        )
-        memberships = list(
-            _sequence(row["slice_memberships"], f"{where}.audit.common_rows[{index}].slices")
-        )
-        if (
-            len(memberships) != 7
-            or len(set(memberships)) != 7
-            or not set(memberships) <= slice_names
-            or "overall" not in memberships
-            or any(
-                sum(name.startswith(f"{family}:") for name in memberships) != 1
-                for family in (
-                    "option_type",
-                    "expiry",
-                    "moneyness",
-                    "volatility",
-                    "premium_status",
-                    "exercise_status",
-                )
-            )
-        ):
-            raise FreezeError(f"{where} compact slice membership is malformed")
-        if _finite_number(row["normalization_scale"], where) <= 0.0:
-            raise FreezeError(f"{where} compact normalization scale is invalid")
-        premium = _finite_number(row["early_exercise_premium"], where)
-        if premium < 0.0:
-            raise FreezeError(f"{where} compact premium is invalid")
-        expected_premium_slice = (
-            "premium_status:zero" if premium == 0.0 else "premium_status:positive"
-        )
-        if expected_premium_slice not in memberships:
-            raise FreezeError(f"{where} compact premium membership differs")
-    errors = _mapping(audit["physical_errors"], f"{where}.audit.physical_errors")
-    diagnostics = _mapping(audit["diagnostics"], f"{where}.audit.diagnostics")
-    _exact_keys(errors, MODEL_NAMES, f"{where}.audit.physical_errors")
-    _exact_keys(diagnostics, frozenset(ARMS), f"{where}.audit.diagnostics")
+    reference_counts: dict[str, int] | None = None
     passed: dict[str, bool] = {}
     for name in MODEL_NAMES:
         entry = dict(_mapping(compact_models[name], f"{where}.{name}"))
@@ -1548,54 +1732,58 @@ def _validate_compact_partition_models(
             f"{where}.{name}",
         )
         _slices(entry["slices"], acceptance, f"{where}.{name}.slices")
-        values = list(_sequence(errors[name], f"{where}.audit.physical_errors.{name}"))
-        if len(values) != len(common):
-            raise FreezeError(f"{where}.{name} error count differs")
-        values = [_finite_number(value, f"{where}.{name}.error") for value in values]
+        summary = _mapping(audit_models[name], f"{where}.audit.models.{name}")
+        _exact_keys(
+            summary,
+            frozenset({"slices", "diagnostics", "baseline_identity"}),
+            f"{where}.audit.models.{name}",
+        )
+        summary_slices = _mapping(summary["slices"], f"{where}.audit.models.{name}.slices")
+        _exact_keys(summary_slices, slice_names, f"{where}.audit.models.{name}.slices")
+        counts: dict[str, int] = {}
         for slice_name in slice_names:
-            selected = [
-                index for index, row in enumerate(common) if slice_name in row["slice_memberships"]
-            ]
             reported = entry["slices"][slice_name]
-            if reported["rows"] != len(selected):
-                raise FreezeError(f"{where}.{name}.{slice_name} membership differs")
-            if not selected:
+            primitives = _mapping(
+                summary_slices[slice_name],
+                f"{where}.audit.models.{name}.slices.{slice_name}",
+            )
+            _exact_keys(
+                primitives,
+                frozenset({"physical", "normalized"}),
+                f"{where}.audit.models.{name}.slices.{slice_name}",
+            )
+            if reported["rows"] == 0:
+                if primitives != {"physical": None, "normalized": None}:
+                    raise FreezeError(f"{where}.{name}.{slice_name} empty primitive differs")
+                counts[slice_name] = 0
                 continue
-            physical = [abs(values[index]) for index in selected]
-            normalized = [
-                abs(values[index]) / common[index]["normalization_scale"] for index in selected
-            ]
-            for label, expected_values in (
-                ("physical", physical),
-                ("normalized", normalized),
-            ):
-                expected = {
-                    "rows": len(expected_values),
-                    "mae": sum(expected_values) / len(expected_values),
-                    "rmse": math.sqrt(
-                        sum(value * value for value in expected_values) / len(expected_values)
-                    ),
-                    "p95_absolute_error": _linear_quantile(expected_values, 0.95),
-                    "p99_absolute_error": _linear_quantile(expected_values, 0.99),
-                    "maximum_absolute_error": max(expected_values),
-                }
-                _close_statistics(reported[label], expected, f"{where}.{name}.{slice_name}.{label}")
-        details = None
-        if name in ARMS:
-            details = list(_sequence(diagnostics[name], f"{where}.audit.diagnostics.{name}"))
-            if len(details) != len(common):
-                raise FreezeError(f"{where}.{name} diagnostic count differs")
-        diagnostic_rows = []
-        for index in range(len(common)):
-            detail = None if details is None else _mapping(details[index], f"{where}.detail")
-            if detail is not None:
-                _exact_keys(
-                    detail,
-                    frozenset({"diagnostic_tolerance", "diagnostic_violations"}),
-                    f"{where}.detail",
+            for label in ("physical", "normalized"):
+                expected = _statistics_from_primitive(
+                    primitives[label], f"{where}.{name}.{slice_name}.{label}.primitive"
                 )
-            if detail is not None:
-                diagnostic_rows.append(detail)
+                _close_statistics(reported[label], expected, f"{where}.{name}.{slice_name}.{label}")
+                counts[slice_name] = expected["rows"]
+            if reported["rows"] != counts[slice_name]:
+                raise FreezeError(f"{where}.{name}.{slice_name} primitive count differs")
+        if counts["overall"] != row_count:
+            raise FreezeError(f"{where}.{name} overall count differs")
+        for family in (
+            "option_type",
+            "expiry",
+            "moneyness",
+            "volatility",
+            "premium_status",
+            "exercise_status",
+        ):
+            if (
+                sum(count for key, count in counts.items() if key.startswith(f"{family}:"))
+                != row_count
+            ):
+                raise FreezeError(f"{where}.{name} {family} slice counts do not partition rows")
+        if reference_counts is None:
+            reference_counts = counts
+        elif counts != reference_counts:
+            raise FreezeError(f"{where} slice counts differ across models")
         if name not in ARMS:
             baseline = _mapping(entry["diagnostics"], f"{where}.{name}.diagnostics")
             _exact_keys(
@@ -1603,15 +1791,140 @@ def _validate_compact_partition_models(
                 frozenset({"not_applicable", "stored_error_equals_early_exercise_premium"}),
                 f"{where}.{name}.diagnostics",
             )
-            if baseline["stored_error_equals_early_exercise_premium"] is not True or not all(
-                -error == row["early_exercise_premium"]
-                for error, row in zip(values, common, strict=True)
+            identity = _mapping(
+                summary["baseline_identity"], f"{where}.audit.models.{name}.baseline_identity"
+            )
+            _exact_keys(
+                identity,
+                frozenset(
+                    {
+                        "count",
+                        "mismatch_count",
+                        "sum_absolute_residual",
+                        "maximum_absolute_residual",
+                    }
+                ),
+                f"{where}.audit.models.{name}.baseline_identity",
+            )
+            if (
+                identity["count"] != row_count
+                or isinstance(identity["mismatch_count"], bool)
+                or not isinstance(identity["mismatch_count"], int)
+                or not 0 <= identity["mismatch_count"] <= row_count
+                or _finite_number(identity["sum_absolute_residual"], where) < 0.0
+                or _finite_number(identity["maximum_absolute_residual"], where) < 0.0
+            ):
+                raise FreezeError(f"{where} baseline identity primitive is malformed")
+            identity_passed = (
+                identity["mismatch_count"] == 0
+                and identity["sum_absolute_residual"] == 0.0
+                and identity["maximum_absolute_residual"] == 0.0
+            )
+            if (
+                baseline["stored_error_equals_early_exercise_premium"] is not identity_passed
+                or not identity_passed
+                or summary["diagnostics"] is not None
             ):
                 raise FreezeError(f"{where} baseline premium identity differs")
             continue
-        bound, shape = _diagnostics(
-            entry["diagnostics"], diagnostic_rows, f"{where}.{name}.diagnostics"
+        if summary["baseline_identity"] is not None:
+            raise FreezeError(f"{where}.{name} arm has baseline identity evidence")
+        primitive_diagnostics = _mapping(
+            summary["diagnostics"], f"{where}.audit.models.{name}.diagnostics"
         )
+        _exact_keys(
+            primitive_diagnostics,
+            frozenset({"checks"}),
+            f"{where}.audit.models.{name}.diagnostics",
+        )
+        primitive_checks = _mapping(
+            primitive_diagnostics["checks"], f"{where}.audit.models.{name}.diagnostics.checks"
+        )
+        _exact_keys(
+            primitive_checks,
+            DIAGNOSTIC_CHECKS,
+            f"{where}.audit.models.{name}.diagnostics.checks",
+        )
+        published_diagnostics = _mapping(entry["diagnostics"], f"{where}.{name}.diagnostics")
+        _exact_keys(
+            published_diagnostics,
+            frozenset(
+                {
+                    "checks",
+                    "material_bound_violations",
+                    "material_shape_violations",
+                    "american_greek_accuracy_claim",
+                }
+            ),
+            f"{where}.{name}.diagnostics",
+        )
+        published_checks = _mapping(
+            published_diagnostics["checks"], f"{where}.{name}.diagnostics.checks"
+        )
+        _exact_keys(published_checks, DIAGNOSTIC_CHECKS, f"{where}.{name}.diagnostics.checks")
+        counts_by_check = {}
+        eligible_by_check = {}
+        for check_name in DIAGNOSTIC_CHECKS:
+            primitive = _mapping(
+                primitive_checks[check_name],
+                f"{where}.audit.models.{name}.diagnostics.checks.{check_name}",
+            )
+            _exact_keys(
+                primitive,
+                frozenset({"eligible_rows", "material_violations", "maximum_violation"}),
+                f"{where}.audit.models.{name}.diagnostics.checks.{check_name}",
+            )
+            for key in ("eligible_rows", "material_violations"):
+                if isinstance(primitive[key], bool) or not isinstance(primitive[key], int):
+                    raise FreezeError(f"{where}.{name}.{check_name}.{key} is invalid")
+            if not 0 <= primitive["material_violations"] <= primitive["eligible_rows"] <= row_count:
+                raise FreezeError(f"{where}.{name}.{check_name} diagnostic counts are invalid")
+            if _finite_number(primitive["maximum_violation"], where) < 0.0:
+                raise FreezeError(f"{where}.{name}.{check_name} maximum violation is invalid")
+            if (primitive["eligible_rows"] == 0 and primitive["maximum_violation"] != 0.0) or (
+                primitive["material_violations"] > 0 and primitive["maximum_violation"] == 0.0
+            ):
+                raise FreezeError(
+                    f"{where}.{name}.{check_name} diagnostic maximum/count relationship differs"
+                )
+            if dict(published_checks[check_name]) != dict(primitive):
+                raise FreezeError(f"{where}.{name}.{check_name} diagnostic primitive differs")
+            counts_by_check[check_name] = primitive["material_violations"]
+            eligible_by_check[check_name] = primitive["eligible_rows"]
+        expected_eligibility = {
+            "intrinsic_lower_bound": row_count,
+            "european_comparator_lower_bound": row_count,
+            "american_call_upper_bound": counts["option_type:call"],
+            "american_put_rate_aware_upper_bound": counts["option_type:put"],
+        }
+        for check_name, expected_count in expected_eligibility.items():
+            if eligible_by_check[check_name] != expected_count:
+                raise FreezeError(f"{where}.{name}.{check_name} eligibility count differs")
+        if eligible_by_check["spot_monotonicity"] != eligible_by_check["spot_convexity"]:
+            raise FreezeError(f"{where}.{name} spot-shape eligibility counts differ")
+        bound = sum(
+            counts_by_check[key]
+            for key in (
+                "intrinsic_lower_bound",
+                "european_comparator_lower_bound",
+                "american_call_upper_bound",
+                "american_put_rate_aware_upper_bound",
+            )
+        )
+        shape = sum(
+            counts_by_check[key]
+            for key in (
+                "spot_monotonicity",
+                "spot_convexity",
+                "volatility_monotonicity",
+            )
+        )
+        if (
+            published_diagnostics["material_bound_violations"] != bound
+            or published_diagnostics["material_shape_violations"] != shape
+            or published_diagnostics["american_greek_accuracy_claim"] is not False
+        ):
+            raise FreezeError(f"{where}.{name} diagnostic totals differ")
         gate = _mapping(entry["gate"], f"{where}.{name}.gate")
         _exact_keys(gate, frozenset({"checks", "passed"}), f"{where}.{name}.gate")
         checks = _mapping(gate["checks"], f"{where}.{name}.gate.checks")
@@ -1645,6 +1958,7 @@ def extract_snapshot(
 ) -> dict[str, Any]:
     entry = state == "entry_failure"
     validation_terminal = state == "validation_terminal"
+    validation_not_advanced = state == "validation_passed_not_advanced"
     final_failed = state == "final_failed_consumed"
     final_evidence = final is not None and not final_failed
     return {
@@ -1676,11 +1990,15 @@ def extract_snapshot(
             None
             if entry
             else {
-                "validation": _compact_partition_audit(validation["validation"], acceptance),
+                "validation": _compact_partition_audit(
+                    validation["validation"], acceptance, "validation_final_entry"
+                ),
                 "final": (
                     None
                     if not final_evidence
-                    else _compact_partition_audit(final["models_and_baseline"], acceptance)
+                    else _compact_partition_audit(
+                        final["models_and_baseline"], acceptance, "final_accuracy"
+                    )
                 ),
             }
         ),
@@ -1729,18 +2047,23 @@ def extract_snapshot(
             }
             if entry
             else (
-                validation["interpretation"]["outcome"]
-                if validation_terminal
+                (
+                    {
+                        "phase": "validation",
+                        "outcome": "validation_passed_not_advanced",
+                        "final_eligibility_approved": False,
+                        "neural_result_approved": False,
+                    }
+                    if validation_not_advanced
+                    else validation["interpretation"]["outcome"]
+                )
+                if validation_terminal or validation_not_advanced
                 else (
                     {
                         "phase": "final",
                         "outcome": "final_attempt_failed_consumed",
-                        "expected_partition_sha256": final[
-                            "expected_partition_sha256"
-                        ],
-                        "observed_partition_sha256": final[
-                            "observed_partition_sha256"
-                        ],
+                        "expected_partition_sha256": final["expected_partition_sha256"],
+                        "observed_partition_sha256": final["observed_partition_sha256"],
                         "failure_stage": final["failure_stage"],
                         "error": dict(final["error"]),
                     }
@@ -1753,6 +2076,7 @@ def extract_snapshot(
             "claim_scope": "one-seed one-budget mapping-only feasibility pilot; not H2",
             "no_american_greek_claim": True,
             "no_market_or_bid_ask_claim": True,
+            "limitations": dict(PILOT_LIMITATIONS),
         },
     }
 
@@ -1796,6 +2120,7 @@ def validate_snapshot(
         "claim_scope": "one-seed one-budget mapping-only feasibility pilot; not H2",
         "no_american_greek_claim": True,
         "no_market_or_bid_ask_claim": True,
+        "limitations": PILOT_LIMITATIONS,
     }:
         raise FreezeError("snapshot interpretation differs")
     lifecycle = _mapping(snapshot["lifecycle"], "snapshot.lifecycle")
@@ -1856,7 +2181,12 @@ def validate_snapshot(
         ):
             raise FreezeError("entry-failure snapshot lifecycle differs")
         return
-    if state not in {"validation_terminal", "final_failed_consumed", "final_complete"}:
+    if state not in {
+        "validation_terminal",
+        "validation_passed_not_advanced",
+        "final_failed_consumed",
+        "final_complete",
+    }:
         raise FreezeError("snapshot lifecycle state differs")
     consumed = state in {"final_failed_consumed", "final_complete"}
     expected_lifecycle = {
@@ -1874,10 +2204,12 @@ def validate_snapshot(
         raise FreezeError("non-entry snapshot contains entry-failure evidence")
     if not _exact_lift(snapshot["exact_lift"], "snapshot.exact_lift"):
         raise FreezeError("snapshot contains a failed exact lift")
-    if not _pde(snapshot["independent_pde_check"], protocol, "snapshot.pde"):
+    pde_passed = _pde(snapshot["independent_pde_check"], protocol, "snapshot.pde")
+    if not pde_passed:
         raise FreezeError("snapshot contains a failed PDE entry check")
-    _latency(snapshot["latency"], latency_config, "snapshot.latency")
-    _iv(snapshot["implied_volatility"], iv_config, "snapshot.iv")
+    latency_complete = _latency(snapshot["latency"], latency_config, "snapshot.latency")
+    iv_complete, iv_failures = _iv(snapshot["implied_volatility"], iv_config, "snapshot.iv")
+    evidence_complete = pde_passed and latency_complete and iv_complete and iv_failures == 0
     arms = _mapping(snapshot["arms"], "snapshot.arms")
     _exact_keys(arms, frozenset(ARMS), "snapshot.arms")
     validation_models_compact = {}
@@ -1912,7 +2244,14 @@ def validate_snapshot(
         acceptance,
         "validation_final_entry",
     )
-    if state in {"validation_terminal", "final_failed_consumed"}:
+    validation_entry_passed = evidence_complete and all(validation_passes.values())
+    if lifecycle["validation_final_entry_passed"] is not validation_entry_passed:
+        raise FreezeError("snapshot validation final-entry gate recomputation differs")
+    if state in {
+        "validation_terminal",
+        "validation_passed_not_advanced",
+        "final_failed_consumed",
+    }:
         if (
             final_models_compact
             or baseline["final"] is not None
@@ -1953,6 +2292,24 @@ def validate_snapshot(
                 failure_outcome["failure_stage"],
             )
             return
+        if state == "validation_passed_not_advanced":
+            expected = _outcome(
+                {arm: {"gate": {"passed": validation_passes[arm]}} for arm in ARMS},
+                validation_models_compact,
+                snapshot["latency"],
+                snapshot["implied_volatility"],
+                acceptance,
+                "validation",
+                evidence_complete,
+            )
+            if expected["outcome"] != "eligible_for_final_evaluation" or snapshot["outcome"] != {
+                "phase": "validation",
+                "outcome": "validation_passed_not_advanced",
+                "final_eligibility_approved": False,
+                "neural_result_approved": False,
+            }:
+                raise FreezeError("validation-not-advanced snapshot outcome differs")
+            return
         expected = _outcome(
             {arm: {"gate": {"passed": validation_passes[arm]}} for arm in ARMS},
             validation_models_compact,
@@ -1960,7 +2317,7 @@ def validate_snapshot(
             snapshot["implied_volatility"],
             acceptance,
             "validation",
-            False,
+            evidence_complete,
         )
     else:
         if len(final_models_compact) != 2 or baseline["final"] is None:
@@ -1980,7 +2337,7 @@ def validate_snapshot(
             snapshot["implied_volatility"],
             acceptance,
             "final",
-            True,
+            evidence_complete,
         )
     _check_outcome(snapshot["outcome"], expected, "snapshot.outcome")
 
