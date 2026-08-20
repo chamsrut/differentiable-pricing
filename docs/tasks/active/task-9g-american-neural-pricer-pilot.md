@@ -4,8 +4,9 @@
 
 `Active — protocol and implementation only; execution blocked on entry gates.`
 This specification defines the next active task after the task 9E planning
-reconciliation. The next change is a protocol-and-implementation PR; no
-experiment may run from this planning PR.
+reconciliation. Fresh independent review of that reconciliation is discharged
+by `APPROVE PLANNING RECONCILIATION` (DEC-035). The next change is a
+protocol-and-implementation PR; no experiment may run from this planning PR.
 
 ## Objective
 
@@ -56,40 +57,44 @@ XSP/SPY phase are worth their larger label and engineering costs.
 
 Every gate is fail-closed and is checked before training opens `train`:
 
-1. **Admission review:** the reconciled task 9E conditional admission has a
-   fresh top-level review. The review accepts only use for learning the known
-   CRR mapping, not converged American-price accuracy.
-2. **Independent numerical check:** the outstanding LSM/PDE price cross-check
-   is completed under a newly predeclared protocol, or a fresh review records
-   an explicit resolution that preserves the mapping-only claim. Silence or an
-   internal same-lattice identity is not a resolution. Training is unauthorized
-   until one of these is recorded.
-3. **Row/manifest policy invariants:** implementation and tests require every
-   row's `label_policy == manifest.label_policy.name` and every row's
-   `label_steps == manifest.label_policy.steps`.
-4. **Dataset identity:** entry checks require schema
-   `american-option-dataset/1`, generator version `1.0.0`, the recovered
-   configuration digest above, and the manifest's declared file identities.
+1. **Admission review — discharged:** fresh independent review returned
+   `APPROVE PLANNING RECONCILIATION` (DEC-035), accepting only the reconciled
+   task 9E conditional admission for learning the known CRR mapping, not
+   converged American-price accuracy or training authorization.
+2. **Independent numerical check — pending:** the outstanding LSM/PDE price
+   cross-check is completed under a newly predeclared protocol, or a fresh
+   review records an explicit resolution that preserves the mapping-only claim.
+   Silence or an internal same-lattice identity is not a resolution. Training
+   is unauthorized until one of these is recorded.
+3. **Row/manifest policy invariants — pending:** implementation and tests
+   require every row's `label_policy == manifest.label_policy.name` and every
+   row's `label_steps == manifest.label_policy.steps`.
+4. **Dataset and generator/config identity pins — pending:** entry checks
+   require schema `american-option-dataset/1`, generator version `1.0.0`, the
+   recovered configuration digest above, and the manifest's declared file
+   identities.
    Before training, only `train` and `validation` files are opened and hashed;
    the final split's digest is checked only inside the recorded one-shot final
    evaluation. A mismatch stops the task.
-5. **Source artifact:** the original unconstrained European `weights.npz` is
+5. **European source-weight recovery and digest verification — pending:** the
+   original unconstrained European `weights.npz` is
    locally available and hashes to the frozen digest above. The file remains
    ignored. If it cannot be recovered, the transfer arm stops; no retraining or
    substitute artifact is allowed.
-6. **Exact transfer lift:** before fine-tuning, the lifted five-input network
-   reproduces the source model's unconstrained, physically reconstructed
-   predictions at fixed, protocol-pinned probe points to float64 numerical
-   precision. Failure stops the experiment; no general transfer framework is
-   built as a workaround.
-7. **Locked protocol:** the architecture, scratch and transfer seeds, optimizer,
+6. **Exact transfer-lift verification — pending:** before fine-tuning, the
+   lifted five-input network reproduces the source model's unconstrained,
+   physically reconstructed predictions at fixed, protocol-pinned probe points
+   to float64 numerical precision. Failure stops the experiment; no general
+   transfer framework is built as a workaround.
+7. **Seeds, budget, metrics, latency shapes, and IV cases — pending:** the
+   architecture, scratch and transfer seeds, optimizer,
    training budget, checkpoint rule, metric definitions and gates, latency
    cases, batch sizes, thread budgets, warm-ups, repetitions, IV cases, and all
    input-file digests are frozen in the protocol PR and reviewed before any
    run.
-8. **Partition lifecycle:** neither training code nor any entry check opens
-   `interpolation_test`. Only `train` and `validation` are accessible before the
-   one-shot final-evaluation command.
+8. **Partition lifecycle — pending implementation:** neither training code nor
+   any entry check opens `interpolation_test`. Only `train` and `validation`
+   are accessible before the one-shot final-evaluation command.
 
 The already-observed near-duplicate distances remain descriptive. No threshold
 is added and task 9E's predeclared near-duplicate gate is not represented as
@@ -249,8 +254,10 @@ The intended sequence is mandatory:
 The implementation PR requires code review for lifecycle, artifact, dataset,
 lift, and timing code and numerical review for the cross-check resolution,
 metrics, CRR comparator, and IV cases. Same-session and review-agent findings
-are preliminary. Material acceptance of task 9E's conditional admission and
-of the eventual pilot result each requires a fresh top-level review. A
+are preliminary. Fresh material approval of task 9E's conditional admission
+has been recorded as `APPROVE PLANNING RECONCILIATION` (DEC-035); it does not
+authorize execution or approve a neural-pricer result. Material acceptance of
+the eventual pilot result still requires its own fresh top-level review. A
 two-commit branch first reviewed after results is not an acceptable
 predeclaration mechanism.
 

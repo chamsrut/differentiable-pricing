@@ -126,10 +126,11 @@ does not reinterpret or rerun it.**
 - **The local candidate CRR dataset is catalogued and conditionally admitted
   only for learning the known continuous-yield CRR mapping.** The admission
   record is
-  [american-crr-dataset-admission.md](american-crr-dataset-admission.md); it is a
-  single-session conclusion and its **material approval is outstanding**. This
-  is not acceptance of converged American-price accuracy and authorizes no
-  training. Task
+  [american-crr-dataset-admission.md](american-crr-dataset-admission.md). Fresh
+  independent review returned `APPROVE PLANNING RECONCILIATION` (DEC-035),
+  discharging material review only for this conditional, mapping-only
+  admission. This is not acceptance of converged American-price accuracy and
+  authorizes no training. Task
   9E recovered the generating configuration and the two label-policy pilot
   configurations verbatim from `49ef72a` (digest-pinned by a test), recovered the
   "Label policy v1" section into
@@ -178,8 +179,9 @@ does not reinterpret or rerun it.**
 American neural-pricer feasibility pilot** —
 [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md)
 ([decision-log.md](decision-log.md) DEC-034). Its first entry gate is a fresh
-top-level review of task 9E's reconciled **conditional** admission. The PR must
-then implement the row/manifest policy invariants, lock dataset and source-
+top-level review of task 9E's reconciled **conditional** admission; that gate
+is discharged by `APPROVE PLANNING RECONCILIATION` (DEC-035). The PR must
+implement the row/manifest policy invariants, lock dataset and source-
 artifact identities, implement and verify the exact European-to-American lift,
 and freeze seeds, the single training budget, metrics, latency cases, and IV
 cases. It must be reviewed and merged before any manual experiment run.
@@ -336,8 +338,8 @@ Task 9E's gates, and their exact status:
   decisions are recorded, with the surviving gaps written down.
 - **Exit:** **not discharged as an unconditional admission.** The reconciled
   outcome is conditional admission only for learning the known CRR mapping. It
-  is a single-session conclusion whose material approval is outstanding, and
-  it is not acceptance of converged American-price accuracy.
+  received fresh independent approval as `APPROVE PLANNING RECONCILIATION`
+  (DEC-035), and it is not acceptance of converged American-price accuracy.
 - **Explicitly not authorized:** training any network, and regenerating,
   transforming, moving or deleting any dataset. None occurred.
 
@@ -398,10 +400,11 @@ training (DEC-014, DEC-025).
 - Task 9C-B's `no_policy_selected` is a **valid, complete negative result**,
   not an unfinished task — it is frozen and never reinterpreted (DEC-003).
 - The local candidate CRR dataset is **conditionally admitted only for learning
-  the known continuous-yield CRR mapping** (DEC-033, DEC-034). Admission is not
-  training authorization or acceptance of converged American-price accuracy;
-  its material approval is outstanding, and nothing in the dataset may be cited
-  as a project result on the strength of admission alone.
+  the known continuous-yield CRR mapping** (DEC-033, DEC-034, DEC-035). Its
+  fresh material review is discharged only for that bounded reconciliation.
+  Admission is not training authorization or acceptance of converged
+  American-price accuracy, and nothing in the dataset may be cited as a project
+  result on the strength of admission alone.
 - The CRR dataset is **still not reproducible from tracked sources alone**.
   Task 9E recovered its configuration, its two pilot configurations and its
   label-policy contract section, but deliberately **not** the generation

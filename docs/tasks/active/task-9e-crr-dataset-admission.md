@@ -2,7 +2,8 @@
 
 ## Status
 
-`Blocked — conditionally admitted, predeclared gates incomplete`. The
+`Blocked for training — conditional mapping-only admission freshly approved;
+predeclared gates incomplete`. The
 implemented integrity, internal-identity, identifier-disjointness, and
 exact-state-disjointness checks passed, but task 9E as predeclared did **not**
 complete: the independent price cross-check and semantic-coverage judgement
@@ -12,8 +13,10 @@ this dataset version.
 
 The dataset is conditionally admitted only for learning the known
 continuous-yield CRR mapping. That is not acceptance of converged
-American-price accuracy, and it authorizes no training. A fresh top-level
-review of the reconciled admission remains outstanding.
+American-price accuracy, and it authorizes no training. Fresh independent
+review returned the exact verdict `APPROVE PLANNING RECONCILIATION` (DEC-035),
+approving only this reconciled conditional admission. The review did not
+discharge the incomplete numerical, semantic, or near-duplicate gates.
 
 It became the active task when task 9D completed
 ([task-9d-data-holdings-audit.md](task-9d-data-holdings-audit.md), `Completed`).
@@ -274,8 +277,9 @@ outcome cannot silently weaken or rewrite them after results were observed.
   comparison was run.
 - **Semantic suitability:** not discharged; no coverage judgement was made.
 - **Exit:** not discharged as an unconditional admission. The honest outcome is
-  conditional admission for learning the known CRR mapping, pending fresh
-  review and the task 9G entry gates.
+  conditional admission for learning the known CRR mapping. Fresh review of
+  that bounded reconciliation is discharged; the remaining task 9G entry gates
+  still bind.
 
 ## Manual-run protocol
 
@@ -308,9 +312,11 @@ the leakage gate, and every claim about label provenance or sampling. Both are
 separate-context **preliminary** review
 ([../../agent-system.md](../../agent-system.md)).
 
-**Admission is a material approval** and requires a fresh top-level session
-with no anchoring on the implementer's reasoning. A single-session conclusion
-that the dataset is admissible is not admission.
+**Admission is a material approval.** The required fresh top-level review has
+now approved only the reconciled conditional, mapping-only admission
+(`APPROVE PLANNING RECONCILIATION`, DEC-035). It did not approve unconditional
+admission, authorize training, or discharge the independent cross-check,
+semantic-coverage, or near-duplicate gates.
 
 ## Stop conditions
 

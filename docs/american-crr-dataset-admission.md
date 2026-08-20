@@ -29,10 +29,12 @@ observed the distances, so that gate cannot be retroactively satisfied for
 this dataset version. No gate is weakened by this reconciliation, no row was
 dropped, and the dataset was not modified, moved, or regenerated.
 
-**Conditional admission here remains a single-session conclusion and therefore
-preliminary.** Material acceptance of even this bounded use requires a fresh
-top-level session with no anchoring on this one, per `AGENTS.md`. Task 9E's
-predeclared admission is incomplete rather than a completed all-gates pass.
+Fresh independent review returned the exact verdict
+`APPROVE PLANNING RECONCILIATION` (DEC-035). It approves only this conditional
+admission for learning the known continuous-yield CRR mapping. Task 9E's
+predeclared admission remains incomplete rather than a completed all-gates
+pass, and the approval grants none of the permissions or claims excluded
+below.
 
 ## What admission does not grant
 

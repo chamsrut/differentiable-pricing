@@ -1091,3 +1091,34 @@ snapshot, which remains authoritative for the numbers.
   feasibility pilot versus an H2 replication"),
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
   DEC-028, DEC-032, DEC-033
+
+### DEC-035 — Fresh review approves only the task 9E conditional planning reconciliation
+
+- **Status:** Active. This records review state only; it does not change
+  DEC-034's experiment scope, representation, roadmap, thresholds, or workflow.
+- **Verdict:** The fresh independent reviewer returned exactly
+  `APPROVE PLANNING RECONCILIATION`, with no BLOCKER, MAJOR, MINOR, or NOTE
+  findings.
+- **Approved boundary:** The review approves task 9E's reconciled conditional
+  admission solely for learning the known continuous-yield CRR mapping. It
+  discharges the fresh-review gate for that mapping-only planning
+  reconciliation.
+- **What the approval does not do:** It does not establish converged
+  American-price accuracy; authorize training; satisfy or waive the independent
+  numerical cross-check; satisfy or waive the semantic-coverage judgement;
+  retroactively satisfy the near-duplicate gate; or approve a neural-pricer
+  result.
+- **Consequences:** Task 9G's protocol-and-implementation PR is the exact next
+  task. Before training, the row/manifest policy invariants and dataset and
+  generator/config identity pins must be implemented; the independent
+  cross-check must be completed or explicitly resolved under fresh review; the
+  European source weights must be recovered and digest-verified; the exact
+  transfer lift must be verified; and seeds, training budget, metrics, latency
+  shapes, and IV cases must be frozen. No experiment is authorized by this
+  decision.
+- **Authoritative links:**
+  [american-crr-dataset-admission.md](american-crr-dataset-admission.md),
+  [project-state.md](project-state.md),
+  [tasks/active/task-9e-crr-dataset-admission.md](tasks/active/task-9e-crr-dataset-admission.md),
+  [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
+  DEC-033, DEC-034
