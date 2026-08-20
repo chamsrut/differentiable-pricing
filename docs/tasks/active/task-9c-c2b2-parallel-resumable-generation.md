@@ -2,12 +2,31 @@
 
 ## Status
 
-`Active` — **not started.** No infrastructure, no pilot, no dataset.
+`Deferred` — **not started, and not rejected.** No infrastructure, no pilot,
+no dataset.
 
 This task became reachable when task 9C-C3 produced an accepted label policy
 (`grid_1600x800`, [../../decision-log.md](../../decision-log.md) DEC-025). It
 supersedes nothing: 9C-C3 is `Completed` and terminal
 ([task-9c-c3-label-policy-v2.md](task-9c-c3-label-policy-v2.md)).
+
+It was then **deferred** by the stage-2 roadmap lock
+([../../decision-log.md](../../decision-log.md) DEC-028, DEC-029). Dataset-scale
+PDE generation is not needed until the XSP/SPY phase, and building the
+machinery before the experiment that justifies it is the ordering DEC-012
+already ruled against in the small.
+
+**Resumption condition:** the XSP/SPY phase requires dataset-scale PDE
+generation. Until then no work proceeds here.
+
+**Nothing below is rejected or superseded.** The objective, scope boundaries,
+`OPEN` conventions, gates and stop conditions in this file remain the
+specification to resume from, unchanged. This file stays at this path — the
+repository marks task status in place and has no `tasks/deferred/` location —
+so every link to it stays valid.
+
+The single active task is
+[task-9d-data-holdings-audit.md](task-9d-data-holdings-audit.md) (DEC-030).
 
 ## Objective
 

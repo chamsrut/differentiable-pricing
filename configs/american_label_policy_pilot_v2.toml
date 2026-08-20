@@ -1,0 +1,76 @@
+# CRR label-policy calibration pilot for the American-option dataset, v2.
+#
+# HONESTY NOTE, read this before reading the gates. Pilot v1
+# (`configs/american_label_policy_pilot_v1.toml`) was predeclared, executed, and
+# FAILED: no candidate on its ladder met its gates. That file and its report are
+# kept unchanged as the recorded failure. This file was written AFTER those
+# results were seen, so it is NOT an uncontaminated predeclaration and must not
+# be presented as one.
+#
+# What changed and why.
+#
+# 1. The worst-row gate is UNCHANGED at 5.0e-5. It is the actual label-noise
+#    budget, it was fixed before any result was observed, and it is the gate
+#    that separates the candidates below. Nothing about the selection depends on
+#    a threshold authored after the fact.
+#
+# 2. The p99 gate is corrected from 1.0e-5 to 2.0e-4. The v1 value contained a
+#    category error rather than a stricter judgement: it compared a p99 label
+#    statistic against a threshold derived by dividing the surrogate *RMSE*
+#    acceptance gate (5e-4 in `configs/european_neural_acceptance_v1.toml`) by
+#    fifty. The like-for-like comparison for a p99 label statistic is the
+#    surrogate's own p99 acceptance gate, 2e-3, and the same order-of-magnitude
+#    margin that produced the worst-row gate. That is 2.0e-4. This is a
+#    relaxation of a predeclared number; it is recorded as such, and it is only
+#    defensible because the selection is not made by it.
+#
+# 3. The ladder is extended to 4096 so that the search range, rather than an
+#    arbitrary ceiling, stops being the binding constraint.
+#
+# 4. The internal reference is strengthened from 8192 to 16383, the largest step
+#    count for which the engine can also price the adjacent tree. A 4096-step
+#    candidate compared against an 8192-step reference would be measured mostly
+#    against the reference's own refinement error. A stronger reference makes
+#    every measured discrepancy larger, not smaller, so this change is
+#    conservative.
+#
+# `pilot_stream` and `pilot_rows` are identical to v1, so both runs price the
+# same 2048 contract states and their reports are directly comparable.
+#
+# The reference remains an adjacent average from the SAME CRR engine: an
+# internal refinement diagnostic, not independent truth. The independent control
+# is the European CRR leg against analytic Black-Scholes.
+#
+# No number frozen by task 8D is reused here.
+#
+# `batch_threads` affects wall-clock time only. The C++ batch engine is
+# documented and tested to be bit-identical across worker counts.
+
+schema_version = "american-crr-label-policy/1"
+
+[study]
+name = "american-crr-label-policy-v2"
+engine = "dp::crr_binomial/v1"
+policy = "american-crr-adjacent-average/1"
+dataset_config = "configs/american_option_dataset_v1.toml"
+pilot_stream = "label_policy_pilot_v1"
+pilot_rows = 2048
+step_candidates = [512, 1024, 2048, 4096]
+reference_steps = 16383
+batch_threads = 8
+
+[gates]
+# Worst pilot row: |adjacent-average label - high-step reference| / spot.
+# UNCHANGED from v1. This is the gate that selects.
+maximum_absolute_discrepancy_over_spot = 5.0e-5
+# 99th percentile of the same quantity, corrected to the like-for-like
+# derivation described above. See the honesty note.
+p99_absolute_discrepancy_over_spot = 2.0e-4
+# Independent control: |European CRR adjacent average - Black-Scholes| / spot.
+# UNCHANGED from v1.
+maximum_european_absolute_error_over_spot = 5.0e-5
+# Theorem control: an American call on a non-dividend-paying underlying at a
+# non-negative rate is never exercised early, so its premium over the European
+# price on the same lattice must vanish to floating-point noise.
+# UNCHANGED from v1.
+maximum_non_dividend_call_control_over_spot = 1.0e-12

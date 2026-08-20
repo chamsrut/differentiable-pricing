@@ -4,7 +4,11 @@
 
 `Completed` — **both stages ran; `grid_1600x800` was selected and externally
 approved.** This is no longer the active task; the active task is
-[task-9c-c2b2-parallel-resumable-generation.md](task-9c-c2b2-parallel-resumable-generation.md).
+[task-9d-data-holdings-audit.md](task-9d-data-holdings-audit.md)
+([../../decision-log.md](../../decision-log.md) DEC-030). Task 9C-C2b2, which
+was the active task before the stage-2 roadmap lock, is now `Deferred`
+([task-9c-c2b2-parallel-resumable-generation.md](task-9c-c2b2-parallel-resumable-generation.md),
+DEC-028, DEC-029).
 
 This file stays at this path. The repository's convention
 ([../../documentation-map.md](../../documentation-map.md)) is to mark a

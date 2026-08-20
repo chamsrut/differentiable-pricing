@@ -1,0 +1,228 @@
+# American-option dataset, version 1.
+#
+# Labels come from the compiled C++ Cox-Ross-Rubinstein engine
+# (`dp::crr_binomial`) through the batch boundary. Python never reimplements the
+# recursion. Every price here is a SYNTHETIC MODEL VALUE, not a market price.
+#
+# The label policy is `american-crr-adjacent-average/1`: the average of the
+# N-step and (N+1)-step American CRR prices, with the European CRR price formed
+# the same way on the same lattice so the recorded early-exercise premium is a
+# difference between two identically discretized quantities.
+#
+# `[label].steps` was selected by the label-policy pilot. Pilot v1
+# (`configs/american_label_policy_pilot_v1.toml`) selected no candidate and is
+# kept as a recorded failure; pilot v2
+# (`configs/american_label_policy_pilot_v2.toml`) made the selection under an
+# unchanged worst-row gate. See the "Label policy v1" section of
+# docs/american-crr-contract.md for the gates, the correction, and the evidence.
+#
+# WARNING: the strata below are a synthetic ENGINEERING design chosen to cover
+# the exercise regimes the American stage has to learn. The weights are a
+# coverage choice, not market probabilities, and the marginals are not a
+# calibrated distribution.
+
+schema_version = "american-option-dataset/1"
+generator_version = "1.0.0"
+
+[dataset]
+name = "american-option-v1"
+# Human-readable engine identity; recorded in the manifest with source digests.
+oracle = "dp::crr_binomial"
+# Single base seed. Each partition derives an independent stream from it, keyed
+# by partition name, so resizing one partition never perturbs another.
+base_seed = 20260801
+# Rows per Parquet row group. This is configuration rather than a command-line
+# option because it changes the bytes on disk; `--chunk-rows` and `--workers`
+# are command-line options precisely because they must not.
+row_group_rows = 25000
+
+[dataset.rows]
+train = 200000
+validation = 25000
+interpolation_test = 25000
+
+[label]
+policy = "american-crr-adjacent-average/1"
+steps = 1024
+
+# Bounding box of the union of the strata below. The generator rejects the
+# configuration unless this is exactly that bounding box, so the declared domain
+# cannot drift away from the sampling design.
+[domain]
+# Underlying spot price, currency units.
+spot = [50.0, 150.0]
+# log(spot / strike), dimensionless. Spot moneyness, not forward moneyness:
+# American exercise compares spot with strike directly.
+log_moneyness = [-0.7, 0.7]
+# Time to expiry in years; the lower bound is 7 calendar days on ACT/365F.
+maturity = [0.019178082191780823, 3.0]
+# Continuously compounded annualised risk-free rate, flat. Both signs.
+rate = [-0.02, 0.12]
+# Continuously compounded annualised dividend yield, flat.
+dividend_yield = [0.0, 0.12]
+# Annualised lognormal volatility, decimal (0.20 = 20%).
+volatility = [0.05, 0.8]
+
+# --- sampling mixture ------------------------------------------------------
+#
+# Weights sum to 1 and become exact per-partition row quotas by largest-
+# remainder allocation. Each stratum bounds maturity, volatility, and log
+# moneyness JOINTLY so that the standardized moneyness
+#
+#     z = log_moneyness / (volatility * sqrt(maturity))
+#
+# stays below about 5 in absolute value everywhere. That is the design choice
+# that keeps this dataset out of the degenerate corner an unexamined
+# independent-uniform box falls into, where a price is indistinguishable from
+# its intrinsic value and relative error stops meaning anything. The manifest
+# records the exact per-stratum bound.
+#
+# `exercise_regime` is documentary. It records why a stratum is in the design;
+# whether a row actually exercises early is measured from the CRR exercise
+# diagnostics, never asserted from this label.
+
+[[strata]]
+name = "core"
+weight = 0.26
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.35, 0.35]
+maturity = [0.25, 2.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.15, 0.5]
+
+[[strata]]
+name = "short_maturity"
+weight = 0.1
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.1, 0.1]
+maturity = [0.019178082191780823, 0.25]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.15, 0.6]
+
+[[strata]]
+name = "long_maturity"
+weight = 0.09
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.45, 0.45]
+maturity = [2.0, 3.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.1, 0.45]
+
+[[strata]]
+name = "low_volatility"
+weight = 0.08
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.15, 0.15]
+maturity = [0.5, 2.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.05, 0.15]
+
+[[strata]]
+name = "high_volatility"
+weight = 0.08
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.6, 0.6]
+maturity = [0.25, 2.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.5, 0.8]
+
+# Deep moneyness is split by sign rather than sampled two-sided, so each side
+# gets an exact quota. Because the call/put assignment is balanced and
+# independent of the stratum, positive log moneyness is in the money for calls
+# and out of the money for puts, and the negative stratum mirrors that.
+[[strata]]
+name = "deep_moneyness_positive"
+weight = 0.05
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [0.35, 0.7]
+maturity = [0.5, 3.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.2, 0.6]
+
+[[strata]]
+name = "deep_moneyness_negative"
+weight = 0.05
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.7, -0.35]
+maturity = [0.5, 3.0]
+rate = [-0.01, 0.08]
+dividend_yield = [0.0, 0.05]
+volatility = [0.2, 0.6]
+
+# Negative rates. An American call on a non-dividend-paying underlying can be
+# worth exercising early once the rate is negative, so the usual "never exercise
+# a call early" intuition does not hold here and no diagnostic may assume it.
+[[strata]]
+name = "negative_rate"
+weight = 0.08
+option_type = "both"
+exercise_regime = "mixed"
+spot = [50.0, 150.0]
+log_moneyness = [-0.3, 0.3]
+maturity = [0.25, 2.0]
+rate = [-0.02, 0.0]
+dividend_yield = [0.0, 0.05]
+volatility = [0.15, 0.5]
+
+# High dividend yield: the regime where American calls exercise early.
+[[strata]]
+name = "high_dividend"
+weight = 0.1
+option_type = "both"
+exercise_regime = "call_exercise"
+spot = [50.0, 150.0]
+log_moneyness = [-0.3, 0.3]
+maturity = [0.25, 2.0]
+rate = [0.0, 0.08]
+dividend_yield = [0.05, 0.12]
+volatility = [0.15, 0.5]
+
+# High rate with little or no dividend: the regime where American puts exercise
+# early.
+[[strata]]
+name = "high_rate_low_dividend"
+weight = 0.07
+option_type = "both"
+exercise_regime = "put_exercise"
+spot = [50.0, 150.0]
+log_moneyness = [-0.3, 0.3]
+maturity = [0.25, 2.0]
+rate = [0.08, 0.12]
+dividend_yield = [0.0, 0.02]
+volatility = [0.15, 0.5]
+
+# Control stratum: calls on a non-dividend-paying underlying at a non-negative
+# rate. Early exercise is never optimal, so the American price must equal the
+# European CRR price on the same lattice. `dividend_yield` is pinned to exactly
+# zero: a uniform draw would reach zero only with probability zero.
+[[strata]]
+name = "non_dividend_call_control"
+weight = 0.04
+option_type = "call"
+exercise_regime = "continuation_control"
+spot = [50.0, 150.0]
+log_moneyness = [-0.3, 0.3]
+maturity = [0.25, 2.0]
+rate = [0.0, 0.08]
+dividend_yield = [0.0, 0.0]
+volatility = [0.15, 0.5]

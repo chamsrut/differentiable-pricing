@@ -1,4 +1,12 @@
-"""Dataset generation and diagnostics for the European-option stage.
+"""Dataset generation, diagnostics, and read-side schema contracts.
+
+Generation lives here for the European-option stage only. The American CRR
+tables under ``american-option-dataset/1`` are **read**, never generated, by
+this repository: :mod:`differentiable_pricing.data.american_schema` carries
+their schema contract and manifest validator, and
+:mod:`differentiable_pricing.data.american_admission` carries the task 9E
+integrity and leakage gates. Their generator lives on an unmerged branch and was
+deliberately not ported, so nothing here can regenerate that dataset.
 
 Importing :mod:`differentiable_pricing.data.generate` or
 :mod:`differentiable_pricing.data.diagnose` requires the optional ``data``
