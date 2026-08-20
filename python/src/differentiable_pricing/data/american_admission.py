@@ -82,8 +82,10 @@ def check_schema(schema: pa.Schema, *, where: str) -> GateReport:
         actual = [f"{f.name}:{f.type}" for f in schema]
         missing = sorted(set(TABLE_SCHEMA.names) - set(schema.names))
         extra = sorted(set(schema.names) - set(TABLE_SCHEMA.names))
-        detail = f"missing={missing} extra={extra}" if (missing or extra) else (
-            f"expected {expected}, got {actual}"
+        detail = (
+            f"missing={missing} extra={extra}"
+            if (missing or extra)
+            else (f"expected {expected}, got {actual}")
         )
         raise AdmissionGateError(
             f"{where} schema does not match american-option-dataset/1: {detail}"
@@ -132,8 +134,7 @@ def check_manifest_reconciliation(dataset: Path) -> GateReport:
         footer_rows = pq.ParquetFile(path).metadata.num_rows
         if footer_rows != int(entry["rows"]):
             raise AdmissionGateError(
-                f"split '{split}' holds {footer_rows} rows, manifest declares "
-                f"{entry['rows']}"
+                f"split '{split}' holds {footer_rows} rows, manifest declares {entry['rows']}"
             )
         rows[split] = footer_rows
 
@@ -141,13 +142,11 @@ def check_manifest_reconciliation(dataset: Path) -> GateReport:
     undeclared = sorted(present - set(declared.values()))
     if undeclared:
         raise AdmissionGateError(
-            "dataset directory holds Parquet file(s) the manifest never declares: "
-            f"{undeclared}"
+            f"dataset directory holds Parquet file(s) the manifest never declares: {undeclared}"
         )
     if sorted(declared) != sorted(SPLIT_NAMES):
         raise AdmissionGateError(
-            f"manifest declares partitions {sorted(declared)}, expected "
-            f"{sorted(SPLIT_NAMES)}"
+            f"manifest declares partitions {sorted(declared)}, expected {sorted(SPLIT_NAMES)}"
         )
     return GateReport(
         "manifest_reconciliation",
@@ -256,8 +255,7 @@ def check_row_identities(table: pa.Table, *, where: str) -> GateReport:
     residual = float(np.max(np.abs(np.log(spot / strike) - log_moneyness)))
     if not residual <= 1.0e-12:
         raise AdmissionGateError(
-            f"{where} violates log_moneyness == log(spot / strike): maximum residual "
-            f"{residual:.6e}"
+            f"{where} violates log_moneyness == log(spot / strike): maximum residual {residual:.6e}"
         )
 
     if bool(((probability <= 0.0) | (probability >= 1.0)).any()):
@@ -291,10 +289,52 @@ def check_partition_labels(table: pa.Table, split: str, *, where: str) -> GateRe
     """Every row of a partition must declare that partition."""
     values = sorted(set(table["split"].to_pylist()))
     if values != [split]:
-        raise AdmissionGateError(
-            f"{where} declares split value(s) {values}, expected ['{split}']"
-        )
+        raise AdmissionGateError(f"{where} declares split value(s) {values}, expected ['{split}']")
     return GateReport("partition_labels", {"split": split})
+
+
+def check_label_policy(
+    table: pa.Table,
+    manifest: Mapping[str, Any],
+    *,
+    where: str,
+) -> GateReport:
+    """Require every row to use the manifest's exact label policy."""
+    policy = manifest.get("label_policy")
+    if not isinstance(policy, Mapping):
+        raise AdmissionGateError("manifest.label_policy must be an object")
+    expected_name = policy.get("name")
+    expected_steps = policy.get("steps")
+    if not isinstance(expected_name, str) or not expected_name:
+        raise AdmissionGateError("manifest.label_policy.name must be a non-empty string")
+    if (
+        isinstance(expected_steps, bool)
+        or not isinstance(expected_steps, int)
+        or expected_steps <= 0
+    ):
+        raise AdmissionGateError("manifest.label_policy.steps must be a positive integer")
+
+    names = np.asarray(table["label_policy"].to_pylist(), dtype=object)
+    steps = np.asarray(table["label_steps"], dtype=np.int64)
+    bad_names = int((names != expected_name).sum())
+    bad_steps = int((steps != expected_steps).sum())
+    if bad_names or bad_steps:
+        details: list[str] = []
+        if bad_names:
+            details.append(
+                f"{bad_names} row label_policy value(s) differ from "
+                f"manifest.label_policy.name={expected_name!r}"
+            )
+        if bad_steps:
+            details.append(
+                f"{bad_steps} row label_steps value(s) differ from "
+                f"manifest.label_policy.steps={expected_steps}"
+            )
+        raise AdmissionGateError(f"{where} label-policy mismatch: " + "; ".join(details))
+    return GateReport(
+        "label_policy",
+        {"name": expected_name, "steps": expected_steps, "rows": table.num_rows},
+    )
 
 
 def check_domain(table: pa.Table, manifest: Mapping[str, Any], *, where: str) -> GateReport:
@@ -307,8 +347,7 @@ def check_domain(table: pa.Table, manifest: Mapping[str, Any], *, where: str) ->
         observed[field] = seen
         if seen[0] < low - 1.0e-12 or seen[1] > high + 1.0e-12:
             raise AdmissionGateError(
-                f"{where} field '{field}' spans {seen}, outside the declared domain "
-                f"[{low}, {high}]"
+                f"{where} field '{field}' spans {seen}, outside the declared domain [{low}, {high}]"
             )
     return GateReport("domain", {"observed": observed})
 
@@ -345,9 +384,7 @@ def check_state_uniqueness(table: pa.Table, *, where: str) -> GateReport:
     keys = _state_keys(table)
     unique = len(set(keys.tolist()))
     if unique != len(keys):
-        raise AdmissionGateError(
-            f"{where} holds {len(keys) - unique} duplicate contract state(s)"
-        )
+        raise AdmissionGateError(f"{where} holds {len(keys) - unique} duplicate contract state(s)")
     return GateReport("state_uniqueness", {"rows": len(keys)})
 
 
@@ -369,8 +406,7 @@ def check_cross_partition_disjointness(
             shared_ids = identifiers[left] & identifiers[right]
             if shared_ids:
                 raise AdmissionGateError(
-                    f"partitions '{left}' and '{right}' share {len(shared_ids)} "
-                    "sample_id value(s)"
+                    f"partitions '{left}' and '{right}' share {len(shared_ids)} sample_id value(s)"
                 )
             shared_states = states[left] & states[right]
             if shared_states:
@@ -399,6 +435,7 @@ def run_all_gates(dataset: Path) -> list[GateReport]:
         tables[split] = table
         where = f"split '{split}'"
         reports.append(check_partition_labels(table, split, where=where))
+        reports.append(check_label_policy(table, manifest, where=where))
         reports.append(check_row_identities(table, where=where))
         reports.append(check_domain(table, manifest, where=where))
         reports.append(check_identifier_uniqueness(table, where=where))

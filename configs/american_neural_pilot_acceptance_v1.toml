@@ -1,0 +1,65 @@
+schema_version = "american-neural-pilot-acceptance/1"
+name = "task-9g-american-neural-pilot-acceptance-v1"
+selection_partition = "validation"
+final_partition = "interpolation_test"
+reported_error_statistics = ["mae", "rmse", "p95_absolute_error", "p99_absolute_error", "maximum_absolute_error"]
+quantile_method = "linear"
+moneyness_coordinate = "log(spot/strike)"
+bin_interval_convention = "[low, high)"
+reported_units = ["physical_price", "normalized_by_discounted_spot"]
+required_slices = ["overall", "option_type", "expiry", "moneyness", "volatility", "premium_status", "exercise_status"]
+baseline = "stored european_crr_price"
+
+[bins]
+expiry_edges_years = [0.25, 1.0, 2.0]
+log_moneyness_edges = [-0.2, 0.2]
+volatility_edges = [0.15, 0.5]
+premium_status = ["zero", "positive"]
+exercise_status = ["no_exercise", "exercise_observed"]
+
+[validation_final_entry]
+applies_to = ["scratch", "transfer"]
+normalized_rmse_max = 0.003
+normalized_p99_absolute_error_max = 0.015
+normalized_maximum_absolute_error_max = 0.08
+maximum_material_bound_violations = 0
+maximum_material_shape_violations = 0
+all_required_evidence_complete = true
+
+[final_accuracy]
+normalized_rmse_max = 0.003
+normalized_p99_absolute_error_max = 0.015
+normalized_maximum_absolute_error_max = 0.08
+maximum_material_bound_violations = 0
+maximum_material_shape_violations = 0
+
+[diagnostics]
+material_normalized_tolerance = 0.000001
+spot_bump_fraction = 0.01
+volatility_bump = 0.01
+spot_domain = [50.0, 150.0]
+volatility_domain = [0.05, 0.8]
+log_moneyness_domain = [-0.7, 0.7]
+checks = ["intrinsic_lower_bound", "european_comparator_lower_bound", "american_call_upper_bound", "american_put_rate_aware_upper_bound", "spot_monotonicity", "spot_convexity", "volatility_monotonicity"]
+american_put_upper_bound = "strike * exp(max(-rate * maturity, 0))"
+american_call_upper_bound = "spot"
+output_projection = "none"
+
+[interpretation]
+promising_requires = "both final accuracy gates, median N=1024 end-to-end speedup >= 10 for both arms at every request shape, IV maximum absolute volatility error <= 0.01 for both arms, and transfer validation RMSE < scratch validation RMSE"
+negative_transfer = "transfer validation normalized RMSE >= scratch validation normalized RMSE; failure_to_learn and mixed_accuracy_outcome take precedence when their accuracy conditions hold"
+failure_to_learn = "neither arm reaches the locked final accuracy gates"
+mixed_accuracy_outcome = "exactly one arm reaches the locked final accuracy gates; report the passing arm without calling the pilot promising or a failure to learn"
+required_evidence_failed = "both arm accuracy gates pass but a required PDE, latency, or synthetic-IV evidence gate fails; final evaluation remains forbidden"
+pilot_claim = "feasibility only; one seed and one budget cannot establish H2"
+
+[latency]
+reference_depth_for_interpretation = 1024
+minimum_median_end_to_end_speedup = 10.0
+confidence_interval = "two-sided distribution-free order-statistic interval for the population median; with 7 repetitions use [minimum, maximum], actual coverage 0.984375"
+confidence_level = 0.95
+
+[implied_volatility]
+maximum_absolute_volatility_error = 0.01
+failures_max = 0
+terminology = "surface"

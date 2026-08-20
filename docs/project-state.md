@@ -65,9 +65,16 @@ with twelve recorded limitations (DEC-031). Task 9E added named-schema support
 and internal gates, but reconciliation found that its independent cross-check,
 near-duplicate gate, and semantic-coverage judgement were not discharged. The
 dataset is now conditionally admitted only for learning the known CRR mapping,
-not for converged American-price accuracy (DEC-034). The active task is task 9G,
-the protocol and implementation for one bounded feasibility pilot; execution is
-blocked on its entry gates.
+not for converged American-price accuracy (DEC-034). Task 9G's bounded protocol
+and implementation are now built (DEC-036). After the first review's `REQUEST
+CHANGES` findings were addressed, a fresh top-level review of cumulative commit
+`8d27c23` returned exactly `APPROVE TASK 9G IMPLEMENTATION FOR MERGE`
+(DEC-037). That approval covers protocol/implementation merge and the later
+human-invoked `run-to-validation` only; it approves no numerical result and
+does not authorize final evaluation. Execution remains blocked until the
+approval-recording/minor-fix commit receives final cumulative review and the
+implementation branch is merged. The independent PDE mapping check must then
+pass inside the human-invoked run before optimization begins.
 **The accepted PDE label policy remains frozen evidence; this roadmap change
 does not reinterpret or rerun it.**
 
@@ -143,10 +150,9 @@ does not reinterpret or rerun it.**
   all 250,000 rows. The independent numerical cross-check and semantic-coverage
   judgement were not performed. No near-duplicate threshold was predeclared
   before the distances were observed, so that gate cannot be satisfied
-  retroactively. The current checks also do not enforce each row's
-  `label_policy` and `label_steps` against the manifest policy; task 9G must add
-  those invariants and pin generator version `1.0.0` and recovered config digest
-  `d18485c6…` before training. The raw dataset is feature-sufficient, but
+  retroactively. Task 9G now enforces each row's `label_policy` and
+  `label_steps` against the manifest policy and pins generator version `1.0.0`
+  and recovered config digest `d18485c6…`. The raw dataset is feature-sufficient, but
   `american_raw_physical_v1` is not minimal. The pilot uses
   `american_forward_carry_v1`: encoded type, `log(F/K)`, `sigma*sqrt(T)`, `rT`,
   and `qT`, with target `V/(S*exp(-q*T))`. The three-input European
@@ -169,27 +175,48 @@ does not reinterpret or rerun it.**
   resolved the loader gap and the configuration/contract recovery; the generator
   gap and the label policy's missing frozen evidence survive as recorded
   limitations (DEC-033).
+- Task 9G now supplies the strict five-input representation, exact task-specific
+  European lift, American artifact schema, protocol validator, validation/final
+  lifecycle runner, metrics/diagnostics, matched latency and synthetic-IV
+  implementations, and raw-report freeze/check tool. The recovered source lift
+  was preflighted at eight physical probes after train-only scaling: maximum
+  absolute price difference `1.4210854715202004e-14`, maximum relative
+  difference `3.6214823824845716e-13`. No optimization or locked numerical work
+  ran. Its eventual validation/final audit snapshot uses fixed-size sufficient
+  statistics rather than partition rows; the separately retained 21-case PDE
+  evidence is synthetic and protocol-pinned. The protocol also records the
+  arm-seeded shuffle confound, fixed-domain PDE truncation limitation, and the
+  limits of offline snapshot authentication.
 - **No accepted, versioned PDE-labelled SPY training dataset exists**, and no
   SPY neural surrogate exists. **No American neural surrogate has yet been
   trained and accepted.**
 
 ## Exact next task
 
-**Task 9G: the protocol-and-implementation PR for the bounded continuous-yield
-American neural-pricer feasibility pilot** —
+**Final cumulative review of the Task 9G approval record and three minor
+corrections, then merge before any execution** —
 [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md)
-([decision-log.md](decision-log.md) DEC-034). Its first entry gate is a fresh
+([decision-log.md](decision-log.md) DEC-034, DEC-036, DEC-037). Fresh top-level
+review of cumulative commit `8d27c23` returned exactly `APPROVE TASK 9G
+IMPLEMENTATION FOR MERGE`, discharging the implementation approval gate only.
+The approval-recording/minor-fix commit still requires final cumulative review,
+and the implementation branch must then be merged. Task 9G's first entry gate
+was a fresh
 top-level review of task 9E's reconciled **conditional** admission; that gate
-is discharged by `APPROVE PLANNING RECONCILIATION` (DEC-035). The PR must
-implement the row/manifest policy invariants, lock dataset and source-
-artifact identities, implement and verify the exact European-to-American lift,
-and freeze seeds, the single training budget, metrics, latency cases, and IV
-cases. It must be reviewed and merged before any manual experiment run.
+is discharged by `APPROVE PLANNING RECONCILIATION` (DEC-035). The PR now
+implements the row/manifest policy invariants, locks dataset and source-artifact
+identities, implements and verifies the exact European-to-American lift, and
+freezes seeds, the single training budget, metrics, latency cases, and IV cases.
+After final cumulative review and merge, the exact next action is the human-invoked
+`python scripts/run_american_neural_pilot.py run-to-validation`.
 
-**No training is authorized or started.** Task 9G is active at protocol and
-implementation scope only. The outstanding independent numerical cross-check
-must be completed or explicitly resolved before a training run is authorized;
-`interpolation_test` remains unavailable until the one-shot final evaluation.
+**No numerical result exists. No training is authorized or started before the
+merge and human invocation.** Task 9G remains at protocol and implementation
+scope. The runner performs the outstanding independent PDE mapping check before
+optimization and stops on failure; it has not been run. `final-evaluate`
+remains separately gated on the validation outcome and its required review;
+the implementation approval does not authorize it. `interpolation_test`
+remains unavailable until that one-shot final-evaluation gate is discharged.
 
 What 9E delivered: the generating configuration and both label-policy pilot
 configurations recovered verbatim from `49ef72a` and digest-pinned by a test;
@@ -319,9 +346,8 @@ Task 9E's gates, and their exact status:
 - **Loader gate:** discharged — the dataset loads under a named, versioned
   schema with manifest-digest verification enforced; unknown schemas and
   unregistered `schema_version` values fail closed with no permissive fallback;
-  the European loading path is unchanged and its tests pass untouched. Two
-  mandatory pre-training invariants are missing: row `label_policy` and
-  `label_steps` are not checked against the manifest policy name and steps.
+  the European loading path is unchanged and its tests pass untouched. Task 9G
+  now implements and tests the row `label_policy` and `label_steps` equalities.
 - **Integrity and internal-identity gates:** discharged — every gate in
   `data/american_admission.py` ran over all 250,000 rows and passed, and the
   gates live in the test suite on small fixtures.
@@ -422,20 +448,20 @@ training (DEC-014, DEC-025).
 - Task 9E's near-duplicate measurements are descriptive. Because the distances
   were observed before a threshold was predeclared, its near-duplicate gate
   cannot be satisfied retroactively for this dataset version (DEC-034).
-- The implemented admission checks do not enforce row `label_policy` or
-  `label_steps` against the manifest policy. Those invariants, generator version
-  `1.0.0`, and recovered configuration digest `d18485c6…` are mandatory task 9G
-  entry checks (DEC-034).
+- Task 9G closes the admission code's row `label_policy` / `label_steps` gap and
+  pins generator version `1.0.0` plus recovered configuration digest
+  `d18485c6…`; the independent PDE check remains unexecuted (DEC-034, DEC-036).
 - The European `forward_normalized_v1` representation is **inadmissible for
   American labels**: it determines a European price exactly but loses the
   separate dependence on rate and dividend yield that the early-exercise
   boundary carries (DEC-033). `american_forward_carry_v1` adds `rT` and `qT`
   to those three inputs; `american_raw_physical_v1` is feature-sufficient but
   not minimal (DEC-034).
-- The frozen European replication records weights SHA-256 `42670774…`, but the
-  original `weights.npz` is not tracked. Transfer cannot start unless that exact
-  artifact is recovered; no silent retraining or substitution is allowed
-  (DEC-034).
+- The frozen European replication's ignored original `weights.npz` has been
+  recovered locally and preflighted at SHA-256 `42670774…`, alongside manifest
+  SHA-256 `054ca945…`. Runtime checks repeat both identities; the files remain
+  untracked and no silent retraining or substitution is allowed (DEC-034,
+  DEC-036).
 - Task 9G is a one-seed, one-budget feasibility pilot and cannot establish H2.
   A promising outcome requires a separate replication with at least five seeds
   and several predeclared label budgets (DEC-034).
@@ -509,7 +535,7 @@ training (DEC-014, DEC-025).
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 | Local data holdings (9D audit) | [data-holdings-catalogue.md](data-holdings-catalogue.md) | none — audit record, not frozen evidence, no generator script |
 | CRR dataset conditional admission (9E) | [american-crr-dataset-admission.md](american-crr-dataset-admission.md), [american-crr-contract.md](american-crr-contract.md) ("Label policy v1") | none — conditional mapping-only admission, not frozen evidence; implemented checks live in `data/american_admission.py` and incomplete gates are recorded |
-| American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | none — protocol and implementation not yet built; no run authorized |
+| American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | protocol/implementation approved for merge at `8d27c23` and unexecuted; approval-recording/minor-fix commit still needs final cumulative review and branch merge before the human run; no result snapshot (DEC-036, DEC-037) |
 
 ## New-agent checklist
 

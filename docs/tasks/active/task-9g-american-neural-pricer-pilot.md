@@ -2,11 +2,20 @@
 
 ## Status
 
-`Active — protocol and implementation only; execution blocked on entry gates.`
+`Protocol and implementation approved for merge at 8d27c23 — approval record
+and three minor corrections await final cumulative review and branch merge; no
+locked run and no numerical result.`
 This specification defines the next active task after the task 9E planning
 reconciliation. Fresh independent review of that reconciliation is discharged
-by `APPROVE PLANNING RECONCILIATION` (DEC-035). The next change is a
-protocol-and-implementation PR; no experiment may run from this planning PR.
+by `APPROVE PLANNING RECONCILIATION` (DEC-035). The protocol-and-implementation
+change is now built (DEC-036). After its first fresh implementation review's
+`REQUEST CHANGES` findings were addressed, a fresh top-level review of the
+cumulative branch at `8d27c23` returned exactly `APPROVE TASK 9G IMPLEMENTATION
+FOR MERGE` (DEC-037). That approval covers implementation merge and a later
+human-invoked `run-to-validation` only. Execution remains blocked until the
+approval-recording/minor-fix commit receives final cumulative review and the
+implementation branch is merged. `final-evaluate` remains separately gated on
+the validation outcome and review; no numerical result is approved or exists.
 
 ## Objective
 
@@ -61,38 +70,38 @@ Every gate is fail-closed and is checked before training opens `train`:
    `APPROVE PLANNING RECONCILIATION` (DEC-035), accepting only the reconciled
    task 9E conditional admission for learning the known CRR mapping, not
    converged American-price accuracy or training authorization.
-2. **Independent numerical check — pending:** the outstanding LSM/PDE price
+2. **Independent numerical check — protocol implemented, execution pending:** the outstanding LSM/PDE price
    cross-check is completed under a newly predeclared protocol, or a fresh
    review records an explicit resolution that preserves the mapping-only claim.
    Silence or an internal same-lattice identity is not a resolution. Training
    is unauthorized until one of these is recorded.
-3. **Row/manifest policy invariants — pending:** implementation and tests
+3. **Row/manifest policy invariants — implemented:** implementation and tests
    require every row's `label_policy == manifest.label_policy.name` and every
    row's `label_steps == manifest.label_policy.steps`.
-4. **Dataset and generator/config identity pins — pending:** entry checks
+4. **Dataset and generator/config identity pins — implemented, execution pending:** entry checks
    require schema `american-option-dataset/1`, generator version `1.0.0`, the
    recovered configuration digest above, and the manifest's declared file
    identities.
    Before training, only `train` and `validation` files are opened and hashed;
    the final split's digest is checked only inside the recorded one-shot final
    evaluation. A mismatch stops the task.
-5. **European source-weight recovery and digest verification — pending:** the
+5. **European source-weight recovery and digest verification — preflight discharged, runtime recheck implemented:** the
    original unconstrained European `weights.npz` is
    locally available and hashes to the frozen digest above. The file remains
    ignored. If it cannot be recovered, the transfer arm stops; no retraining or
    substitute artifact is allowed.
-6. **Exact transfer-lift verification — pending:** before fine-tuning, the
+6. **Exact transfer-lift verification — implemented and preflight discharged:** before fine-tuning, the
    lifted five-input network reproduces the source model's unconstrained,
    physically reconstructed predictions at fixed, protocol-pinned probe points
    to float64 numerical precision. Failure stops the experiment; no general
    transfer framework is built as a workaround.
-7. **Seeds, budget, metrics, latency shapes, and IV cases — pending:** the
+7. **Seeds, budget, metrics, latency shapes, and IV cases — locked:** the
    architecture, scratch and transfer seeds, optimizer,
    training budget, checkpoint rule, metric definitions and gates, latency
    cases, batch sizes, thread budgets, warm-ups, repetitions, IV cases, and all
    input-file digests are frozen in the protocol PR and reviewed before any
    run.
-8. **Partition lifecycle — pending implementation:** neither training code nor
+8. **Partition lifecycle — implemented, pending review:** neither training code nor
    any entry check opens `interpolation_test`. Only `train` and `validation`
    are accessible before the one-shot final-evaluation command.
 
@@ -109,6 +118,9 @@ having passed retroactively.
 - Exactly one fixed scratch run and one fixed transfer run, under the same one
   training budget, optimizer schedule, row budget, checkpoint rule, and
   evaluation pipeline. There is no hyperparameter sweep or extra seed.
+- The two locked arm seeds also produce different epoch shuffle permutations,
+  not only different initializations. This one-seed pilot therefore cannot
+  attribute an observed arm difference solely to transfer initialization.
 - Validation-only checkpoint selection. Both arms are evaluated once on the
   same `interpolation_test` after the final-evaluation gate is unlocked.
 - The row's paired `european_crr_price` as the no-learning baseline: its error
@@ -288,6 +300,10 @@ market calibration, bid--ask-relative accuracy, production readiness, or live
 trading value. Any speedup is conditional on the exact matched benchmark
 contract and cannot be generalized beyond its recorded hardware, software,
 request shapes, and thread budgets.
+The fixed-domain PDE refinement pair does not independently bound domain-
+truncation error. Offline snapshot checking detects internal inconsistency and
+tracked-input drift, but cannot authenticate a fully coordinated fabricated raw
+report and snapshot.
 
 ## Completion report
 

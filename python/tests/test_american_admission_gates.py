@@ -17,6 +17,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from american_admission_fixtures import (
+    LABEL_STEPS,
     rewrite_split,
     rows_for_split,
     table_from_rows,
@@ -26,12 +27,13 @@ from american_admission_fixtures import (
 from differentiable_pricing.data.american_admission import (
     AdmissionGateError,
     check_cross_partition_disjointness,
+    check_label_policy,
     check_manifest_reconciliation,
     check_row_identities,
     check_schema,
     run_all_gates,
 )
-from differentiable_pricing.data.american_schema import TABLE_SCHEMA
+from differentiable_pricing.data.american_schema import LABEL_POLICY_NAME, TABLE_SCHEMA
 
 
 def _table(count: int = 4, *, offset: int = 0, split: str = "train") -> pa.Table:
@@ -74,8 +76,7 @@ def test_schema_gate_rejects_an_extra_column() -> None:
 
 def test_schema_gate_rejects_a_retyped_column() -> None:
     fields = [
-        field.with_type(pa.float32()) if field.name == "spot" else field
-        for field in TABLE_SCHEMA
+        field.with_type(pa.float32()) if field.name == "spot" else field for field in TABLE_SCHEMA
     ]
     with pytest.raises(AdmissionGateError, match="does not match"):
         check_schema(pa.schema(fields), where="fixture")
@@ -90,8 +91,7 @@ def test_schema_gate_rejects_a_reordered_column() -> None:
 
 def test_schema_gate_rejects_a_nullable_column() -> None:
     fields = [
-        field.with_nullable(True) if field.name == "spot" else field
-        for field in TABLE_SCHEMA
+        field.with_nullable(True) if field.name == "spot" else field for field in TABLE_SCHEMA
     ]
     with pytest.raises(AdmissionGateError, match=r"does not match|nullable"):
         check_schema(pa.schema(fields), where="fixture")
@@ -275,6 +275,46 @@ def test_partition_label_mismatch_is_rejected(tmp_path: Path) -> None:
         run_all_gates(directory)
 
 
+def test_label_policy_gate_accepts_matching_columns() -> None:
+    table = _table()
+    manifest = {"label_policy": {"name": LABEL_POLICY_NAME, "steps": LABEL_STEPS}}
+    report = check_label_policy(table, manifest, where="fixture")
+    assert report.measurements == {
+        "name": LABEL_POLICY_NAME,
+        "steps": LABEL_STEPS,
+        "rows": table.num_rows,
+    }
+
+
+def test_label_policy_gate_rejects_name_mismatch() -> None:
+    rows = rows_for_split("train", 4)
+    rows[1]["label_policy"] = "other-policy/1"
+    manifest = {"label_policy": {"name": LABEL_POLICY_NAME, "steps": LABEL_STEPS}}
+    with pytest.raises(AdmissionGateError, match=r"1 row label_policy"):
+        check_label_policy(table_from_rows(rows), manifest, where="fixture")
+
+
+def test_label_policy_gate_rejects_steps_mismatch() -> None:
+    rows = rows_for_split("train", 4)
+    rows[2]["label_steps"] = LABEL_STEPS + 1
+    manifest = {"label_policy": {"name": LABEL_POLICY_NAME, "steps": LABEL_STEPS}}
+    with pytest.raises(AdmissionGateError, match=r"1 row label_steps"):
+        check_label_policy(table_from_rows(rows), manifest, where="fixture")
+
+
+def test_label_policy_gate_reports_mixed_column_mismatches() -> None:
+    rows = rows_for_split("train", 4)
+    rows[0]["label_policy"] = "other-policy/1"
+    rows[1]["label_policy"] = "other-policy/1"
+    rows[2]["label_steps"] = LABEL_STEPS + 1
+    manifest = {"label_policy": {"name": LABEL_POLICY_NAME, "steps": LABEL_STEPS}}
+    with pytest.raises(
+        AdmissionGateError,
+        match=r"2 row label_policy.*1 row label_steps",
+    ):
+        check_label_policy(table_from_rows(rows), manifest, where="fixture")
+
+
 def test_domain_violation_is_rejected(tmp_path: Path) -> None:
     rows = rows_for_split("train", 4)
     rows[0]["volatility"] = 5.0
@@ -285,9 +325,7 @@ def test_domain_violation_is_rejected(tmp_path: Path) -> None:
         run_all_gates(directory)
 
 
-def _rewrite_with_manifest(
-    directory: Path, manifest: dict, split: str, table: pa.Table
-) -> None:
+def _rewrite_with_manifest(directory: Path, manifest: dict, split: str, table: pa.Table) -> None:
     """Replace one partition and re-pin its digest and row count."""
     import hashlib
 

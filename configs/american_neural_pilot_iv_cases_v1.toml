@@ -1,0 +1,72 @@
+schema_version = "american-neural-pilot-iv/1"
+name = "task-9g-american-neural-pilot-iv-v1"
+terminology = "surface"
+price_source = "CRR adjacent average at N=1024 and N+1=1025"
+crr_steps = 1024
+comparison = "invert label price and each neural price through the same CRR adjacent-average function"
+solver = "safeguarded_bisection"
+volatility_bracket = [0.05, 0.8]
+price_absolute_tolerance_over_spot = 0.0000000001
+volatility_absolute_tolerance = 0.00000001
+maximum_iterations = 80
+failure_rule = "unbracketed root, non-finite price, or iteration exhaustion is a reported failure and is never dropped"
+
+[[cases]]
+name = "call_t025_k90"
+option_type = "call"
+spot = 100.0
+strike = 90.0
+maturity = 0.25
+rate = 0.03
+dividend_yield = 0.02
+true_volatility = 0.18
+
+[[cases]]
+name = "call_t025_k100"
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 0.25
+rate = 0.03
+dividend_yield = 0.02
+true_volatility = 0.2
+
+[[cases]]
+name = "put_t025_k110"
+option_type = "put"
+spot = 100.0
+strike = 110.0
+maturity = 0.25
+rate = 0.03
+dividend_yield = 0.02
+true_volatility = 0.24
+
+[[cases]]
+name = "put_t2_k90"
+option_type = "put"
+spot = 100.0
+strike = 90.0
+maturity = 2.0
+rate = 0.03
+dividend_yield = 0.02
+true_volatility = 0.3
+
+[[cases]]
+name = "call_t2_k100"
+option_type = "call"
+spot = 100.0
+strike = 100.0
+maturity = 2.0
+rate = 0.03
+dividend_yield = 0.02
+true_volatility = 0.28
+
+[[cases]]
+name = "put_t2_k110"
+option_type = "put"
+spot = 100.0
+strike = 110.0
+maturity = 2.0
+rate = 0.03
+dividend_yield = 0.02
+true_volatility = 0.32
