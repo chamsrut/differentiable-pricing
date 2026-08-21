@@ -30,6 +30,19 @@ The append-only record of task 9H
   final partition.
 - **No final partition appears here**, because no task 9H code path opens,
   hashes, stats, imports, counts or inspects one.
+- **The log lives at exactly this path.** `record` refuses to write anywhere
+  else, and refuses a report that is not of the workbench's own schema or that
+  cites anything but the canonical Task 9G acceptance configuration and
+  `[validation_final_entry]` section. `check` re-verifies both offline.
+- **An infrastructure failure is recorded, not retried in place.** Everything
+  checkable is checked before an attempt reserves its output directory, so a
+  refusal at that stage costs nothing and the same configuration can be rerun
+  once the cause is fixed. Once the directory exists the attempt ID is spent: a
+  crash leaves `status="failed"` in the ignored run ledger, the runner refuses
+  that ID afterwards, and the honest response is an entry with
+  `--outcome infrastructure_failure` followed by a **new** attempt ID and a new
+  configuration. Deleting the outputs to reuse the ID would erase the evidence
+  that the first run happened.
 
 The value of the log is the recorded search, dead ends included. An attempt that
 failed is kept exactly as recorded; it is never quietly dropped because a later

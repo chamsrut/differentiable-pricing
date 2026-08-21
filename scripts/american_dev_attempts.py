@@ -12,13 +12,21 @@ records the configuration digest the attempt actually ran — which is what make
 "attempt configurations are immutable after use" checkable rather than
 aspirational.
 
-`check` enforces four properties:
+`record` writes only the canonical tracked log and only accepts a report of the
+schema this workbench emits, judged against the canonical Task 9G acceptance
+configuration and section. A second log file, an unrecognized report, or an
+attempt that judged itself against some other criterion is refused.
 
-1. no Task 9H source names a final or held-out partition as data;
+`check` enforces five properties:
+
+1. no Task 9H source names a final or held-out partition as data, using the
+   **same** forbidden-token definition the runtime guard uses;
 2. the runner exposes no final-evaluation command;
 3. the attempt log is a valid append-only log, and every tracked attempt
-   configuration is valid;
-4. every logged attempt's configuration still hashes to its recorded digest.
+   configuration is valid — which includes pointing at the canonical acceptance
+   configuration;
+4. every logged attempt's configuration still hashes to its recorded digest;
+5. every logged attempt cites the canonical criterion file, section and digest.
 
 Every recorded attempt is a development measurement selected against
 `validation`. None of them is a project result.
@@ -48,16 +56,6 @@ TASK_9H_SCRIPTS: Final = (
 )
 ATTEMPT_CONFIG_GLOB: Final = "configs/american_dev_attempt_*.toml"
 
-#: Partition names that may never be used as data by a Task 9H code path.
-FORBIDDEN_PARTITIONS: Final = (
-    "interpolation_test",
-    "boundary_test",
-    "extrapolation_test",
-    "ood_test",
-    "scenario_test",
-    "final_test",
-    "holdout",
-)
 EXPECTED_SUBCOMMANDS: Final = {"run", "status"}
 
 
@@ -91,6 +89,17 @@ def _load_attempt_rules() -> Any:
     sys.modules[specification.name] = module
     specification.loader.exec_module(module)
     return module
+
+
+#: The rules module, loaded once. Everything below reads its definitions rather
+#: than restating them.
+RULES: Final = _load_attempt_rules()
+
+#: Partition names that may never be used as data by a Task 9H code path.
+#: **The same tuple the runtime guard enforces**, imported rather than copied:
+#: a token added for one and forgotten for the other is how a static check and
+#: the code it guards quietly stop agreeing.
+FORBIDDEN_PARTITIONS: Final = RULES.FORBIDDEN_PARTITION_TOKENS
 
 
 # ---------------------------------------------------------------------------
@@ -162,13 +171,19 @@ def record(arguments: Any, rules: Any) -> int:
         return 2
     report_path = arguments.report.resolve()
     report = _load_json(report_path, "attempt report")
-    log_path = (
-        arguments.log.resolve() if arguments.log else PROJECT_ROOT / rules.ATTEMPT_LOG_PATH
-    )
+    log_path = arguments.log.resolve() if arguments.log else PROJECT_ROOT / rules.ATTEMPT_LOG_PATH
     try:
+        # The log is one tracked file, and the report has to be one this
+        # workbench wrote against the canonical criterion. Both are checked
+        # before the append, so a refusal leaves the log untouched.
+        log_path = rules.assert_canonical_log_path(log_path, PROJECT_ROOT)
+        rules.assert_report_is_recordable(report)
         state = rules.append_attempt(log_path, build_record(report, arguments))
     except rules.AttemptError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 2
+    except KeyError as error:
+        print(f"error: attempt report is missing {error}", file=sys.stderr)
         return 2
     print(json.dumps({"attempts": state["attempts"], "log": _relative(log_path)}, sort_keys=True))
     return 0
@@ -298,6 +313,7 @@ def check(rules: Any) -> int:
             failures.append(f"attempt log is invalid: {error}")
         else:
             failures.extend(rules.check_configuration_immutability(PROJECT_ROOT, ATTEMPT_LOG))
+            failures.extend(rules.check_recorded_criterion(PROJECT_ROOT, ATTEMPT_LOG))
     failures.extend(check_attempt_configurations(rules))
     if failures:
         print("error: Task 9H attempt-log checks failed", file=sys.stderr)
@@ -307,8 +323,8 @@ def check(rules: Any) -> int:
     configurations = len(list(PROJECT_ROOT.glob(ATTEMPT_CONFIG_GLOB)))
     print(
         f"task 9H attempts ok: {configurations} attempt configuration(s) valid, "
-        f"{attempts} logged attempt(s) with immutable configurations, "
-        "no final-partition reference, no final-evaluation command"
+        f"{attempts} logged attempt(s) with immutable configurations and the canonical "
+        "criterion, no final-partition reference, no final-evaluation command"
     )
     return 0
 
@@ -337,7 +353,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    rules = _load_attempt_rules()
+    rules = RULES
     if arguments.command == "record":
         if arguments.outcome not in rules.OUTCOMES:
             print(f"error: --outcome must be one of {list(rules.OUTCOMES)}", file=sys.stderr)

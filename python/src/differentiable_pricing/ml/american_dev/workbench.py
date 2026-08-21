@@ -15,6 +15,18 @@ workbench:
   summary an agent can read;
 * exposes **no** final-evaluation entry point.
 
+**A genuine infrastructure failure does not become a silent retry.** Everything
+that can be checked is checked *before* the output directory is created, so a
+bad configuration, an uncommitted source file or a dataset whose identity does
+not match Task 9G's locked one fails with nothing reserved and the same attempt
+ID still available. Once the directory exists the attempt ID is spent: a crash
+part-way through leaves ``status="failed"`` and the recorded failure in the
+ledger, the directory stays, and :func:`execute_attempt` refuses to run that ID
+again. The human records the dead attempt with
+``--outcome infrastructure_failure`` and the retry gets a **new** attempt ID and
+a new configuration file. Deleting the directory to reuse the ID would erase the
+evidence that the first run happened, so it is never the remedy.
+
 **The development criterion is Task 9G's, reused as code rather than restated.**
 Price metrics, slices, bound and shape diagnostics and the pass/fail verdict all
 come from :mod:`differentiable_pricing.ml.american_pilot`, evaluated against
@@ -42,11 +54,17 @@ from ..american_pilot import (
     read_partition_columns,
     shape_diagnostics,
     sliced_metrics,
+    verify_partition_policy,
 )
 from ..artifact import write_json_atomic
 from ..model import fit_scaling
 from .attempts import (
+    ACCEPTANCE_CONFIG_PATH,
     ALLOWED_SPLITS,
+    ATTEMPT_REPORT_SCHEMA,
+    CRITERION_SECTION,
+    PROTOCOL_CONFIG_PATH,
+    assert_contained_relative_path,
     assert_path_allowed,
     assert_split_allowed,
     attempt_seeds,
@@ -55,7 +73,9 @@ from .attempts import (
     select_rows_by_hash,
     sha256_file,
     source_digests,
+    validate_acceptance_config,
     validate_attempt_config,
+    verify_committed_source,
 )
 from .models import build_network, parameter_count
 from .representation import (
@@ -67,12 +87,18 @@ from .representation import (
     representation_arrays,
 )
 
-ATTEMPT_REPORT_SCHEMA: Final = "american-dev-attempt-report/1"
 ATTEMPT_SUMMARY_SCHEMA: Final = "american-dev-attempt-summary/1"
 LEDGER_SCHEMA: Final = "american-dev-attempt-ledger/1"
 
-#: The Task 9G acceptance section Task 9H reuses verbatim as its "works" rule.
-CRITERION_SECTION: Final = "validation_final_entry"
+#: ``ATTEMPT_REPORT_SCHEMA`` and ``CRITERION_SECTION`` are imported from
+#: :mod:`attempts`, which owns the single definition: the PyTorch-free recorder
+#: validates a report against exactly the values this module writes.
+#:
+#: The dataset identities Task 9H may know are the ones Task 9G already locked.
+#: Only the manifest, ``train`` and ``validation`` digests are ever read out of
+#: the protocol; the key naming any other partition's digest is not in the
+#: whitelist below and is never resolved, opened or compared.
+LOCKED_IDENTITY_KEYS: Final = ("manifest_sha256", "train_sha256", "validation_sha256")
 
 EVALUATION_COLUMNS: Final = (
     "sample_id",
@@ -107,15 +133,116 @@ def restricted_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     Every other declared file — including the final partition — is dropped here,
     before any consumer sees the mapping. Its path is never resolved, its digest
     is never read, and its row count is never counted.
+
+    The two retained entries are not trusted either. The manifest is data, not
+    configuration: its ``file`` value is a name this process is about to join to
+    the dataset directory and open. So each retained name goes through the same
+    final-partition guard and containment check as a configured path *before*
+    anything opens, hashes, stats or counts it — a ``train`` entry pointing at
+    ``../interpolation_test.parquet`` fails closed here rather than being read.
     """
-    files = [entry for entry in manifest.get("files", []) if entry.get("split") in ALLOWED_SPLITS]
+    files: list[dict[str, Any]] = []
+    for entry in manifest.get("files", []):
+        if not isinstance(entry, Mapping) or entry.get("split") not in ALLOWED_SPLITS:
+            continue
+        split = assert_split_allowed(str(entry["split"]))
+        name = entry.get("file")
+        if not isinstance(name, str) or not name.strip():
+            raise WorkbenchError(f"dataset manifest entry for {split!r} declares no file name")
+        # Both guards raise ``AttemptError`` subclasses, which the runner already
+        # reports; a final-partition name stays a ``FinalPartitionAccessError``.
+        where = f"dataset manifest entry for {split!r}"
+        assert_path_allowed(name, where=where)
+        assert_contained_relative_path(name, where=where)
+        digest = entry.get("sha256")
+        if not isinstance(digest, str) or len(digest) != 64:
+            raise WorkbenchError(f"{where} declares no SHA-256")
+        files.append(dict(entry))
     present = {str(entry["split"]) for entry in files}
     missing = sorted(set(ALLOWED_SPLITS) - present)
     if missing:
         raise WorkbenchError(f"dataset manifest does not declare partition(s): {missing}")
+    duplicated = sorted(name for name in present if sum(e["split"] == name for e in files) > 1)
+    if duplicated:
+        raise WorkbenchError(f"dataset manifest declares partition(s) twice: {duplicated}")
     restricted = {key: value for key, value in manifest.items() if key != "files"}
     restricted["files"] = files
     return restricted
+
+
+def locked_dataset_identity(protocol: Mapping[str, Any]) -> dict[str, str]:
+    """The manifest, ``train`` and ``validation`` digests Task 9G already locked.
+
+    Whitelisted by key, so no other partition's declared digest is read into a
+    variable, compared, or written to a report — Task 9H learns the identity of
+    the two partitions it may reach and nothing about any other.
+    """
+    dataset = protocol.get("dataset")
+    if not isinstance(dataset, Mapping):
+        raise WorkbenchError(f"'{PROTOCOL_CONFIG_PATH}' declares no [dataset] table")
+    identity: dict[str, str] = {}
+    for key in LOCKED_IDENTITY_KEYS:
+        value = dataset.get(key)
+        if not isinstance(value, str) or len(value) != 64:
+            raise WorkbenchError(f"'{PROTOCOL_CONFIG_PATH}' declares no [dataset].{key}")
+        identity[key] = value
+    return identity
+
+
+def locked_dataset_paths(protocol: Mapping[str, Any]) -> tuple[str, str]:
+    """The dataset directory and manifest Task 9G locked, guarded before use."""
+    paths = protocol.get("paths")
+    if not isinstance(paths, Mapping):
+        raise WorkbenchError(f"'{PROTOCOL_CONFIG_PATH}' declares no [paths] table")
+    resolved: list[str] = []
+    for key in ("dataset", "dataset_manifest"):
+        value = paths.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise WorkbenchError(f"'{PROTOCOL_CONFIG_PATH}' declares no paths.{key}")
+        where = f"locked protocol paths.{key}"
+        assert_path_allowed(value, where=where)
+        assert_contained_relative_path(value, where=where)
+        resolved.append(value)
+    return resolved[0], resolved[1]
+
+
+def verify_dataset_identity(
+    dataset: Path,
+    manifest_path: Path,
+    manifest: Mapping[str, Any],
+    locked: Mapping[str, str],
+) -> dict[str, str]:
+    """Pin the manifest and both reachable partitions to Task 9G's identities.
+
+    Fails closed on any mismatch. Without this an attempt could train on a
+    regenerated or silently edited dataset and still be compared against the
+    Task 9G control, which would make every paired comparison in the attempt log
+    meaningless.
+    """
+    actual_manifest = sha256_file(manifest_path)
+    if actual_manifest != locked["manifest_sha256"]:
+        raise WorkbenchError(
+            f"dataset manifest '{manifest_path}' hashes to {actual_manifest[:12]}…, but Task 9G "
+            f"locked {locked['manifest_sha256'][:12]}…; Task 9H trains on the locked dataset"
+        )
+    digests: dict[str, str] = {"manifest": actual_manifest}
+    for entry in manifest["files"]:
+        split = assert_split_allowed(str(entry["split"]))
+        path = dataset / str(entry["file"])
+        actual = sha256_file(path)
+        if actual != str(entry["sha256"]):
+            raise WorkbenchError(
+                f"{split} partition hashes to {actual[:12]}…, but its manifest entry declares "
+                f"{str(entry['sha256'])[:12]}…"
+            )
+        expected = locked[f"{split}_sha256"]
+        if actual != expected:
+            raise WorkbenchError(
+                f"{split} partition hashes to {actual[:12]}…, but Task 9G locked "
+                f"{expected[:12]}…; Task 9H trains on the locked dataset"
+            )
+        digests[split] = actual
+    return digests
 
 
 def load_partition(dataset: Path, manifest: Mapping[str, Any], split: str) -> dict[str, np.ndarray]:
@@ -366,10 +493,68 @@ def compact_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _repository_relative(path: Path, project_root: Path) -> str:
+    """The repository-relative name of a file that must live inside the tree."""
+    try:
+        relative = Path(path).resolve().relative_to(Path(project_root).resolve())
+    except ValueError as error:
+        raise WorkbenchError(
+            f"'{path}' is outside the repository root '{project_root}'; a Task 9H attempt runs "
+            "only from committed source inside this repository"
+        ) from error
+    return str(relative).replace("\\", "/")
+
+
+def preflight(config_path: Path, project_root: Path) -> dict[str, Any]:
+    """Everything checkable before a single byte of an attempt is reserved.
+
+    Ordered deliberately: a configuration that is invalid, not committed, not
+    inside the repository, or pointed at a dataset whose identity is not Task
+    9G's fails here — with no output directory created, no ledger written and
+    the attempt ID still unused. Only once every one of these holds does
+    :func:`execute_attempt` reserve the attempt, after which the ID is spent
+    whatever happens next.
+    """
+    config = validate_attempt_config(load_toml(config_path))
+    relative_config = _repository_relative(config_path, project_root)
+
+    acceptance_path = _guarded(
+        project_root, str(config["paths"]["acceptance_config"]), where="paths.acceptance_config"
+    )
+    acceptance = load_toml(acceptance_path)
+    validate_acceptance_config(acceptance)
+
+    protocol_path = project_root / PROTOCOL_CONFIG_PATH
+    protocol = load_toml(protocol_path)
+    locked_identity = locked_dataset_identity(protocol)
+    locked_dataset, locked_manifest = locked_dataset_paths(protocol)
+    for key, locked in (("dataset", locked_dataset), ("dataset_manifest", locked_manifest)):
+        declared = str(config["paths"][key])
+        if declared != locked:
+            raise WorkbenchError(
+                f"paths.{key} is '{declared}', but Task 9G locked '{locked}'; Task 9H trains on "
+                "the locked dataset and no other"
+            )
+
+    digests = source_digests(project_root)
+    committed = verify_committed_source(project_root, (relative_config, *digests))
+    return {
+        "config": config,
+        "relative_config": relative_config,
+        "acceptance": acceptance,
+        "acceptance_path": acceptance_path,
+        "locked_identity": locked_identity,
+        "source_digests": digests,
+        "committed_source": committed,
+    }
+
+
 def execute_attempt(config_path: Path, project_root: Path) -> dict[str, Any]:
     """Run one Task 9H price attempt end to end. **Manual human command only.**"""
+    # The reuse refusal comes first, before anything else is examined: an
+    # attempt ID that has already produced outputs is spent, whatever the state
+    # of the tree or the dataset.
     config = validate_attempt_config(load_toml(config_path))
-    paths = config["paths"]
     output = _output(config, project_root)
     ledger_path = _ledger(config, project_root)
     if output.exists() or ledger_path.exists():
@@ -377,6 +562,11 @@ def execute_attempt(config_path: Path, project_root: Path) -> dict[str, Any]:
             f"attempt {config['attempt_id']!r} already has outputs; an attempt is never "
             "overwritten — assign a new attempt ID"
         )
+    checked = preflight(config_path, project_root)
+    config = checked["config"]
+    paths = config["paths"]
+    acceptance_path = checked["acceptance_path"]
+    acceptance = checked["acceptance"]
     repository = repository_identity(project_root)
     config_digest = sha256_file(config_path)
     output.mkdir(parents=True, exist_ok=False)
@@ -387,6 +577,7 @@ def execute_attempt(config_path: Path, project_root: Path) -> dict[str, Any]:
         "status": "reserved",
         "config_sha256": config_digest,
         "repository": repository,
+        "committed_source": checked["committed_source"],
         "report": None,
         "summary": None,
         "failure": None,
@@ -398,11 +589,17 @@ def execute_attempt(config_path: Path, project_root: Path) -> dict[str, Any]:
         manifest_path = _guarded(
             project_root, str(paths["dataset_manifest"]), where="paths.dataset_manifest"
         )
-        acceptance_path = _guarded(
-            project_root, str(paths["acceptance_config"]), where="paths.acceptance_config"
-        )
-        acceptance = load_toml(acceptance_path)
         manifest = restricted_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
+        dataset_digests = verify_dataset_identity(
+            dataset, manifest_path, manifest, checked["locked_identity"]
+        )
+        # Task 9G's own row-level admission check, reused rather than
+        # reimplemented: every row of both reachable partitions must carry the
+        # admitted label policy and step count. A dataset that matches the
+        # locked digests but was admitted under a different policy would train a
+        # model against labels the project never accepted.
+        for split in ALLOWED_SPLITS:
+            verify_partition_policy(dataset, manifest, split)
         train_columns = load_partition(dataset, manifest, "train")
         validation_columns = load_partition(dataset, manifest, "validation")
 
@@ -443,17 +640,23 @@ def execute_attempt(config_path: Path, project_root: Path) -> dict[str, Any]:
             "attempt_id": config["attempt_id"],
             "parent_attempt": str(config.get("parent_attempt", "")),
             "hypothesis": str(config["hypothesis"]),
-            "config_path": str(Path(config_path).relative_to(project_root)),
+            "config_path": checked["relative_config"],
             "config_sha256": config_digest,
             "repository": repository,
-            "source_digests": source_digests(project_root),
+            "source_digests": checked["source_digests"],
+            "committed_source": checked["committed_source"],
             "dataset": {
-                "manifest_sha256": sha256_file(manifest_path),
+                "manifest_sha256": dataset_digests["manifest"],
+                "partition_sha256": {
+                    split: dataset_digests[split] for split in ALLOWED_SPLITS
+                },
+                "identity_locked_by": PROTOCOL_CONFIG_PATH,
+                "row_level_policy_verified": list(ALLOWED_SPLITS),
                 "partitions_opened": list(ALLOWED_SPLITS),
                 "final_partition_touched": False,
             },
             "criterion": {
-                "source": str(Path(acceptance_path).relative_to(project_root)),
+                "source": ACCEPTANCE_CONFIG_PATH,
                 "sha256": sha256_file(acceptance_path),
                 "section": CRITERION_SECTION,
                 "thresholds": dict(acceptance[CRITERION_SECTION]),

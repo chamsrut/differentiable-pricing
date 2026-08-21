@@ -27,9 +27,32 @@ from torch import nn
 
 from ..config import FEATURE_ORDER
 from ..model import PhysicalInputError, Scaling, validate_physical_features
-from .attempts import CONDITIONING_FEATURES, HEADS
+from .attempts import (
+    CONDITIONING_FEATURES,
+    HEADS,
+    NORMALIZED_TARGET,
+    PHYSICAL_RECONSTRUCTION,
+    REPRESENTATION,
+)
 
-REPRESENTATION: Final = "american_forward_carry_v1"
+#: Re-exported from :mod:`attempts`, which owns the single definition so the
+#: PyTorch-free configuration validator and this module cannot disagree about
+#: what an attempt is allowed to declare.
+__all__ = [
+    "NORMALIZED_TARGET",
+    "PHYSICAL_RECONSTRUCTION",
+    "REPRESENTATION",
+    "AmericanDevPriceModel",
+    "base_features",
+    "conditioning_feature",
+    "discounted_spot",
+    "european_price",
+    "feature_order",
+    "intrinsic_value",
+    "network_features",
+    "representation_arrays",
+]
+
 BASE_FEATURE_ORDER: Final = (
     "option_type",
     "log_forward_moneyness",
@@ -37,8 +60,6 @@ BASE_FEATURE_ORDER: Final = (
     "rate_time",
     "yield_time",
 )
-NORMALIZED_TARGET: Final = "u = V / (S * exp(-q * T))"
-PHYSICAL_RECONSTRUCTION: Final = "V = S * exp(-q * T) * u"
 
 _INDEX: Final = {name: FEATURE_ORDER.index(name) for name in FEATURE_ORDER}
 
@@ -221,11 +242,18 @@ class AmericanDevPriceModel(nn.Module):
             raw = raw.squeeze(-1)
         if self.head == "direct":
             return raw * self.price_scale + self.price_mean
-        # premium_over_european: softplus is non-negative, so the reconstructed
-        # price cannot fall below its analytic European anchor. The bound is
-        # non-strict because softplus underflows to exactly zero in float64 for a
-        # very negative pre-activation, which collapses the price onto the anchor
-        # rather than below it.
+        # premium_over_european: softplus is non-negative, so the normalized
+        # premium added to the anchor is non-negative. Two qualifications keep
+        # the claim honest. First, the bound is non-strict: softplus underflows
+        # to exactly zero in float64 for a very negative pre-activation, which
+        # collapses the price onto the anchor rather than below it. Second, the
+        # guarantee is *not* bitwise on the reconstructed physical price:
+        # ``forward`` multiplies this normalized value by ``A``, so the price
+        # carries an ``A * (E / A)`` round-trip that can land one unit in the
+        # last place below ``E``. The shortfall is bounded by a rounding error
+        # of the anchor itself -- of order 1e-16 relative, immaterial against a
+        # 3e-3 normalized RMSE criterion -- but it is a floating-point
+        # near-bound, not an exact one.
         anchor = european_price(physical_features) / discounted_spot(physical_features)
         return anchor + self.price_scale * torch.nn.functional.softplus(raw)
 

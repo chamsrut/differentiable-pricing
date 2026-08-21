@@ -205,22 +205,36 @@ does not reinterpret or rerun it.**
 - **No accepted, versioned PDE-labelled SPY training dataset exists**, and no
   SPY neural surrogate exists. **No American neural surrogate has yet been
   trained and accepted** — task 9G trained two arms and accepted neither.
-- **Task 9H supplies price-only development infrastructure, and nothing has
-  been run.** The package `python/src/differentiable_pricing/ml/american_dev/`
-  holds four modules: `attempts` (partition guard, row/seed selection, digests,
-  clean-tree check, attempt-log rules; PyTorch-free), `representation` (the
-  five `american_forward_carry_v1` coordinates, the European anchor,
-  conditioning features, heads, physical reconstruction), `models` (a dense and
-  a residual network plus dispatch) and `workbench` (one attempt end to end).
+- **Task 9H supplies price-only development infrastructure, and one attempt has
+  been run and recorded.** The package
+  `python/src/differentiable_pricing/ml/american_dev/`
+  holds four modules: `attempts` (partition guard and its single forbidden-token
+  list, row/seed selection, digests, clean-tree and committed-source checks,
+  strict configuration validation, attempt-log rules; PyTorch-free),
+  `representation` (the five `american_forward_carry_v1` coordinates, the
+  European anchor, conditioning features, heads, physical reconstruction),
+  `models` (a dense and a residual network plus dispatch) and `workbench` (one
+  attempt end to end).
   Evaluation reuses Task 9G's `sliced_metrics`, `shape_diagnostics` and
   `assess_arm` against `configs/american_neural_pilot_acceptance_v1.toml`, so
-  the criterion is shared code rather than a copied number. The scripts are the
-  human-only `scripts/run_american_dev_attempt.py` (`run`, `status`) and the
+  the criterion is shared code rather than a copied number, and an attempt may
+  not point at another acceptance file or section. Before an attempt reserves
+  anything, the workbench requires its configuration and every digest-recorded
+  source file to be tracked at `HEAD` and unmodified, and pins the manifest,
+  `train` and `validation` identities to the ones
+  `configs/american_neural_pilot_protocol_v1.toml` locked for Task 9G; it then
+  reuses Task 9G's row-level `verify_partition_policy` on both partitions
+  (DEC-042). The scripts are the human-only
+  `scripts/run_american_dev_attempt.py` (`run`, `status`) and the
   offline `scripts/american_dev_attempts.py` (`record`, `check`; the `check`
   mode is wired into `scripts/check.sh` and CI). Configurations are the five
   immutable `configs/american_dev_attempt_scratch_*.toml`. The append-only
-  attempt log is `docs/attempts/task-9h-attempt-log.jsonl` and it **currently
-  holds no attempts**. **No model has been trained.** No Greek, latency,
+  attempt log is `docs/attempts/task-9h-attempt-log.jsonl`; it holds **one**
+  attempt, `scratch_direct_control_v1`, recorded at `193ab11` with
+  `outcome=criterion_not_met` (normalized RMSE 5.73e-3, p99 2.03e-2, maximum
+  1.19e-1, 10,121 material bound and 1,460 material shape violations, best epoch
+  120 of 120). That is a development measurement selected against `validation`,
+  not a project result. No further model has been trained. No Greek, latency,
   implied-volatility or transfer machinery exists in task 9H.
 
 ## Exact next task
@@ -251,11 +265,14 @@ breaking the digest-pinned Task 9G protocol check.
 learning are separate follow-up stages that begin only after a candidate works;
 none of their machinery is built in advance.
 
-Its current state is **infrastructure implemented, nothing run**: five immutable
-attempt configurations, a human-only runner, an offline attempt-log
-recorder/checker, and an empty append-only attempt log. The human invokes every
-training run; agents implement code and analyze compact summaries and launch
-nothing.
+Its current state is **infrastructure implemented and hardened, one attempt
+recorded**: five immutable attempt configurations, a human-only runner, an
+offline attempt-log recorder/checker, and an append-only attempt log holding the
+failed `scratch_direct_control_v1` control. The human invokes every training
+run; agents implement code and analyze compact summaries and launch nothing.
+
+The next attempt is `scratch_capacity_v1`, whose configuration already exists and
+is unchanged. Nothing has been run for it, and the control is **not** rerun.
 
 **Task 9G is closed and terminal.** Fresh top-level review of the result-only
 change at `a4fd9f2` (merged as PR #27, `main` at `5c0ef6a`) returned **APPROVE
@@ -682,7 +699,7 @@ training (DEC-014, DEC-025).
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 | Local data holdings (9D audit) | [data-holdings-catalogue.md](data-holdings-catalogue.md) | none — audit record, not frozen evidence, no generator script |
 | CRR dataset conditional admission (9E) | [american-crr-dataset-admission.md](american-crr-dataset-admission.md), [american-crr-contract.md](american-crr-contract.md) ("Label policy v1") | none — conditional mapping-only admission, not frozen evidence; implemented checks live in `data/american_admission.py` and incomplete gates are recorded |
-| American price-model development loop (9H) | [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md) | none, and none is expected — task 9H produces development records, not frozen evidence. Its recorded search lives in the append-only `docs/attempts/task-9h-attempt-log.jsonl` (currently empty) and is checked offline by `python3 scripts/american_dev_attempts.py check` in `scripts/check.sh` and CI (DEC-041) |
+| American price-model development loop (9H) | [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md) | none, and none is expected — task 9H produces development records, not frozen evidence. Its recorded search lives in the append-only `docs/attempts/task-9h-attempt-log.jsonl` (one entry: the failed `scratch_direct_control_v1` control) and is checked offline by `python3 scripts/american_dev_attempts.py check` in `scripts/check.sh` and CI (DEC-041, DEC-042) |
 | American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json) — frozen negative result, `validation_gates_failed` / `failure_to_learn`, final partition unconsumed. Enforced by `scripts/freeze_american_neural_pilot_results.py --check` in `scripts/check.sh` and CI (DEC-036, DEC-037, DEC-038); result acceptance pending fresh top-level review |
 
 ## New-agent checklist

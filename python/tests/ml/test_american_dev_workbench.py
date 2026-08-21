@@ -22,13 +22,16 @@ import numpy as np
 import pytest
 import torch
 from differentiable_pricing.ml.american_dev.attempts import (
+    ACCEPTANCE_CONFIG_PATH,
     ATTEMPT_LOG_SCHEMA,
     ATTEMPT_SCHEMA,
     OUTCOMES,
     AttemptError,
     FinalPartitionAccessError,
     append_attempt,
+    assert_canonical_log_path,
     assert_path_allowed,
+    assert_report_is_recordable,
     assert_split_allowed,
     attempt_seeds,
     check_configuration_immutability,
@@ -36,10 +39,18 @@ from differentiable_pricing.ml.american_dev.attempts import (
     load_toml,
     repository_identity,
     select_rows_by_hash,
+    source_digests,
+    validate_acceptance_config,
     validate_attempt_config,
     validate_attempt_log,
+    verify_committed_source,
 )
-from differentiable_pricing.ml.american_dev.representation import representation_arrays
+from differentiable_pricing.ml.american_dev.representation import (
+    AmericanDevPriceModel,
+    discounted_spot,
+    european_price,
+    representation_arrays,
+)
 from differentiable_pricing.ml.american_dev.workbench import (
     CRITERION_SECTION,
     WorkbenchError,
@@ -48,8 +59,12 @@ from differentiable_pricing.ml.american_dev.workbench import (
     compact_summary,
     evaluate_attempt,
     execute_attempt,
+    locked_dataset_identity,
+    locked_dataset_paths,
+    preflight,
     restricted_manifest,
     train_model,
+    verify_dataset_identity,
 )
 from differentiable_pricing.ml.model import fit_scaling
 
@@ -419,6 +434,28 @@ def test_an_existing_attempt_is_never_overwritten(tmp_path: Path) -> None:
         execute_attempt(config_path, tmp_path)
 
 
+def test_a_failed_attempt_may_not_be_silently_rerun_under_the_same_id(
+    tmp_path: Path,
+) -> None:
+    """Deleting the outputs is not the remedy; a retry gets a new attempt ID.
+
+    The ledger alone is enough to refuse, so removing the artifacts directory
+    after a crash still does not free the ID.
+    """
+    config_path = tmp_path / "attempt.toml"
+    config_path.write_text(CONTROL_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+    ledger = tmp_path / "runs/task-9h/scratch_direct_control_v1/attempt.json"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(
+        json.dumps({"attempt_id": "scratch_direct_control_v1", "status": "failed"}),
+        encoding="utf-8",
+    )
+    assert not (tmp_path / "artifacts").exists()
+    with pytest.raises(WorkbenchError, match="never overwritten"):
+        execute_attempt(config_path, tmp_path)
+    assert attempt_status(config_path, tmp_path)["status"] == "failed"
+
+
 def test_status_of_an_unstarted_attempt_opens_nothing(tmp_path: Path) -> None:
     config_path = tmp_path / "attempt.toml"
     config_path.write_text(CONTROL_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
@@ -552,11 +589,12 @@ def test_a_log_without_its_header_is_invalid(tmp_path: Path) -> None:
         validate_attempt_log(log)
 
 
-def test_the_tracked_attempt_log_is_valid_and_starts_empty() -> None:
+def test_the_tracked_attempt_log_is_valid_and_keeps_every_recorded_attempt() -> None:
     state = validate_attempt_log(Path("docs/attempts/task-9h-attempt-log.jsonl"))
     assert state["header"]["task"] == "task-9h-american-pricer-development"
     assert "none is a project result" in state["header"]["selection_bias"]
-    assert state["attempts"] == 0
+    assert "scratch_direct_control_v1" in state["attempt_ids"]
+    assert state["attempts"] == len(state["attempt_ids"])
 
 
 # ---------------------------------------------------------------------------
@@ -635,3 +673,501 @@ def test_the_compact_summary_carries_a_verdict_and_the_worst_slices() -> None:
     assert all(entry["rows"] for entry in summary["worst_slices"])
     assert "not a project result" in summary["selection_bias"]
     assert len(json.dumps(summary)) < 8192
+
+
+# ---------------------------------------------------------------------------
+# Committed-source verification
+# ---------------------------------------------------------------------------
+
+
+def test_committed_source_accepts_a_tracked_unmodified_file(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    identities = verify_committed_source(repository, ["tracked.txt"])
+    assert set(identities) == {"tracked.txt"}
+    assert len(identities["tracked.txt"]) == 40
+
+
+def test_committed_source_refuses_a_file_that_is_not_tracked_at_head(tmp_path: Path) -> None:
+    """A brand-new file passes `git status --untracked-files=no` and must not."""
+    repository = _repository(tmp_path)
+    (repository / "new_module.py").write_text("x = 1\n", encoding="utf-8")
+    assert repository_identity(repository)["tracked_worktree_clean"] is True
+    with pytest.raises(AttemptError, match="not tracked at HEAD"):
+        verify_committed_source(repository, ["new_module.py"])
+
+
+def test_committed_source_refuses_a_staged_but_uncommitted_file(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    (repository / "staged.py").write_text("x = 1\n", encoding="utf-8")
+    _git(repository, "add", "staged.py")
+    with pytest.raises(AttemptError, match="not tracked at HEAD"):
+        verify_committed_source(repository, ["staged.py"])
+
+
+def test_committed_source_refuses_a_tracked_file_that_differs_from_head(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    (repository / "tracked.txt").write_text("edited\n", encoding="utf-8")
+    with pytest.raises(AttemptError, match="differs from its HEAD blob"):
+        verify_committed_source(repository, ["tracked.txt"])
+
+
+def test_committed_source_ignores_the_rest_of_the_workspace(tmp_path: Path) -> None:
+    """Ignored artifacts and runs are expected; only the named files are pinned."""
+    repository = _repository(tmp_path)
+    (repository / "artifacts").mkdir()
+    (repository / "artifacts/checkpoint.pt").write_text("weights\n", encoding="utf-8")
+    (repository / "runs").mkdir()
+    (repository / "runs/attempt.json").write_text("{}\n", encoding="utf-8")
+    assert verify_committed_source(repository, ["tracked.txt"])
+
+
+def test_committed_source_refuses_a_name_that_escapes_the_repository(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    with pytest.raises(AttemptError, match="relative path inside the repository"):
+        verify_committed_source(repository, ["../outside.py"])
+
+
+def test_source_digests_pin_the_criterion_and_the_locked_protocol() -> None:
+    """Files that change what an attempt *means* are pinned, not just its code."""
+    digests = source_digests(Path("."))
+    assert ACCEPTANCE_CONFIG_PATH in digests
+    assert "configs/american_neural_pilot_protocol_v1.toml" in digests
+    assert "python/src/differentiable_pricing/ml/american_dev/workbench.py" in digests
+    assert all(len(value) == 64 for value in digests.values())
+
+
+def test_every_pinned_source_file_is_committed_and_unmodified() -> None:
+    """The repository itself satisfies the rule an attempt would be held to.
+
+    Conditional by construction: mid-change the tracked tree is dirty and an
+    attempt could not start either, which is the point. It is asserted wherever
+    the tree is clean — CI, and any checkout an attempt would actually run from.
+    """
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        pytest.skip("tracked worktree is modified; an attempt could not start here either")
+    digests = source_digests(Path("."))
+    assert set(verify_committed_source(Path("."), digests)) == set(digests)
+
+
+# ---------------------------------------------------------------------------
+# Partition identity and manifest path enforcement
+# ---------------------------------------------------------------------------
+
+
+def _manifest(**overrides: Any) -> dict[str, Any]:
+    manifest = {
+        "schema_version": "american-option-dataset/1",
+        "files": [
+            {"split": "train", "file": "train.parquet", "sha256": "a" * 64, "rows": 10},
+            {"split": "validation", "file": "validation.parquet", "sha256": "b" * 64, "rows": 5},
+        ],
+    }
+    manifest.update(overrides)
+    return manifest
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../interpolation_test.parquet",
+        "subdir/../../holdout.parquet",
+        "/absolute/train.parquet",
+    ],
+    ids=["parent-escape", "escape-through-subdir", "absolute"],
+)
+def test_a_manifest_entry_may_not_escape_the_dataset_directory(name: str) -> None:
+    """The manifest is data: its file name is guarded before anything opens it."""
+    manifest = _manifest(
+        files=[
+            {"split": "train", "file": name, "sha256": "a" * 64, "rows": 10},
+            {"split": "validation", "file": "validation.parquet", "sha256": "b" * 64, "rows": 5},
+        ]
+    )
+    with pytest.raises(AttemptError):
+        restricted_manifest(manifest)
+
+
+def test_a_retained_manifest_entry_naming_a_final_partition_fails_closed() -> None:
+    """A `train` entry pointing at the final partition is refused, not opened."""
+    manifest = _manifest(
+        files=[
+            {"split": "train", "file": "interpolation_test.parquet", "sha256": "a" * 64, "rows": 1},
+            {"split": "validation", "file": "validation.parquet", "sha256": "b" * 64, "rows": 5},
+        ]
+    )
+    with pytest.raises(FinalPartitionAccessError, match="final or held-out partition"):
+        restricted_manifest(manifest)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"split": "train", "rows": 10, "sha256": "a" * 64},
+        {"split": "train", "file": "   ", "sha256": "a" * 64, "rows": 10},
+        {"split": "train", "file": "train.parquet", "rows": 10},
+        {"split": "train", "file": "train.parquet", "sha256": "short", "rows": 10},
+    ],
+    ids=["no-file", "blank-file", "no-digest", "malformed-digest"],
+)
+def test_a_retained_manifest_entry_must_declare_a_name_and_a_digest(entry: dict) -> None:
+    manifest = _manifest(
+        files=[
+            entry,
+            {"split": "validation", "file": "validation.parquet", "sha256": "b" * 64, "rows": 5},
+        ]
+    )
+    with pytest.raises(WorkbenchError):
+        restricted_manifest(manifest)
+
+
+def test_a_manifest_declaring_a_partition_twice_is_refused() -> None:
+    manifest = _manifest(
+        files=[
+            {"split": "train", "file": "train.parquet", "sha256": "a" * 64, "rows": 10},
+            {"split": "train", "file": "other.parquet", "sha256": "c" * 64, "rows": 10},
+            {"split": "validation", "file": "validation.parquet", "sha256": "b" * 64, "rows": 5},
+        ]
+    )
+    with pytest.raises(WorkbenchError, match="twice"):
+        restricted_manifest(manifest)
+
+
+def test_the_locked_identity_is_read_from_the_task_9g_protocol() -> None:
+    protocol = load_toml(Path("configs/american_neural_pilot_protocol_v1.toml"))
+    identity = locked_dataset_identity(protocol)
+    assert set(identity) == {"manifest_sha256", "train_sha256", "validation_sha256"}
+    assert all(len(value) == 64 for value in identity.values())
+    dataset, manifest = locked_dataset_paths(protocol)
+    assert dataset == "data/american-option-v1"
+    assert manifest == "data/american-option-v1/manifest.json"
+
+
+def test_the_locked_identity_never_carries_another_partitions_digest() -> None:
+    """Whitelisted by key: no other partition's declared identity is read out."""
+    protocol = load_toml(Path("configs/american_neural_pilot_protocol_v1.toml"))
+    identity = locked_dataset_identity(protocol)
+    other = {
+        str(value)
+        for key, value in protocol["dataset"].items()
+        if key not in identity and isinstance(value, str)
+    }
+    assert other
+    assert not other & set(identity.values())
+
+
+@pytest.mark.parametrize("missing", ["manifest_sha256", "train_sha256", "validation_sha256"])
+def test_a_protocol_without_a_locked_identity_is_refused(missing: str) -> None:
+    protocol = load_toml(Path("configs/american_neural_pilot_protocol_v1.toml"))
+    dataset = {key: value for key, value in protocol["dataset"].items() if key != missing}
+    with pytest.raises(WorkbenchError, match=missing):
+        locked_dataset_identity({**protocol, "dataset": dataset})
+
+
+def _dataset_on_disk(tmp_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, str]]:
+    dataset = tmp_path / "data/american-option-v1"
+    dataset.mkdir(parents=True)
+    digests = {}
+    for split in ("train", "validation"):
+        path = dataset / f"{split}.parquet"
+        path.write_text(f"{split} rows\n", encoding="utf-8")
+        digests[split] = _sha256(path)
+    manifest = {
+        "schema_version": "american-option-dataset/1",
+        "files": [
+            {"split": split, "file": f"{split}.parquet", "sha256": digests[split], "rows": 1}
+            for split in ("train", "validation")
+        ],
+    }
+    manifest_path = dataset / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    locked = {
+        "manifest_sha256": _sha256(manifest_path),
+        "train_sha256": digests["train"],
+        "validation_sha256": digests["validation"],
+    }
+    return dataset, manifest_path, restricted_manifest(manifest), locked
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_dataset_identity_matching_the_locked_one_is_accepted(tmp_path: Path) -> None:
+    dataset, manifest_path, manifest, locked = _dataset_on_disk(tmp_path)
+    digests = verify_dataset_identity(dataset, manifest_path, manifest, locked)
+    assert set(digests) == {"manifest", "train", "validation"}
+    assert digests["train"] == locked["train_sha256"]
+
+
+@pytest.mark.parametrize("key", ["manifest_sha256", "train_sha256", "validation_sha256"])
+def test_a_dataset_that_is_not_the_locked_one_fails_closed(tmp_path: Path, key: str) -> None:
+    """Otherwise an attempt could be compared against a control it never shared."""
+    dataset, manifest_path, manifest, locked = _dataset_on_disk(tmp_path)
+    with pytest.raises(WorkbenchError, match="Task 9G locked"):
+        verify_dataset_identity(dataset, manifest_path, manifest, {**locked, key: "d" * 64})
+
+
+def test_a_partition_that_contradicts_its_own_manifest_entry_fails_closed(
+    tmp_path: Path,
+) -> None:
+    dataset, manifest_path, manifest, locked = _dataset_on_disk(tmp_path)
+    (dataset / "train.parquet").write_text("tampered\n", encoding="utf-8")
+    with pytest.raises(WorkbenchError, match="manifest entry declares"):
+        verify_dataset_identity(dataset, manifest_path, manifest, locked)
+
+
+def test_the_workbench_reuses_the_task_9g_row_level_policy_verification() -> None:
+    """N5: the admitted label policy is checked per row, by Task 9G's own code."""
+    import ast
+    import inspect
+
+    import differentiable_pricing.ml.american_dev.workbench as module
+
+    source = Path(inspect.getfile(module)).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "american_pilot" and node.level == 2
+        for alias in node.names
+    }
+    assert "verify_partition_policy" in imported
+    executor = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "execute_attempt"
+    )
+    called = {
+        node.func.id
+        for node in ast.walk(executor)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "verify_partition_policy" in called
+    assert "verify_dataset_identity" in called
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight: everything checkable before an attempt is reserved
+# ---------------------------------------------------------------------------
+
+
+def test_preflight_refuses_a_configuration_outside_the_repository(tmp_path: Path) -> None:
+    config_path = tmp_path / "attempt.toml"
+    config_path.write_text(CONTROL_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(WorkbenchError, match="outside the repository root"):
+        preflight(config_path, tmp_path / "elsewhere")
+
+
+def test_preflight_reserves_nothing_when_it_refuses(tmp_path: Path) -> None:
+    """A bad attempt leaves its ID unused: no directory, no ledger, no reuse."""
+    config_path = tmp_path / "attempt.toml"
+    broken = CONTROL_CONFIG.read_text(encoding="utf-8").replace(
+        'rule = "lowest SHA-256(salt + NUL + sample_id), sample_id tie-break"',
+        'rule = "first 32768 rows"',
+    )
+    config_path.write_text(broken, encoding="utf-8")
+    with pytest.raises(AttemptError, match=r"row_selection\.rule"):
+        execute_attempt(config_path, tmp_path)
+    assert not (tmp_path / "artifacts").exists()
+    assert not (tmp_path / "runs").exists()
+
+
+def test_the_acceptance_configuration_must_carry_the_reused_criterion() -> None:
+    acceptance = load_toml(ACCEPTANCE_CONFIG)
+    section = validate_acceptance_config(acceptance)
+    assert section["normalized_rmse_max"] == 0.003
+
+    with pytest.raises(AttemptError, match="schema"):
+        validate_acceptance_config({**acceptance, "schema_version": "something-else/1"})
+    without_section = {key: value for key, value in acceptance.items() if key != CRITERION_SECTION}
+    with pytest.raises(AttemptError, match=CRITERION_SECTION):
+        validate_acceptance_config(without_section)
+    thinned = {
+        key: value
+        for key, value in acceptance[CRITERION_SECTION].items()
+        if key != "normalized_rmse_max"
+    }
+    with pytest.raises(AttemptError, match="missing threshold"):
+        validate_acceptance_config({**acceptance, CRITERION_SECTION: thinned})
+
+
+def test_an_attempt_may_not_point_at_another_acceptance_configuration() -> None:
+    config = validate_attempt_config(load_toml(CONTROL_CONFIG))
+    config["paths"] = {**config["paths"], "acceptance_config": "configs/looser_criterion.toml"}
+    with pytest.raises(AttemptError, match=r"paths\.acceptance_config must be"):
+        validate_attempt_config(config)
+
+
+# ---------------------------------------------------------------------------
+# Declared fields are validated against implemented behavior
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [
+        (None, "representation", "american_raw_v1"),
+        (None, "target", "V"),
+        (None, "physical_reconstruction", "V = u"),
+        ("optimizer", "name", "sgd"),
+        ("optimizer", "schedule", "step"),
+        ("checkpoint", "metric", "physical_price_rmse"),
+        ("checkpoint", "rule", "last epoch"),
+        ("training", "shuffle", "numpy default_rng once per epoch"),
+        ("row_selection", "rule", "first N rows"),
+        ("seeds", "derivation", "a magic number"),
+    ],
+    ids=lambda value: str(value),
+)
+def test_an_unsupported_declared_value_is_refused(
+    section: str | None, key: str, value: str
+) -> None:
+    """Declared but not dispatched is the failure mode: the log would lie."""
+    config = validate_attempt_config(load_toml(CONTROL_CONFIG))
+    if section is None:
+        config[key] = value
+    else:
+        config[section] = {**config[section], key: value}
+    with pytest.raises(AttemptError, match=key):
+        validate_attempt_config(config)
+
+
+@pytest.mark.parametrize(
+    ("section", "key"),
+    [
+        (None, "gradient_weight"),
+        ("optimizer", "momentum"),
+        ("training", "early_stopping_patience"),
+        ("checkpoint", "smoothing"),
+        ("evaluation", "greeks"),
+        ("paths", "interpolation_manifest"),
+        ("seeds", "dropout_label"),
+        ("row_selection", "stratify_by"),
+        ("architecture", "dropout"),
+    ],
+    ids=lambda value: str(value),
+)
+def test_an_unknown_declared_key_is_refused(section: str | None, key: str) -> None:
+    """An ignored declaration would still be recorded in the attempt log."""
+    config = validate_attempt_config(load_toml(CONTROL_CONFIG))
+    if section is None:
+        config[key] = "something"
+    else:
+        config[section] = {**config[section], key: "something"}
+    with pytest.raises(AttemptError, match="unsupported key"):
+        validate_attempt_config(config)
+
+
+def test_a_missing_declared_key_is_refused() -> None:
+    config = validate_attempt_config(load_toml(CONTROL_CONFIG))
+    config["optimizer"] = {
+        key: value for key, value in config["optimizer"].items() if key != "weight_decay"
+    }
+    with pytest.raises(AttemptError, match="missing key"):
+        validate_attempt_config(config)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("learning_rate", 0.0),
+        ("epsilon", 0.0),
+        ("beta1", 1.0),
+        ("beta2", -0.1),
+        ("weight_decay", -1.0),
+        ("schedule_period_epochs", 0),
+    ],
+    ids=lambda value: str(value),
+)
+def test_an_out_of_range_optimizer_value_is_refused(key: str, value: float) -> None:
+    config = validate_attempt_config(load_toml(CONTROL_CONFIG))
+    config["optimizer"] = {**config["optimizer"], key: value}
+    with pytest.raises(AttemptError, match=key):
+        validate_attempt_config(config)
+
+
+def test_every_tracked_configuration_declares_only_dispatched_behavior() -> None:
+    """The five immutable attempts survive the stricter rules unchanged."""
+    paths = sorted(Path("configs").glob("american_dev_attempt_*.toml"))
+    assert len(paths) == 5
+    for path in paths:
+        config = validate_attempt_config(load_toml(path))
+        assert config["optimizer"]["name"] == "adamw"
+        assert config["optimizer"]["schedule"] == "cosine_annealing"
+        assert config["checkpoint"]["metric"] == "standardized_target_mse"
+        assert config["paths"]["acceptance_config"] == ACCEPTANCE_CONFIG_PATH
+
+
+# ---------------------------------------------------------------------------
+# The canonical log and the recordable report
+# ---------------------------------------------------------------------------
+
+
+def test_the_attempt_log_path_is_canonical(tmp_path: Path) -> None:
+    canonical = tmp_path / "docs/attempts/task-9h-attempt-log.jsonl"
+    assert assert_canonical_log_path(canonical, tmp_path) == canonical.resolve()
+    with pytest.raises(AttemptError, match="append-only file"):
+        assert_canonical_log_path(tmp_path / "other.jsonl", tmp_path)
+
+
+def test_a_report_is_recordable_only_with_its_schema_and_criterion() -> None:
+    report = {
+        "schema_version": "american-dev-attempt-report/1",
+        "criterion": {"source": ACCEPTANCE_CONFIG_PATH, "section": CRITERION_SECTION},
+    }
+    assert assert_report_is_recordable(report) is None
+    with pytest.raises(AttemptError, match="report schema"):
+        assert_report_is_recordable({**report, "schema_version": "american-dev-attempt-report/2"})
+    with pytest.raises(AttemptError, match="criterion must come from"):
+        assert_report_is_recordable({**report, "criterion": {"source": "configs/other.toml"}})
+    with pytest.raises(AttemptError, match="section"):
+        assert_report_is_recordable(
+            {
+                **report,
+                "criterion": {"source": ACCEPTANCE_CONFIG_PATH, "section": "final_accuracy"},
+            }
+        )
+
+
+# ---------------------------------------------------------------------------
+# The premium head's guarantee, as it actually holds
+# ---------------------------------------------------------------------------
+
+
+def test_the_premium_head_is_bounded_below_by_the_european_anchor_up_to_rounding() -> None:
+    """Non-strict, and *not* bitwise: the A*(E/A) round-trip costs about an ulp.
+
+    The claim under test is the corrected one. A price may sit one unit in the
+    last place below its analytic European anchor after reconstruction, which is
+    immaterial against a 3e-3 normalized criterion but is not the exact bound the
+    documentation used to assert.
+    """
+    physical = _physical(256)
+    prices = np.linspace(4.0, 16.0, physical.shape[0])
+    features, targets = representation_arrays(physical, prices, ())
+    scaling = fit_scaling(features, targets)
+    config = {**_training_config(), "head": "premium_over_european"}
+    network = build_model(config, scaling).network
+    model = AmericanDevPriceModel(network, scaling, head="premium_over_european")
+    tensor = torch.as_tensor(physical, dtype=torch.float64)
+    with torch.no_grad():
+        # Drive softplus into underflow, the case the guarantee is weakest in.
+        for parameter in model.network.parameters():
+            parameter.fill_(0.0)
+        last = [layer for layer in model.network.layers if isinstance(layer, torch.nn.Linear)][-1]
+        last.bias.fill_(-1000.0)
+        price = model(tensor)
+        anchor = european_price(tensor)
+        scale = discounted_spot(tensor)
+    shortfall = (anchor - price).numpy()
+    tolerance = 4.0 * np.spacing(np.abs(anchor.numpy()))
+    assert bool((shortfall <= tolerance).all())
+    assert bool((shortfall / scale.numpy() <= 1.0e-12).all())

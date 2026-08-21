@@ -5,7 +5,8 @@
 `status=active; type=adaptive_exploratory_development; scope=price_only;
 branch=experiment/task-9h-american-pricer-development;
 partitions_available=train+validation; final_partition_access=forbidden;
-infrastructure implemented, nothing run.`
+infrastructure implemented and hardened; one attempt recorded
+(scratch_direct_control_v1, criterion_not_met); no attempt running.`
 
 Task 9G is terminal and negative ([decision-log.md](../../decision-log.md)
 DEC-038, approved by DEC-039). This task is opened by DEC-041.
@@ -36,18 +37,53 @@ partition**, as its own task with its own gates and its own review.
    `interpolation_test` or another final partition.** The workbench fails closed
    on any such split name or resolved path, strips the dataset manifest to the
    two reachable splits before anything else sees it, and exposes no
-   final-evaluation command.
+   final-evaluation command. The **retained** manifest entries are guarded too:
+   a supplied file name goes through the same final-partition and containment
+   check as a configured path before anything opens, hashes, stats or counts it,
+   so a `train` entry pointing at `../interpolation_test.parquet` is refused
+   rather than read. One forbidden-token definition
+   (`attempts.FORBIDDEN_PARTITION_TOKENS`) serves both the runtime guard and the
+   offline static scan, so the two cannot drift apart.
 3. Every attempt is recorded — successful, failed and abandoned alike — in the
-   append-only attempt log. An existing entry is never rewritten.
-4. Every real attempt runs from a **clean committed source tree**. The runner
-   refuses to start with tracked worktree modifications and records the exact
-   commit.
+   append-only attempt log at the canonical path
+   `docs/attempts/task-9h-attempt-log.jsonl`, and nowhere else. An existing
+   entry is never rewritten, and only a report of this workbench's schema,
+   judged against the canonical criterion, may be recorded.
+4. Every real attempt runs from a **clean committed source tree**, and from
+   **committed source specifically**. The runner refuses to start with tracked
+   worktree modifications, and separately requires the selected attempt
+   configuration and every file recorded in `source_digests` — the Task 9H
+   package, both scripts, the acceptance configuration and the locked Task 9G
+   protocol — to be tracked at `HEAD` and byte-identical to their `HEAD` blob.
+   A clean `git status --untracked-files=no` alone would still admit a brand-new
+   untracked configuration or module, in which case the recorded commit would
+   not describe what ran. Ignored artifacts and runs are unaffected: the
+   untracked workspace is **not** required to be empty.
 5. **Attempt configurations are immutable after use.** A used configuration is
    never edited; a changed idea gets a new attempt ID and a new file.
 6. Agents implement code and configuration and analyze compact summaries.
    **The human invokes every training run.**
 7. Later attempts may respond to earlier validation results. That is the point
    of the loop, and it is also exactly what makes the output biased.
+8. **The dataset identity is pinned to Task 9G's.** Before training, the
+   manifest and both reachable partitions must hash to the `manifest_sha256`,
+   `train_sha256` and `validation_sha256` that
+   `configs/american_neural_pilot_protocol_v1.toml` already locked, and the
+   declared dataset and manifest paths must be the ones that protocol names.
+   Only those three identities are read out of the protocol; no other
+   partition's declared digest is resolved, compared or recorded. Any mismatch
+   fails closed — otherwise an attempt could train on a regenerated dataset and
+   still be compared against the Task 9G control. Task 9G's own row-level
+   `label_policy` / `label_steps` verification
+   (`ml.american_pilot.verify_partition_policy`) is then run over both
+   partitions, reused rather than reimplemented.
+9. **Every declared configuration field must be behavior that is implemented and
+   dispatched.** An unsupported `optimizer.name`, `optimizer.schedule`,
+   `checkpoint.metric`, `checkpoint.rule`, `training.shuffle`,
+   `row_selection.rule`, `seeds.derivation`, `representation`, `target` or
+   `physical_reconstruction` is refused, as is any unknown key in any section.
+   A declaration execution would silently ignore is never recorded in the
+   attempt log, because the log has to describe what actually ran.
 
 ## The definition of "works", fixed before the first attempt
 
@@ -79,6 +115,16 @@ CI, so **the criterion cannot be quietly loosened after an attempt fails**.
 There is no development-only revision of it. If a revision ever becomes
 necessary, it is argued for in this section first, before the attempt that would
 benefit from it runs.
+
+**The reference is enforced, not merely conventional.** An attempt configuration
+whose `paths.acceptance_config` is not
+`configs/american_neural_pilot_acceptance_v1.toml` is refused; the acceptance
+file's schema and `[validation_final_entry]` thresholds are validated before an
+attempt directory is created; a report may only be recorded if it cites that
+file and that section; and
+`python3 scripts/american_dev_attempts.py check` re-verifies offline that every
+logged attempt cites that file, that section, and the digest the tracked file
+still hashes to.
 
 Task 9G reached this criterion under `[validation_final_entry]` as a gate for
 *entering* a final evaluation; task 9H reuses the same numbers as a development
@@ -112,12 +158,23 @@ Every candidate uses the `american_forward_carry_v1` representation and the
 | `scratch_american_premium_v1` | premium head over a European anchor | whether the residual over a known European price is an easier map |
 | `scratch_conditioning_v1` | adds `european_price_ratio` and `intrinsic_ratio` | whether conditioning, not capacity, is the binding constraint |
 
-**The premium head's guarantee, stated exactly.** The head is
-`anchor + price_scale * softplus(raw)` with the anchor the analytic
-continuous-yield European price, so the reconstructed price cannot fall below
-it. The bound is non-strict: `softplus` underflows to exactly zero in float64
-for a sufficiently negative pre-activation, which collapses the price onto the
-anchor rather than below it. Every other bound remains a reported diagnostic.
+**The premium head's guarantee, stated exactly.** The head produces the
+*normalized* value `anchor + price_scale * softplus(raw)`, with the anchor the
+analytic continuous-yield European price divided by `A = S*exp(-q*T)`. Two
+qualifications keep the claim honest.
+
+- The bound is **non-strict**: `softplus` underflows to exactly zero in float64
+  for a sufficiently negative pre-activation, which collapses the price onto the
+  anchor rather than below it.
+- The bound is **not bitwise on the reconstructed physical price**. The
+  reconstruction multiplies by `A`, so the price carries an `A * (E / A)`
+  floating-point round-trip and can land **one unit in the last place below the
+  European anchor** — a relative shortfall of order `1e-16`, immaterial against
+  a `3e-3` normalized RMSE criterion, but a near-bound rather than an exact one.
+  The earlier wording, "the reconstructed price cannot fall below it", overstated
+  what the arithmetic delivers and is corrected here.
+
+Every other bound remains a reported diagnostic.
 
 **The conditioning features add no economic information.** Each is a
 deterministic function of inputs the network already receives, so the candidate
@@ -127,10 +184,10 @@ tests conditioning, not extra knowledge.
 
 | Path | What it is |
 |---|---|
-| `python/src/differentiable_pricing/ml/american_dev/attempts.py` | partition guard, row/seed selection, digests, clean-tree check, attempt-log rules. PyTorch-free |
+| `python/src/differentiable_pricing/ml/american_dev/attempts.py` | partition guard and its single token list, row/seed selection, digests, clean-tree and committed-source checks, strict configuration validation, attempt-log rules. PyTorch-free |
 | `python/src/differentiable_pricing/ml/american_dev/representation.py` | the five coordinates, the European anchor, conditioning features, heads, physical reconstruction |
 | `python/src/differentiable_pricing/ml/american_dev/models.py` | the dense and residual networks, and their dispatch |
-| `python/src/differentiable_pricing/ml/american_dev/workbench.py` | one attempt end to end, evaluated against the reused Task 9G criterion |
+| `python/src/differentiable_pricing/ml/american_dev/workbench.py` | pre-flight, dataset identity pinning and row-level policy verification, one attempt end to end, evaluated against the reused Task 9G criterion |
 | `configs/american_dev_attempt_scratch_*.toml` | the five immutable attempt configurations |
 | `scripts/run_american_dev_attempt.py` | **manual**: `run`, `status` — and no third command |
 | `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log and configurations |
@@ -165,6 +222,25 @@ python3 scripts/american_dev_attempts.py check
 ```
 
 There is deliberately no final-evaluation command and no flag that adds one.
+
+## A genuine infrastructure failure
+
+Everything checkable is checked **before** the attempt's output directory is
+created: configuration validity, containment inside the repository, the
+supported-value rules, the acceptance schema and section, the locked dataset
+paths, and committed source. A refusal at that stage reserves nothing — no
+directory, no ledger — and the attempt ID is still unused, so the same
+configuration may simply be run again once the cause is fixed.
+
+Once the directory exists the attempt ID is **spent**. A crash after that point
+leaves `status="failed"` and the recorded failure in the run ledger, the output
+directory in place, and `execute_attempt` refuses that ID from then on. The
+remedy is to record the dead attempt with `--outcome infrastructure_failure` and
+an honest interpretation, then give the retry a **new** attempt ID and a **new**
+configuration file. Deleting the output directory to reuse the ID would erase
+the evidence that the first run happened, and is never the remedy — that is the
+difference between a recorded search and a search that quietly reports only its
+last try.
 
 ## Non-claims
 

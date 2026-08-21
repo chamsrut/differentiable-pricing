@@ -144,7 +144,9 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
 - **Active task:**
   [docs/tasks/active/task-9h-american-pricer-development.md](docs/tasks/active/task-9h-american-pricer-development.md)
   (task 9H — adaptive American price-model development), status
-  `infrastructure implemented; nothing run`. Its manual human command is
+  `infrastructure implemented and hardened; one attempt recorded`
+  (`scratch_direct_control_v1`, `criterion_not_met`; DEC-042). Its manual
+  human command is
   `python3 scripts/run_american_dev_attempt.py run|status` — **an agent reports
   it and stops**. The offline, agent-safe tool is
   `python3 scripts/american_dev_attempts.py record|check`.

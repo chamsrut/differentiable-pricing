@@ -1469,3 +1469,82 @@ snapshot, which remains authoritative for the numbers.
   [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
   [project-state.md](project-state.md),
   DEC-034, DEC-038, DEC-039
+
+### DEC-042 — Task 9H workbench hardened after fresh review; nothing rerun
+
+- **Status:** Active. Applies to task 9H (DEC-041) and to nothing already
+  frozen.
+- **Context:** a fresh review of the task 9H workbench, after the first attempt
+  (`scratch_direct_control_v1`, `criterion_not_met`, recorded at `193ab11`),
+  found provenance and partition-identity gaps that would not have been caught
+  by the existing checks. None of them invalidates the recorded attempt; all of
+  them would have made a later attempt harder to trust.
+- **Decision:** implement the review's findings on the same branch, without
+  running anything, without touching any dataset partition, and without
+  altering the completed attempt, its immutable configuration, its recorded
+  result or the append-only log.
+- **Committed-source verification (M1).** A clean
+  `git status --untracked-files=no` still admits a brand-new *untracked*
+  configuration or module, so the recorded commit need not describe what ran.
+  The workbench now requires the selected configuration and every file recorded
+  in `source_digests` to be **tracked at `HEAD` and byte-identical to the `HEAD`
+  blob**. `source_digests` was widened to pin the acceptance configuration and
+  the locked Task 9G protocol, since both change what an attempt means. Ignored
+  artifacts and runs are unaffected — the untracked workspace is not required to
+  be empty.
+- **Partition identity and path enforcement (M2, N5).** Every *retained*
+  manifest entry's supplied file name now passes the final-partition guard and a
+  containment check before anything opens, hashes, stats or counts it. The
+  manifest, `train` and `validation` identities are pinned to the
+  `manifest_sha256`, `train_sha256` and `validation_sha256` that
+  `configs/american_neural_pilot_protocol_v1.toml` already locked, and the
+  declared dataset and manifest paths must be the ones that protocol names; any
+  mismatch fails closed. Only those three identities are read out of the
+  protocol — no other partition's declared digest is resolved, compared or
+  recorded. Task 9G's row-level `verify_partition_policy` is then reused over
+  both partitions before training. **No task 9H code path opens, hashes, stats,
+  counts or inspects `interpolation_test`**, and none was during this work.
+- **Pre-flight ordering and infrastructure failure (m1).** Configuration
+  validity, repository containment, `row_selection.rule`, the acceptance schema
+  and section, the locked dataset paths and committed source are all checked
+  **before** an output directory or ledger is created, so a refusal reserves
+  nothing and the attempt ID stays unused. Once the directory exists the ID is
+  spent: the ledger records `status="failed"`, the runner refuses that ID, and
+  the remedy is `--outcome infrastructure_failure` plus a **new** ID and a new
+  configuration — never deleting the outputs to reuse the ID.
+- **Declared fields must be dispatched (m2).** `optimizer.name`,
+  `optimizer.schedule`, `checkpoint.metric`, `checkpoint.rule`,
+  `training.shuffle`, `row_selection.rule`, `seeds.derivation`,
+  `representation`, `target` and `physical_reconstruction` are now validated
+  against implemented behavior, and unknown keys in any section are refused, so
+  the attempt log never records a declaration execution ignored. All five
+  existing immutable configurations satisfy the stricter rules **unchanged**.
+- **Canonical criterion and log (m3, m4).** An attempt must point at
+  `configs/american_neural_pilot_acceptance_v1.toml` and
+  `[validation_final_entry]`; `record` writes only
+  `docs/attempts/task-9h-attempt-log.jsonl` and only accepts a report of the
+  workbench's own schema citing that criterion; and `check` re-verifies offline
+  that every logged attempt cites that file, that section and the digest the
+  tracked file still hashes to.
+- **One forbidden-token definition (m5).** `attempts.FORBIDDEN_PARTITION_TOKENS`
+  now serves both the runtime guard and the offline static scan, which imports
+  it rather than restating it.
+- **Premium-head wording corrected (m6).** The head's guarantee is non-strict
+  *and* not bitwise: the `A * (E / A)` normalization round-trip can leave the
+  reconstructed price one unit in the last place below its European anchor — a
+  relative shortfall of order `1e-16`, immaterial against a `3e-3` normalized
+  criterion, but a near-bound rather than the exact bound previously claimed.
+  Both the specification and the code comment now say so.
+- **What did not change:** the completed attempt and the append-only log, all
+  five immutable attempt configurations, their model definitions, budgets, seeds
+  and the fixed criterion, human-only execution, and the price-only scope. No
+  training ran, no dataset partition was opened, and no task 9G tracked input
+  was edited.
+- **Non-claims:** this entry establishes no numerical result, authorizes no
+  training run, and changes no threshold. The recorded control attempt remains a
+  biased development measurement, not a project result.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [attempts/README.md](attempts/README.md),
+  [project-state.md](project-state.md),
+  DEC-038, DEC-039, DEC-041
