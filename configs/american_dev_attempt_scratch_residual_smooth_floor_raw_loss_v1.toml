@@ -1,0 +1,136 @@
+# Task 9H attempt: scratch_residual_smooth_floor_raw_loss_v1
+#
+# IMMUTABLE AFTER USE. Once an attempt has run against this file it is never
+# edited: a changed idea gets a new attempt ID and a new file, and
+# `python3 scripts/american_dev_attempts.py check` re-verifies that every logged
+# attempt's configuration still hashes to the digest that attempt recorded.
+#
+# E2b. Relative to E2 (`scratch_residual_smooth_floor_v1`) exactly one
+# behavioural field changes: the head, `smooth_lower_floor` ->
+# `smooth_lower_floor_raw_loss`. The initialization seed follows, because the
+# existing rule derives it from the attempt ID. Everything else is E2's, which is
+# in turn the direct residual parent's: the backbone (smooth_residual, width 128,
+# 6 blocks, tanh, no normalization, no dropout), the five base features, the
+# representation, the regression target, the reconstruction, the selected
+# training rows, the shuffle seed, the validation partition, the optimizer, the
+# schedule, the epochs, the batch sizes, the precision, the thread count, the
+# checkpoint semantics, the tau = 1e-4 temperature and the criterion.
+#
+# THE DEPLOYED OUTPUT IS E2's, BIT FOR BIT. The two heads apply the same floor,
+# the same temperature and the same projection:
+#     raw_u   = raw * price_scale + price_mean
+#     floor   = smooth_max(E_analytic / A, intrinsic / A)
+#     final_u = floor + tau * softplus((raw_u - floor) / tau)
+# They differ only in which prediction the TRAINING LOSS is computed against.
+# E2 differentiated `final_u`; this attempt differentiates `raw_u`, so the loss
+# is exactly MSE(raw_standardized, standardized_direct_price_target) — the same
+# objective the successful direct residual model optimized.
+#
+# WHY. E2 collapsed onto the floor at best epoch 1 with 15,507 material bound
+# violations and RMSE 0.007201588210459, against the direct parent's
+# 0.0021119419277138224. The projection's derivative is
+# `sigmoid((raw_u - floor) / tau)`, which at tau = 1e-4 is of order 1e-44 once a
+# prediction sits a hundredth of a discounted spot below the floor — where a
+# scratch network starts. Essentially no gradient reached the network. Computing
+# the loss on `raw_u` removes that factor while leaving evaluation, checkpoint
+# selection, bound diagnostics, shape diagnostics and deployment on `final_u`.
+#
+# It does NOT predict an American premium. E1 (`scratch_residual_premium_v1`)
+# established that reusing the premium target costs the residual backbone its
+# price accuracy — RMSE 0.006852205444033097 — so the premium target is not
+# reused here, and neither is a warm start, an auxiliary loss, a shape penalty,
+# a conditioning feature, another architecture, another temperature or a longer
+# budget.
+#
+# The normalized temperature tau is unchanged and predeclared in code, not here:
+# `american_dev.attempts.SMOOTH_FLOOR_TEMPERATURE = 1e-4`. It lives there because
+# every attempt configuration must declare exactly the same top-level keys, so a
+# per-attempt temperature field would have to be added to the six immutable
+# configurations that already ran. It is pinned in `source_digests` and recorded
+# in the attempt report, and `assert_temperature_consistent` re-derives from the
+# acceptance file that it sits strictly between the material tolerance (1e-6) and
+# the normalized RMSE limit (3e-3).
+#
+# EXPLORATORY AND VALIDATION-SELECTED. The intrinsic and analytic-European
+# bounds remain enforced by construction, because the deployed transformation is
+# unchanged. The stored CRR European comparator may still be violated, because it
+# is not the analytic value the head enforces. This attempt addresses the
+# optimization failure E2 exhibited; it does not target volatility monotonicity.
+# The predeclared interpretation is in
+# `docs/tasks/active/task-9h-american-pricer-development.md`.
+schema_version = "american-dev-attempt/1"
+attempt_id = "scratch_residual_smooth_floor_raw_loss_v1"
+parent_attempt = "scratch_residual_smooth_floor_v1"
+hypothesis = "E2 failed to learn because its loss was differentiated through a saturated smooth-floor projection, not because the floor itself is incompatible with price accuracy; computing the same loss on the pre-projection direct value, while evaluating and deploying the floored output unchanged, recovers the direct residual model's price accuracy and keeps the intrinsic and analytic-European bounds enforced."
+objective = "price_only"
+representation = "american_forward_carry_v1"
+target = "u = V / (S * exp(-q * T))"
+physical_reconstruction = "V = S * exp(-q * T) * u"
+head = "smooth_lower_floor_raw_loss"
+conditioning_features = []
+dtype = "float64"
+device = "cpu"
+
+[architecture]
+# Identical to scratch_residual_architecture_v1: no normalization and no
+# dropout anywhere, so a row's prediction never depends on batch composition or
+# on a random mask.
+name = "smooth_residual"
+width = 128
+blocks = 6
+activation = "tanh"
+
+[seeds]
+# Paired across candidates where technically meaningful: the shuffle label is
+# shared, so every attempt walks the same 32,768 rows in the same order, and
+# only the initialization label differs per candidate. The initialization label
+# is this attempt's own ID under the existing derivation rule, which is also the
+# one confound this composition carries.
+initialization_label = "scratch_residual_smooth_floor_raw_loss_v1/init"
+shuffle_label = "task-9h/shuffle-v1"
+derivation = "first four bytes of SHA-256(label), unsigned big-endian"
+
+[row_selection]
+# The same salt and budget in every attempt, so all candidates see exactly the
+# same training rows and the comparison is paired by construction. Rule and
+# budget carried over from Task 9G.
+partition = "train"
+row_budget = 32768
+salt = "task-9h-train-subset-v1"
+rule = "lowest SHA-256(salt + NUL + sample_id), sample_id tie-break"
+
+[training]
+batch_size = 2048
+epochs = 120
+num_threads = 4
+deterministic_algorithms = true
+shuffle = "torch.randperm from the shuffle seed once per epoch"
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 0.00000001
+schedule = "cosine_annealing"
+minimum_learning_rate = 0.0
+schedule_period_epochs = 120
+
+[checkpoint]
+selection_partition = "validation"
+metric = "standardized_target_mse"
+rule = "minimum metric; earliest epoch wins exact ties"
+
+[evaluation]
+batch_size = 4096
+
+[paths]
+dataset = "data/american-option-v1"
+dataset_manifest = "data/american-option-v1/manifest.json"
+# The development criterion, reused verbatim. This file is digest-pinned by the
+# Task 9G protocol and reconciled in scripts/check.sh and CI, so the criterion
+# cannot be quietly loosened after an attempt fails.
+acceptance_config = "configs/american_neural_pilot_acceptance_v1.toml"
+output_directory = "artifacts/task-9h/scratch_residual_smooth_floor_raw_loss_v1"
+ledger = "runs/task-9h/scratch_residual_smooth_floor_raw_loss_v1/attempt.json"

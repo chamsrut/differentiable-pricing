@@ -72,7 +72,35 @@ FORBIDDEN_PARTITION_TOKENS: Final = (
 #: Network families an attempt configuration may name.
 ARCHITECTURES: Final = ("smooth_mlp", "smooth_residual")
 #: Output heads, and what each one reconstructs.
-HEADS: Final = ("direct", "premium_over_european", "smooth_lower_floor")
+#:
+#: ``smooth_lower_floor`` and ``smooth_lower_floor_raw_loss`` produce the
+#: **same output**, bit for bit: the same floor, the same temperature, the same
+#: projection. They differ only in which prediction the training loss is
+#: computed against -- see :data:`RAW_LOSS_HEADS`.
+HEADS: Final = (
+    "direct",
+    "premium_over_european",
+    "smooth_lower_floor",
+    "smooth_lower_floor_raw_loss",
+)
+
+#: Heads whose training loss is computed against the **pre-projection** direct
+#: normalized price rather than against the deployed output.
+#:
+#: ``scratch_residual_smooth_floor_v1`` (E2) trained its loss through the
+#: projection and stopped learning at epoch 1. The projection's derivative is
+#: ``sigmoid((direct - floor) / tau)``, which at ``tau = 1e-4`` is of order
+#: ``1e-44`` once the prediction sits a hundredth of a discounted spot below the
+#: floor -- where a scratch model starts. The gradient reaching the network is
+#: multiplied by that factor, so the loss cannot pull the prediction back up and
+#: the model is pinned to the floor.
+#:
+#: A head listed here keeps the floor at evaluation and deployment and computes
+#: the loss on the value that precedes it, so the latent network solves exactly
+#: the direct-price problem the residual architecture already solved. Evaluation,
+#: checkpoint selection, bound diagnostics and shape diagnostics are unaffected:
+#: all of them read the projected output.
+RAW_LOSS_HEADS: Final = ("smooth_lower_floor_raw_loss",)
 
 #: The **predeclared** normalized temperature of the ``smooth_lower_floor``
 #: head, fixed here rather than in a configuration file.
@@ -95,7 +123,10 @@ SMOOTH_FLOOR_TEMPERATURE: Final = 1.0e-4
 
 #: Heads that carry a temperature, and the one each carries. A head absent from
 #: this mapping has none, and no temperature is recorded for it.
-HEAD_TEMPERATURES: Final = {"smooth_lower_floor": SMOOTH_FLOOR_TEMPERATURE}
+HEAD_TEMPERATURES: Final = {
+    "smooth_lower_floor": SMOOTH_FLOOR_TEMPERATURE,
+    "smooth_lower_floor_raw_loss": SMOOTH_FLOOR_TEMPERATURE,
+}
 #: Deterministic conditioning features, computed from the physical inputs.
 CONDITIONING_FEATURES: Final = ("european_price_ratio", "intrinsic_ratio", "european_gap")
 

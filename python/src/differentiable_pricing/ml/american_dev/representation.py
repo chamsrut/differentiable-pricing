@@ -33,6 +33,7 @@ from .attempts import (
     HEADS,
     NORMALIZED_TARGET,
     PHYSICAL_RECONSTRUCTION,
+    RAW_LOSS_HEADS,
     REPRESENTATION,
     SMOOTH_FLOOR_TEMPERATURE,
 )
@@ -349,8 +350,8 @@ class AmericanDevPriceModel(nn.Module):
         self.register_buffer("price_mean", torch.tensor(scaling.price_mean, dtype=torch.float64))
         self.register_buffer("price_scale", torch.tensor(scaling.price_scale, dtype=torch.float64))
 
-    def normalized_target(self, physical_features: torch.Tensor) -> torch.Tensor:
-        """Return ``u = V / A`` with the head's reconstruction applied."""
+    def _network_output(self, physical_features: torch.Tensor) -> torch.Tensor:
+        """The raw scalar the network emits, in standardized target units."""
         features = network_features(physical_features, self.conditioning)
         standardized = (features - self.feature_mean) / self.feature_scale
         if not bool(torch.isfinite(standardized).all()):
@@ -358,6 +359,27 @@ class AmericanDevPriceModel(nn.Module):
         raw = self.network(standardized)
         if raw.ndim == 2 and raw.shape[1] == 1:
             raw = raw.squeeze(-1)
+        return raw
+
+    def _direct_from_raw(self, raw: torch.Tensor) -> torch.Tensor:
+        """``u = raw * price_scale + price_mean``: the direct normalized price.
+
+        The **single** definition, so the value the loss differentiates and the
+        value the projection is applied to cannot drift apart into two
+        near-identical expressions.
+        """
+        return raw * self.price_scale + self.price_mean
+
+    def normalized_target(self, physical_features: torch.Tensor) -> torch.Tensor:
+        """Return ``u = V / A`` with the head's reconstruction applied.
+
+        **This is the deployed prediction**, and the one every evaluation reads:
+        :meth:`forward`, the price metrics, the bound diagnostics, the shape
+        diagnostics and checkpoint selection all go through it. For all but one
+        head it is also what the training loss is computed against; see
+        :meth:`training_target` for the single exception and why it exists.
+        """
+        raw = self._network_output(physical_features)
         if self.head == "premium_over_european":
             # softplus is non-negative, so the normalized premium added to the
             # anchor is non-negative. Two qualifications keep the claim honest.
@@ -373,18 +395,16 @@ class AmericanDevPriceModel(nn.Module):
             # floating-point near-bound, not an exact one.
             #
             # This head **reparameterizes** the target as a premium, which is
-            # what the two heads below deliberately do not do.
+            # what the heads below deliberately do not do.
             anchor = european_price(physical_features) / discounted_spot(physical_features)
             return anchor + self.price_scale * torch.nn.functional.softplus(raw)
 
-        # Both remaining heads predict the **direct** normalized price. This one
-        # expression is the direct target, shared verbatim: ``smooth_lower_floor``
-        # differs from ``direct`` only in what happens to it afterwards, and
-        # nothing below reparameterizes it as an American premium.
-        direct = raw * self.price_scale + self.price_mean
+        direct = self._direct_from_raw(raw)
         if self.head == "direct":
             return direct
-        # smooth_lower_floor: a smooth one-sided projection onto [floor, inf).
+        # Both floor heads apply the same transformation, bit for bit: a smooth
+        # one-sided projection onto [floor, inf). They differ only in what
+        # :meth:`training_target` returns.
         #
         # The floor holds bitwise in *normalized* units. It is not bitwise on the
         # reconstructed physical price: ``forward`` multiplies by ``A``, so the
@@ -398,6 +418,31 @@ class AmericanDevPriceModel(nn.Module):
             normalized_lower_floor(physical_features, self.temperature),
             self.temperature,
         )
+
+    def training_target(self, physical_features: torch.Tensor) -> torch.Tensor:
+        """The normalized value the **training loss** is computed against.
+
+        For every head but one this is :meth:`normalized_target` itself, called
+        rather than reimplemented, so there is exactly one output map per head.
+
+        For a head in :data:`..attempts.RAW_LOSS_HEADS` it is the
+        **pre-projection** direct normalized price. That is the whole of the
+        distinction between ``smooth_lower_floor`` and
+        ``smooth_lower_floor_raw_loss``: the deployed output is identical, and
+        only the tensor the loss differentiates through changes.
+
+        The reason is a measured one. ``scratch_residual_smooth_floor_v1``
+        computed its loss through the projection, whose derivative is
+        ``sigmoid((direct - floor) / tau)``. A scratch network starts well below
+        the floor, where that factor is of order ``1e-44`` at ``tau = 1e-4``, so
+        essentially no gradient reached the network and its best epoch was 1.
+        Differentiating the direct value instead leaves the latent problem
+        exactly the direct-price regression the residual architecture already
+        solved, while evaluation and deployment keep the floor.
+        """
+        if self.head not in RAW_LOSS_HEADS:
+            return self.normalized_target(physical_features)
+        return self._direct_from_raw(self._network_output(physical_features))
 
     def forward(self, physical_features: torch.Tensor) -> torch.Tensor:
         if physical_features.dtype != torch.float64 or physical_features.device.type != "cpu":

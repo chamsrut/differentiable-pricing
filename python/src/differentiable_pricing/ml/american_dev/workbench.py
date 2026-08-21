@@ -64,6 +64,7 @@ from .attempts import (
     ATTEMPT_REPORT_SCHEMA,
     CRITERION_SECTION,
     PROTOCOL_CONFIG_PATH,
+    RAW_LOSS_HEADS,
     assert_contained_relative_path,
     assert_path_allowed,
     assert_split_allowed,
@@ -295,6 +296,16 @@ def train_model(
 
     The objective is the standardized-target mean squared error in
     ``u = V / (S*exp(-q*T))`` — the Task 9G control's objective, unchanged.
+
+    Training and selection deliberately read different predictions for one head
+    family. The batch loss uses
+    :meth:`..representation.AmericanDevPriceModel.training_target`; the
+    validation checkpoint metric uses
+    :meth:`..representation.AmericanDevPriceModel.normalized_target`. For every
+    head except ``smooth_lower_floor_raw_loss`` those are the same tensor, and
+    for that one the difference is the point: the loss is differentiated through
+    the direct value while the epoch is chosen on — and the model is later
+    evaluated and deployed with — the floored output.
     """
     training = config["training"]
     optimizer_section = config["optimizer"]
@@ -332,13 +343,21 @@ def train_model(
         for start in range(0, x_train.shape[0], batch_size):
             index = order[start : start + batch_size]
             optimizer.zero_grad(set_to_none=True)
-            predicted = model.normalized_target(x_train[index])
+            # ``training_target`` is ``normalized_target`` for every head but the
+            # raw-loss floor head, where it is the pre-projection direct value.
+            # Dividing the difference by ``price_scale`` makes this exactly
+            # ``MSE(raw_standardized, standardized_target)``: ``price_mean``
+            # cancels in the difference.
+            predicted = model.training_target(x_train[index])
             loss = torch.mean(torch.square((predicted - y_train[index]) / model.price_scale))
             loss.backward()
             optimizer.step()
         scheduler.step()
         model.eval()
         with torch.no_grad():
+            # Checkpoint selection reads the **deployed** prediction, always:
+            # the epoch chosen has to be the one that is best at what will
+            # actually be evaluated and shipped, not at the latent problem.
             predicted = model.normalized_target(x_validation)
             metric = float(torch.mean(torch.square((predicted - y_validation) / model.price_scale)))
         if not np.isfinite(metric):
@@ -361,6 +380,12 @@ def train_model(
     model.eval()
     return {
         "objective": "standardized target mean squared error",
+        "loss_prediction": (
+            "pre-projection direct normalized price"
+            if model.head in RAW_LOSS_HEADS
+            else "the deployed normalized_target output"
+        ),
+        "selection_prediction": "the deployed normalized_target output",
         "best_epoch": best_epoch,
         "best_validation_standardized_target_mse": best_metric,
         "epochs": int(training["epochs"]),

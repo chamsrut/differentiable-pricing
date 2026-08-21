@@ -116,12 +116,15 @@ def _model(head: str, physical: np.ndarray) -> AmericanDevPriceModel:
 # ---------------------------------------------------------------------------
 
 
-def test_the_head_is_registered_with_exactly_one_predeclared_temperature() -> None:
+def test_the_floor_heads_share_exactly_one_predeclared_temperature() -> None:
+    """Both floor heads apply the same transformation, so both carry the same tau."""
     assert "smooth_lower_floor" in HEADS
     assert head_temperature("smooth_lower_floor") == TAU == 1.0e-4
+    assert head_temperature("smooth_lower_floor_raw_loss") == TAU
     assert head_temperature("direct") is None
     assert head_temperature("premium_over_european") is None
-    assert set(HEAD_TEMPERATURES) == {"smooth_lower_floor"}
+    assert set(HEAD_TEMPERATURES) == {"smooth_lower_floor", "smooth_lower_floor_raw_loss"}
+    assert len(set(HEAD_TEMPERATURES.values())) == 1
     with pytest.raises(AttemptError, match="unknown head"):
         head_temperature("floor")
 

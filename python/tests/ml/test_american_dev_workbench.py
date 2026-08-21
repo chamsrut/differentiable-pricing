@@ -263,13 +263,13 @@ def test_every_candidate_shares_the_rows_the_shuffle_and_the_budget() -> None:
         validate_attempt_config(load_toml(path))
         for path in sorted(Path("configs").glob("american_dev_attempt_*.toml"))
     ]
-    assert len(configs) == 7
+    assert len(configs) == 8
     assert len({config["row_selection"]["salt"] for config in configs}) == 1
     assert len({config["row_selection"]["row_budget"] for config in configs}) == 1
     assert len({config["seeds"]["shuffle_label"] for config in configs}) == 1
     assert len({config["training"]["epochs"] for config in configs}) == 1
     assert len({config["checkpoint"]["rule"] for config in configs}) == 1
-    assert len({config["seeds"]["initialization_label"] for config in configs}) == 7
+    assert len({config["seeds"]["initialization_label"] for config in configs}) == 8
 
 
 # ---------------------------------------------------------------------------
@@ -1251,7 +1251,7 @@ def test_an_out_of_range_optimizer_value_is_refused(key: str, value: float) -> N
 def test_every_tracked_configuration_declares_only_dispatched_behavior() -> None:
     """Every immutable attempt survives the stricter rules unchanged."""
     paths = sorted(Path("configs").glob("american_dev_attempt_*.toml"))
-    assert len(paths) == 7
+    assert len(paths) == 8
     for path in paths:
         config = validate_attempt_config(load_toml(path))
         assert config["optimizer"]["name"] == "adamw"

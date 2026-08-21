@@ -5,11 +5,9 @@
 `status=active; type=adaptive_exploratory_development; scope=price_only;
 branch=experiment/task-9h-american-pricer-development;
 partitions_available=train+validation; final_partition_access=forbidden;
-infrastructure implemented and hardened; six attempts recorded, all
-criterion_not_met; the schema-1 validation-geometry report is published; the
-schema-2 comparator-discrepancy extension and the E2 candidate
-(scratch_residual_smooth_floor_v1) are predeclared and not yet run; no attempt
-running.`
+infrastructure implemented and hardened; seven attempts completed, none meeting
+the criterion; E2b (scratch_residual_smooth_floor_raw_loss_v1) is predeclared
+and not yet run; no attempt running; final partition untouched.`
 
 Task 9G is terminal and negative ([decision-log.md](../../decision-log.md)
 DEC-038, approved by DEC-039). This task is opened by DEC-041.
@@ -89,6 +87,13 @@ partition**, as its own task with its own gates and its own review.
    attempt log, because the log has to describe what actually ran.
 
 ## Predeclared candidate: `scratch_residual_smooth_floor_v1` (E2)
+
+> **This attempt has run**, and did not meet the criterion. The predeclaration
+> below is kept **exactly as it was written before the run** — that is what
+> makes it a predeclaration. Its outcome, and why the result does not mean what
+> it appears to mean, are in
+> [What E2 measured, and what it settled](#what-e2-measured-and-what-it-settled)
+> and the progress table.
 
 `configs/american_dev_attempt_scratch_residual_smooth_floor_v1.toml`. Relative to
 `scratch_residual_architecture_v1` — the direct residual parent that passed all
@@ -278,27 +283,32 @@ Every other bound remains a reported diagnostic.
 deterministic function of inputs the network already receives, so the candidate
 tests conditioning, not extra knowledge.
 
-## What the first five attempts measured
+## Progress: every completed attempt
 
-All five were run by the human, recorded in the append-only log, and all five
-returned `criterion_not_met`. Every number below is a development measurement
-selected against `validation`; none is a project result.
+Seven attempts have been run by the human. **None met the criterion.** Every
+number below is a development measurement selected against `validation`; none is
+a project result. `RMSE <= 0.003`, `p99 <= 0.015`, `max <= 0.08`, `bound = 0`
+and `shape = 0` are the fixed gates.
 
-| Attempt | normalized RMSE | material bound violations | material shape violations |
-|---|---:|---:|---:|
-| `scratch_direct_control_v1` | 0.005725170440175143 | 10,121 | 1,460 |
-| `scratch_capacity_v1` | 0.003500912482274842 | 9,083 | 854 |
-| `scratch_american_premium_v1` | 0.006982320321969395 | 1,116 | 330 |
-| `scratch_conditioning_v1` | 0.004223135357900415 | 9,205 | 1,537 |
-| `scratch_residual_architecture_v1` | 0.002111941927713822 | 8,569 | 683 |
-| `scratch_residual_premium_v1` (E1) | 0.006852205444033097 | 6,925 | 312 |
+| # | Attempt | What it changed | RMSE | p99 | max | bound | shape | best epoch | Principal outcome |
+|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| 1 | `scratch_direct_control_v1` | nothing (the control) | 0.005725170440175143 | 0.020336 | 0.11873 | 10,121 | 1,460 | 120 | all five gates failed; the baseline everything else is measured against |
+| 2 | `scratch_capacity_v1` | `[256]x4` dense | 0.003500912482274842 | 0.012953 | 0.065981 | 9,083 | 854 | 119 | 22.7x parameters bought price accuracy, not structure |
+| 3 | `scratch_american_premium_v1` | premium head, control capacity | 0.006982320321969395 | 0.031738 | 0.13770 | 1,116 | 330 | 120 | European-comparator violations to **0**; price accuracy the worst so far |
+| 4 | `scratch_conditioning_v1` | +2 deterministic features | 0.004223135357900415 | 0.015689 | 0.14800 | 9,205 | 1,537 | 119 | conditioning helps the average, not the tail or the structure |
+| 5 | `scratch_residual_architecture_v1` | residual 128x6 | **0.002111941927713822** | **0.008157** | **0.031097** | 8,569 | 683 | 117 | **all three price gates passed**; structure untouched. The parent of 6 and 7 |
+| 6 | `scratch_residual_premium_v1` (E1) | 5 + premium head | 0.006852205444033097 | 0.032496 | 0.13867 | 6,925 | 312 | 118 | premium target costs 3.2x RMSE at any capacity; analytic anchor leaves 5,839 CRR violations |
+| 7 | `scratch_residual_smooth_floor_v1` (E2) | 5 + smooth floor, loss through the projection | 0.007201588210459 | 0.033562 | 0.093093 | 15,507 | **0** | **1** | collapsed onto the floor; gradient saturation, not a floor-versus-accuracy result |
 
-Two separable findings, and they point in opposite directions. The residual
-backbone passed **all three price-error gates** at the capacity model's
-parameter count, and left the structural gates untouched. The premium head, at
-the smallest capacity in the loop, drove `european_comparator_lower_bound`
-violations to **exactly zero** and cut shape violations to the best count
-anywhere in this project, and made price accuracy the worst of the five.
+Reading across the table, three separable findings:
+
+- **Price accuracy is solved by the residual backbone** (row 5), and by nothing
+  else tried.
+- **Structural validity is solved by architectural floors** (rows 3, 6, 7), and
+  by nothing else tried. Row 7 drove shape violations to zero as well.
+- **The two have not yet been obtained together**, and rows 6 and 7 failed for
+  two *different* reasons: row 6 because the premium target is a harder
+  regression, row 7 because its loss could not reach the network at all.
 
 ## What E1 measured, and what it settled
 
@@ -325,6 +335,92 @@ E1 was predeclared as a decision-gating diagnostic and it gated the decision it
 was declared to gate: RMSE `0.00685 >= 0.005`, which is the branch that says
 **preserve the direct-price target and implement the floor as an output
 transformation**. That is E2.
+
+## What E2 measured, and what it settled
+
+`scratch_residual_smooth_floor_v1` put the smooth lower floor on the direct
+residual backbone. It did not meet the criterion: best epoch **1** of 120,
+normalized RMSE `0.007201588210459`, p99 `0.033561623029654215`, maximum
+`0.09309287875649674`, **15,507** material bound violations and **0** material
+shape violations — the first attempt in the loop to reach zero on the shape
+gate, and all of the remaining bound violations against the stored CRR European
+comparator rather than against the intrinsic floor the head enforces.
+
+**A best epoch of 1 out of 120 is not a slow-learning signal; it is the
+signature of a model that never moved.** The mechanism is the projection's
+derivative, `sigmoid((raw_u - floor) / tau)`. At `tau = 1e-4` that factor is of
+order `1e-44` once a prediction sits a hundredth of a discounted spot below the
+floor — which is where a scratch network starts. The gradient reaching the
+network is multiplied by it, so the loss could not pull the prediction up, the
+model remained pinned to the floor, and every reported number describes the
+floor rather than a fitted price model.
+
+**E2 is therefore not evidence that an enforced floor is incompatible with price
+accuracy.** It is evidence that the loss must not be differentiated through a
+saturated projection. That distinction is what E2b tests.
+
+## Predeclared candidate: `scratch_residual_smooth_floor_raw_loss_v1` (E2b)
+
+`configs/american_dev_attempt_scratch_residual_smooth_floor_raw_loss_v1.toml`.
+Relative to E2, exactly one behavioural field moves: `head`
+`smooth_lower_floor` → `smooth_lower_floor_raw_loss`, plus the initialization
+seed the existing rule derives from the new attempt ID. Everything else is E2's,
+which is in turn the direct residual parent's: the backbone, the five base
+features, the direct normalized-price target, the reconstruction, the
+`tau = 1e-4` floor, the selected training rows, the shuffle seed, the validation
+partition, the optimizer, the schedule, the epochs, the batch sizes, the
+precision, the CPU thread count, the checkpoint semantics and the criterion.
+
+**The deployed output is E2's, bit for bit.** The two heads apply the same
+floor, the same temperature and the same projection — a test asserts their
+outputs are bitwise equal for identical weights. They differ only in which
+prediction the **training loss** is computed against:
+
+```
+raw_standardized = residual_network(features)
+raw_u            = raw_standardized * price_scale + price_mean
+floor            = smooth_max(E_analytic / A, intrinsic / A)
+final_u          = floor + tau * softplus((raw_u - floor) / tau)
+
+loss             = MSE(raw_standardized, standardized_direct_price_target)
+```
+
+`AmericanDevPriceModel.training_target` returns `raw_u` for this head and
+`normalized_target` — the deployed output — for every other head. That one
+method is the entire distinction; there is no loss framework, no configurable
+objective and no new dispatch axis.
+
+**Checkpoint selection, price metrics, bound diagnostics and shape diagnostics
+all read `final_u`.** The epoch chosen has to be the one that is best at what
+will actually be evaluated and deployed, not at the latent problem. Only the
+batch loss sees `raw_u`.
+
+**Predeclared interpretation, before it runs.**
+
+- E2b is **exploratory and validation-selected**, like every task 9H attempt.
+  Nothing it produces is a project result.
+- It tests one thing: whether E2's failure was **optimization** rather than an
+  incompatibility between the enforced floor and price accuracy. A result near
+  the direct residual parent's `0.002111941927713822` supports the optimization
+  explanation; a result near E2's `0.007201588210459` refutes it and means the
+  floor itself costs the accuracy.
+- The **intrinsic** and **analytic-European** bounds stay enforced by
+  construction, because the deployed transformation is unchanged.
+- The **stored CRR European comparator may remain violated**, for the reason it
+  did in E1 and E2: it is not the analytic value the head enforces. A non-zero
+  count there is not evidence that E2b failed.
+- E2b targets the optimization failure. It does **not** target volatility
+  monotonicity.
+- **E3 remains conditional and is not implemented.**
+
+**What it deliberately does not use.** No premium target, no warm start, no
+auxiliary loss, no shape penalty, no conditioning feature, no different
+architecture, no different temperature, no longer budget.
+
+**Its one confound, stated.** The initialization seed differs from E2's, because
+it is derived from the attempt ID and an attempt configuration is immutable. A
+single seed cannot separate a small effect from seed noise — though the effect
+this attempt is looking for is a factor of three in RMSE, not a small one.
 
 ## The exploratory validation-set geometry analysis
 
@@ -448,7 +544,7 @@ is exactly what the fourth branch of the decision rule exists to catch.
 | `python/src/differentiable_pricing/ml/american_dev/models.py` | the dense and residual networks, and their dispatch |
 | `python/src/differentiable_pricing/ml/american_dev/workbench.py` | pre-flight, dataset identity pinning and row-level policy verification, one attempt end to end, evaluated against the reused Task 9G criterion |
 | `python/src/differentiable_pricing/ml/american_dev/geometry.py` | the exploratory validation-set geometry of the binding constraints, including the CRR-versus-analytic comparator discrepancy; reads one partition, trains nothing, writes no attempt evidence |
-| `configs/american_dev_attempt_scratch_*.toml` | the seven immutable attempt configurations |
+| `configs/american_dev_attempt_scratch_*.toml` | the eight immutable attempt configurations |
 | `scripts/run_american_dev_attempt.py` | **manual**: `run`, `status` — and no third command |
 | `scripts/analyze_american_dev_geometry.py` | **manual**: `analyze`, `show` — and no third command |
 | `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log, the configurations and the geometry analysis's validation-only restriction |
@@ -523,8 +619,10 @@ last try.
   on the partition this loop selects against. It is not frozen evidence, is
   never committed, admits no candidate and revises no threshold.
 - A predeclared attempt configuration is a **plan, not a measurement**. Nothing
-  about `scratch_residual_smooth_floor_v1` is a result until the human has run it
-  and the outcome is in the append-only log.
+  about `scratch_residual_smooth_floor_raw_loss_v1` is a result until the human
+  has run it.
+- **E2 is not evidence about floors versus accuracy.** Its model never left the
+  floor, so its price metrics describe the floor, not a fitted model.
 - Enforcing the analytic European floor establishes **nothing** about the stored
   CRR European comparator gate. The two differ by the lattice's own
   discretization error, and E2 claims only the bounds it computes.

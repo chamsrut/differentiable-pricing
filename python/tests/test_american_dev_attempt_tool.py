@@ -139,6 +139,7 @@ def test_every_tracked_attempt_configuration_is_valid_and_marked_immutable(tool:
         "scratch_conditioning_v1",
         "scratch_residual_premium_v1",
         "scratch_residual_smooth_floor_v1",
+        "scratch_residual_smooth_floor_raw_loss_v1",
     }
 
 

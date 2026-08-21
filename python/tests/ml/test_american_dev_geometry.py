@@ -125,8 +125,14 @@ def test_the_v2_schema_writes_beside_the_v1_report_rather_than_over_it() -> None
     assert GEOMETRY_SCHEMA == "american-dev-validation-geometry/2"
     assert DEFAULT_OUTPUT == "artifacts/task-9h/geometry/validation-geometry-v2.json"
     assert str(GEOMETRY_V1_REPORT.relative_to(PROJECT_ROOT)) != DEFAULT_OUTPUT
-    if GEOMETRY_V1_REPORT.is_file():
-        published = json.loads(GEOMETRY_V1_REPORT.read_text(encoding="utf-8"))
+    # The schema-1 report this clone once held was truncated to zero bytes by the
+    # same local incident that destroyed E2's report, so its content can no
+    # longer be asserted here and is deliberately not reconstructed. The
+    # structural claim above is what this test exists to pin; the content claim
+    # runs only where a readable schema-1 report is actually present.
+    text = GEOMETRY_V1_REPORT.read_text(encoding="utf-8") if GEOMETRY_V1_REPORT.is_file() else ""
+    if text.strip():
+        published = json.loads(text)
         assert published["schema_version"] == "american-dev-validation-geometry/1"
         assert "comparator_discrepancy" not in published
 

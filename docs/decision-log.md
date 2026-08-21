@@ -1692,3 +1692,55 @@ snapshot, which remains authoritative for the numbers.
   [attempts/README.md](attempts/README.md),
   [project-state.md](project-state.md),
   DEC-038, DEC-039, DEC-041, DEC-042, DEC-043
+
+### DEC-045 — Task 9H E2 saturated onto its floor; E2b predeclared with the loss on the raw prediction
+
+- **Status:** Active. Applies to task 9H (DEC-041 through DEC-044) and to nothing
+  already frozen. It establishes **no numerical result**, authorizes no training
+  run, and changes no threshold.
+- **E2's outcome.** `scratch_residual_smooth_floor_v1` ran at `88e8300` and did
+  not meet the criterion: best epoch **1** of 120, normalized RMSE
+  `0.007201588210459`, p99 `0.033561623029654215`, maximum
+  `0.09309287875649674`, **15,507** material bound violations, **0** material
+  shape violations.
+- **What E2 does and does not establish.** A best epoch of 1 out of 120 is the
+  signature of a model that never moved. The projection's derivative is
+  `sigmoid((raw_u - floor) / tau)`, of order `1e-44` at `tau = 1e-4` once a
+  prediction sits a hundredth of a discounted spot below the floor — where a
+  scratch network starts — so essentially no gradient reached the network and
+  every reported number describes the floor rather than a fitted model. **E2 is
+  therefore not evidence that an enforced floor is incompatible with price
+  accuracy.** It is evidence that the loss must not be differentiated through a
+  saturated projection.
+- **Decision — E2b.** `configs/american_dev_attempt_scratch_residual_smooth_floor_raw_loss_v1.toml`,
+  head `smooth_lower_floor_raw_loss`. The **deployed output is E2's, bit for
+  bit** — same floor, same `tau = 1e-4`, same projection, asserted bitwise equal
+  for identical weights. The loss is computed on the **pre-projection** direct
+  value, making it exactly `MSE(raw_standardized, standardized_direct_price_target)`
+  — the objective the successful direct residual model optimized. Checkpoint
+  selection, price metrics, bound diagnostics and shape diagnostics all read the
+  projected output.
+- **The mechanism of the change.** One method,
+  `AmericanDevPriceModel.training_target`, which returns `normalized_target` for
+  every head except those in `attempts.RAW_LOSS_HEADS`. No loss framework, no
+  configurable objective, no new configuration dispatch axis — a new axis would
+  require editing the seven immutable configurations that already ran.
+- **Predeclared interpretation, recorded before it runs.** E2b tests one thing:
+  whether E2 failed at **optimization** rather than at floors-versus-accuracy. A
+  result near the direct residual parent's `0.002111941927713822` supports the
+  optimization explanation; a result near E2's `0.007201588210459` refutes it.
+  Intrinsic and analytic-European bounds stay enforced by construction; the
+  stored CRR comparator may remain violated and a non-zero count there is not a
+  failure of E2b. It does not target volatility monotonicity. No premium target,
+  warm start, auxiliary loss, shape penalty, conditioning feature, different
+  architecture, different temperature or longer budget is used. **E3 remains
+  conditional and is not implemented.**
+- **Non-claims.** Nothing here is a project result. A predeclared configuration
+  is a plan, not a measurement. The fixed criterion, the recorded attempts, their
+  configurations and the append-only log are unchanged, and no task 9G tracked
+  input was edited.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [attempts/README.md](attempts/README.md),
+  [project-state.md](project-state.md),
+  DEC-041, DEC-042, DEC-043, DEC-044
