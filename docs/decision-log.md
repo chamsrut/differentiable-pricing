@@ -1617,3 +1617,78 @@ snapshot, which remains authoritative for the numbers.
   [attempts/README.md](attempts/README.md),
   [project-state.md](project-state.md),
   DEC-038, DEC-039, DEC-041, DEC-042
+
+### DEC-044 — Task 9H E1 failed on price; E2 predeclared as a smooth lower-floor output transformation
+
+- **Status:** Active. Applies to task 9H (DEC-041, DEC-042, DEC-043) and to
+  nothing already frozen. It establishes **no numerical result**, authorizes no
+  training run, and changes no threshold.
+- **E1's recorded outcome.** `scratch_residual_premium_v1` ran at `969c74a` and
+  was recorded at `207536c` with `outcome=criterion_not_met`: normalized RMSE
+  `0.006852205444033097`, p99 `0.03249641860634549`, maximum
+  `0.13867056125662663`, 6,925 material bound violations (5,839
+  `european_comparator_lower_bound`, 1,086 `intrinsic_lower_bound`) and 312
+  material shape violations (`spot_monotonicity` **0**, `spot_convexity` 85,
+  `volatility_monotonicity` 227). Its direct residual parent recorded RMSE
+  `0.0021119419277138224` and passed all three price gates.
+- **What E1 settled.** The premium head's price cost is not a capacity artifact:
+  the same reparameterization costs the same accuracy at 8,769 and at 199,041
+  parameters. And an analytic European anchor does not close the stored-CRR
+  comparator gate — 5,839 violations survived it, with a maximum violation of
+  only 0.0040 price units, the signature of a systematic small discrepancy.
+- **Decision 1 — the premium target is not reused.** E1's RMSE
+  `0.00685 >= 0.005` is the predeclared branch (DEC-043) that requires preserving
+  the direct-price target and implementing the floor as an **output
+  transformation**. That branch is taken.
+- **Decision 2 — extend the geometry analysis to the comparator discrepancy.**
+  Schema `american-dev-validation-geometry/2` adds
+  `(V_European_CRR - V_European_BS) / A`, with the analytic leg computed by
+  `american_dev.representation.european_price_array` — the same function the E2
+  head enforces. It reports counts and fractions strictly above `0`, `1e-6` and
+  `1e-4`, the p50/p90/p95/p99/maximum, on every repository slice and on rows with
+  effectively zero American premium (normalized premium `<=` the acceptance
+  file's `material_normalized_tolerance`). It writes
+  `validation-geometry-v2.json`, leaving the already-published schema-1 report
+  byte-for-byte intact. Validation-only, no training, no attempt reservation.
+- **Decision 3 — the E2 head.** `smooth_lower_floor` in
+  `american_dev.representation`: the network's output stays the direct head's
+  `raw * price_scale + price_mean`, and the head projects it onto `[floor, inf)`
+  with `floor = smooth_max(E_analytic/A, intrinsic/A)` and
+  `output = floor + tau*softplus((direct - floor)/tau)`. The smooth maximum is
+  written as `max(a,b) + tau*log1p(exp(-|a-b|/tau))` specifically so the
+  correction is non-negative and the floor holds **bitwise** in float64; the
+  log-sum-exp form `tau*logsumexp((a,b)/tau)` was rejected because its
+  divide-then-multiply round-trip can land a unit in the last place below the
+  maximum. No exponential is evaluated at a positive argument, first and second
+  derivatives are finite everywhere, and **no CRR price is computed, read or
+  required at inference**.
+- **Decision 4 — the predeclared temperature.** `tau = 1e-4` in normalized
+  units, fixed in `attempts.SMOOTH_FLOOR_TEMPERATURE` rather than in a
+  configuration file, because every attempt configuration must declare exactly
+  the same top-level keys and adding a field would mean editing the six
+  immutable configurations that already ran.
+  `attempts.assert_temperature_consistent` re-derives from the digest-pinned
+  acceptance file that `1e-6 < 1e-4 < 3e-3`; the repository's units **confirm**
+  the nominal value. Had they contradicted it, the checker raises and the
+  discrepancy is reported rather than resolved by substituting another number.
+  The check runs in `scripts/check.sh`, in CI and in the runner's pre-flight, and
+  the temperature is recorded in the attempt report.
+- **Decision 5 — one immutable configuration.**
+  `configs/american_dev_attempt_scratch_residual_smooth_floor_v1.toml`. Against
+  its parent exactly one behavioural field moves — the head — plus the derived
+  initialization seed and the identity/path fields.
+- **Predeclared interpretation, recorded before it runs.** E2 is exploratory and
+  validation-selected. Intrinsic and analytic-European bounds are enforced by
+  construction. The stored CRR European comparator **may remain violated**,
+  because it is not the analytic value the head enforces, and a non-zero count
+  there is not evidence the transformation failed. E2 addresses bounds, not
+  volatility monotonicity. **E3 remains conditional and is not implemented.**
+- **Non-claims.** Nothing here is a project result. A predeclared configuration
+  is a plan, not a measurement. The fixed criterion, the six recorded attempts,
+  their configurations, the append-only log and the published schema-1 geometry
+  report are unchanged, and no task 9G tracked input was edited.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [attempts/README.md](attempts/README.md),
+  [project-state.md](project-state.md),
+  DEC-038, DEC-039, DEC-041, DEC-042, DEC-043

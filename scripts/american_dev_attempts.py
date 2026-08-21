@@ -410,6 +410,14 @@ def check_geometry_is_validation_only(rules: Any) -> list[str]:
 
 def check_attempt_configurations(rules: Any) -> list[str]:
     failures: list[str] = []
+    acceptance_path = PROJECT_ROOT / rules.ACCEPTANCE_CONFIG_PATH
+    acceptance: dict[str, Any] | None = None
+    if acceptance_path.is_file():
+        try:
+            with acceptance_path.open("rb") as stream:
+                acceptance = tomllib.load(stream)
+        except Exception as error:  # an unloadable acceptance file is a check failure
+            failures.append(f"{_relative(acceptance_path)} is unloadable: {error}")
     for path in sorted(PROJECT_ROOT.glob(ATTEMPT_CONFIG_GLOB)):
         try:
             with path.open("rb") as stream:
@@ -417,6 +425,17 @@ def check_attempt_configurations(rules: Any) -> list[str]:
             rules.validate_attempt_config(payload)
         except Exception as error:  # an unloadable or invalid config is a check failure
             failures.append(f"{_relative(path)} is invalid: {error}")
+            continue
+        if acceptance is None:
+            continue
+        # A head carrying a predeclared normalized temperature is re-checked
+        # offline against the units the acceptance file states its thresholds in,
+        # so an inconsistency surfaces in check.sh and CI rather than only at the
+        # moment a human starts an expensive run.
+        try:
+            rules.assert_temperature_consistent(str(payload.get("head")), acceptance)
+        except Exception as error:
+            failures.append(f"{_relative(path)} declares an inconsistent head temperature: {error}")
     return failures
 
 

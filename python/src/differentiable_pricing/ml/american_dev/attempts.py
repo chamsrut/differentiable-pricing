@@ -72,7 +72,30 @@ FORBIDDEN_PARTITION_TOKENS: Final = (
 #: Network families an attempt configuration may name.
 ARCHITECTURES: Final = ("smooth_mlp", "smooth_residual")
 #: Output heads, and what each one reconstructs.
-HEADS: Final = ("direct", "premium_over_european")
+HEADS: Final = ("direct", "premium_over_european", "smooth_lower_floor")
+
+#: The **predeclared** normalized temperature of the ``smooth_lower_floor``
+#: head, fixed here rather than in a configuration file.
+#:
+#: It is a code constant on purpose. Every attempt configuration must declare
+#: exactly the same top-level keys, so a new per-attempt temperature field would
+#: have to be added to the six immutable configurations that already ran — which
+#: is precisely what "immutable after use" forbids. Pinning it here keeps it in
+#: ``source_digests``, so the attempt report records which temperature ran.
+#:
+#: ``1e-4`` is stated in **normalized** units, the units of
+#: ``u = V / (S*exp(-q*T))``, the same units the acceptance criterion is stated
+#: in. :func:`assert_temperature_consistent` re-derives that this is the right
+#: order of magnitude from the acceptance file rather than asserting it in prose:
+#: the temperature must sit strictly above the material violation tolerance
+#: (``1e-6``, so the smoothing is resolvable at all) and strictly below the
+#: normalized RMSE limit (``3e-3``, so the smoothing bias cannot consume the
+#: accuracy budget it is supposed to preserve).
+SMOOTH_FLOOR_TEMPERATURE: Final = 1.0e-4
+
+#: Heads that carry a temperature, and the one each carries. A head absent from
+#: this mapping has none, and no temperature is recorded for it.
+HEAD_TEMPERATURES: Final = {"smooth_lower_floor": SMOOTH_FLOOR_TEMPERATURE}
 #: Deterministic conditioning features, computed from the physical inputs.
 CONDITIONING_FEATURES: Final = ("european_price_ratio", "intrinsic_ratio", "european_gap")
 
@@ -619,6 +642,57 @@ def validate_acceptance_config(acceptance: Mapping[str, Any]) -> dict[str, Any]:
     if missing:
         raise AttemptError(f"[{CRITERION_SECTION}] is missing threshold(s): {missing}")
     return dict(section)
+
+
+def head_temperature(head: str) -> float | None:
+    """The predeclared normalized temperature of ``head``, or ``None``."""
+    if head not in HEADS:
+        raise AttemptError(f"unknown head {head!r}")
+    return HEAD_TEMPERATURES.get(head)
+
+
+def assert_temperature_consistent(head: str, acceptance: Mapping[str, Any]) -> float | None:
+    """Check the head's temperature is consistent with the units of the criterion.
+
+    The temperature is normalized, in the units of ``u = V / (S*exp(-q*T))`` --
+    the units the acceptance criterion is also stated in. Two bounds, both read
+    from the digest-pinned acceptance file rather than restated:
+
+    * it must exceed the **material violation tolerance**. A temperature at or
+      below it would smooth over a scale the diagnostics cannot resolve, which
+      is indistinguishable from no smoothing at all.
+    * it must fall below the **normalized RMSE limit**. The smoothing raises the
+      output by at most a small multiple of the temperature near the floor, so a
+      temperature at or above the accuracy limit would spend the entire error
+      budget the transformation exists to preserve.
+
+    Raises rather than silently substituting another value: if the repository's
+    units ever contradict the predeclared temperature, that is a fact to report,
+    not a number to quietly change.
+    """
+    temperature = head_temperature(head)
+    if temperature is None:
+        return None
+    diagnostics = acceptance.get("diagnostics")
+    criterion = acceptance.get(CRITERION_SECTION)
+    tolerance = diagnostics.get("material_normalized_tolerance") if isinstance(
+        diagnostics, Mapping
+    ) else None
+    accuracy = criterion.get("normalized_rmse_max") if isinstance(criterion, Mapping) else None
+    if not isinstance(tolerance, int | float) or not isinstance(accuracy, int | float):
+        raise AttemptError(
+            "the head temperature is checked against the acceptance file's "
+            f"[diagnostics].material_normalized_tolerance and [{CRITERION_SECTION}]."
+            "normalized_rmse_max; both must be numbers"
+        )
+    if not float(tolerance) < temperature < float(accuracy):
+        raise AttemptError(
+            f"head {head!r} declares normalized temperature {temperature:g}, which is not "
+            f"strictly between the material tolerance {float(tolerance):g} and the normalized "
+            f"RMSE limit {float(accuracy):g}; the repository's units contradict the predeclared "
+            "value and the discrepancy is reported, never silently resolved"
+        )
+    return temperature
 
 
 def attempt_seeds(config: Mapping[str, Any]) -> dict[str, int]:

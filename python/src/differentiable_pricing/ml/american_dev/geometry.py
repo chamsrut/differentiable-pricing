@@ -25,6 +25,17 @@ What it measures, in the repository's own definitions and no others:
   dataset's stored intrinsic value;
 * the **normalized early-exercise premium** ``premium / A`` from the dataset's
   stored column, reported for the positive-premium population separately;
+* the **normalized comparator discrepancy**
+  ``(V_European_CRR - V_European_BS) / A`` between the dataset's stored CRR
+  European leg and the analytic Black--Scholes value a model can compute at
+  inference from its own inputs. This is the quantity that decides how much of
+  the ``european_comparator_lower_bound`` gate an analytic-European floor can
+  reach at all: where the CRR leg sits *above* the analytic value by more than
+  the material tolerance, a model pinned exactly to the analytic floor is still
+  counted as violating the stored comparator. The analytic value comes from
+  :func:`..american_dev.representation.european_price_array`, which calls the
+  same function the ``smooth_lower_floor`` head enforces, so the measurement and
+  the enforcement cannot drift apart;
 * for each of those, the fraction of rows at or below a set of thresholds: the
   three predeclared absolute scales, and the normalized RMSE of the control,
   capacity and residual attempts, read out of the tracked append-only attempt
@@ -39,7 +50,7 @@ What it measures, in the repository's own definitions and no others:
   locked. So ``train`` is hashed for identity while only ``validation`` is read
   as data, and the report says exactly that. No final or held-out partition is
   opened, hashed, stat-ed, imported, counted or inspected.
-* The acceptance configuration is read through a **whitelist** of the two keys
+* The acceptance configuration is read through a **whitelist** of the three keys
   this analysis needs. The key naming Task 9G's final partition is never
   resolved, read into a variable, or written to the report.
 * The output is **exploratory and validation-selected**. Task 9H selects against
@@ -57,7 +68,7 @@ from typing import Any, Final
 
 import numpy as np
 
-from ..american_pilot import _slice_masks, verify_partition_policy
+from ..american_pilot import _slice_masks, physical_features, verify_partition_policy
 from ..artifact import write_json_atomic
 from .attempts import (
     ACCEPTANCE_CONFIG_PATH,
@@ -75,6 +86,7 @@ from .attempts import (
     validate_acceptance_config,
     verify_committed_source,
 )
+from .representation import european_price_array
 from .workbench import (
     load_partition,
     locked_dataset_identity,
@@ -83,7 +95,7 @@ from .workbench import (
     verify_dataset_identity,
 )
 
-GEOMETRY_SCHEMA: Final = "american-dev-validation-geometry/1"
+GEOMETRY_SCHEMA: Final = "american-dev-validation-geometry/2"
 
 #: The one partition this analysis reads as data. A module constant rather than
 #: an argument: there is no flag, subcommand or configuration key that can point
@@ -94,7 +106,10 @@ ANALYSIS_PARTITION: Final = "validation"
 #: Where the exploratory report is written. Beneath the ignored ``artifacts/``
 #: tree, like every other Task 9H output: this is a development observation, not
 #: frozen evidence, and it is never committed.
-DEFAULT_OUTPUT: Final = "artifacts/task-9h/geometry/validation-geometry-v1.json"
+#: Schema ``/2`` adds the comparator discrepancy and writes to its own file, so
+#: the ``/1`` report an earlier run already published is left byte-for-byte
+#: intact rather than overwritten with a differently shaped payload.
+DEFAULT_OUTPUT: Final = "artifacts/task-9h/geometry/validation-geometry-v2.json"
 
 #: Predeclared absolute scales, in normalized units, spanning "numerically
 #: indistinguishable from the bound" (``1e-6``, the acceptance file's own
@@ -134,6 +149,22 @@ MEASURED_QUANTITIES: Final = {
     "intrinsic_slack_normalized": "(american_price - intrinsic_value) / A",
     "early_exercise_premium_normalized": "early_exercise_premium / A",
 }
+
+#: The comparator discrepancy, measured and reported separately from the slacks
+#: because it is a property of the two European valuations alone -- it does not
+#: involve the American price at all, and a positive value is not a defect of
+#: any model.
+COMPARATOR_DISCREPANCY: Final = "(european_crr_price - european_black_scholes_price) / A"
+
+#: Exceedance thresholds for the comparator discrepancy, in normalized units.
+#: ``0`` answers "how often does the stored CRR leg sit above the analytic value
+#: at all"; ``1e-6`` is the acceptance file's own material tolerance, so it
+#: answers "how often is it above by enough to be counted as a violation"; and
+#: ``1e-4`` is the predeclared smoothing temperature's order of magnitude.
+DISCREPANCY_THRESHOLDS: Final = (0.0, 1.0e-6, 1.0e-4)
+
+#: Quantiles reported for the comparator discrepancy.
+DISCREPANCY_QUANTILES: Final = (0.50, 0.90, 0.95, 0.99, 1.0)
 
 #: The falsifier :func:`column_consistency` applies, and the slack it allows.
 DIFFERENCE_DEFINITION: Final = (
@@ -331,6 +362,132 @@ def geometry_populations(
     return output
 
 
+def comparator_discrepancy_values(columns: Mapping[str, np.ndarray]) -> np.ndarray:
+    """``(european_crr_price - european_black_scholes_price) / A``.
+
+    The CRR leg is the dataset's stored column -- the one the
+    ``european_comparator_lower_bound`` diagnostic compares against. The
+    Black--Scholes leg is :func:`..representation.european_price_array`, the
+    analytic continuous-yield value computed from the seven physical contract
+    inputs, which is what a deployed model can evaluate at inference and what the
+    ``smooth_lower_floor`` head enforces. Neither is recomputed here.
+
+    A **positive** value is the case that matters: the stored comparator sits
+    above the analytic value, so a model held exactly at the analytic floor is
+    still below the stored one. Sign convention is fixed here and stated in the
+    report so it cannot be read backwards.
+    """
+    crr = np.asarray(columns["european_crr_price"], dtype=np.float64)
+    analytic = european_price_array(physical_features(columns))
+    return (crr - analytic) / discounted_spot(columns)
+
+
+def exceedance_statistics(
+    values: np.ndarray,
+    *,
+    quantile_method: str,
+    thresholds_above: Sequence[float] = DISCREPANCY_THRESHOLDS,
+    quantiles: Sequence[float] = DISCREPANCY_QUANTILES,
+) -> dict[str, Any]:
+    """Counts, fractions **strictly above** each threshold, and quantiles.
+
+    Deliberately the mirror image of :func:`slack_statistics`, which counts rows
+    at or below a threshold. A slack is a budget and the question is how little
+    of it a row has left; a discrepancy is an obstruction and the question is how
+    often it exceeds a scale. Using ``>`` here matches
+    ``ml.american_pilot.shape_diagnostics``, which counts a violation as
+    ``value > tolerance``.
+    """
+    array = np.asarray(values, dtype=np.float64)
+    if array.ndim != 1:
+        raise GeometryError("a discrepancy vector must be one-dimensional")
+    if array.size == 0:
+        return {"rows": 0, "quantiles": None, "count_above": None, "fraction_above": None}
+    if not bool(np.isfinite(array).all()):
+        raise GeometryError("a discrepancy vector contains non-finite values")
+    rows = int(array.size)
+    counts = {
+        f"above_{threshold:g}": int((array > float(threshold)).sum())
+        for threshold in thresholds_above
+    }
+    return {
+        "rows": rows,
+        "minimum": float(array.min()),
+        "maximum": float(array.max()),
+        "mean": float(array.mean()),
+        "standard_deviation": float(array.std(ddof=0)),
+        "count_above": counts,
+        "fraction_above": {name: count / rows for name, count in counts.items()},
+        "quantiles": {
+            f"{quantile:g}": float(np.quantile(array, quantile, method=quantile_method))
+            for quantile in quantiles
+        },
+    }
+
+
+def effectively_zero_premium_mask(
+    columns: Mapping[str, np.ndarray], material_tolerance: float
+) -> np.ndarray:
+    """Rows whose normalized early-exercise premium is within the material tolerance.
+
+    "Effectively zero" is the acceptance file's own
+    ``material_normalized_tolerance``, not a fresh number: these are exactly the
+    rows on which a model cannot be more than a tolerance above the European
+    comparator without also being above the American price, so they are where a
+    European floor is simultaneously most binding and most useful. Reported
+    beside the repository's exact-zero ``premium_status:zero`` slice rather than
+    instead of it.
+    """
+    if not material_tolerance > 0.0 or not np.isfinite(material_tolerance):
+        raise GeometryError("the material normalized tolerance must be finite and positive")
+    premium = np.asarray(columns["early_exercise_premium"], dtype=np.float64)
+    return (premium / discounted_spot(columns)) <= float(material_tolerance)
+
+
+def comparator_discrepancy(
+    columns: Mapping[str, np.ndarray],
+    bins: Mapping[str, Any],
+    *,
+    quantile_method: str,
+    material_tolerance: float,
+) -> dict[str, Any]:
+    """The comparator discrepancy overall, on the repository slices, and where it binds."""
+    values = comparator_discrepancy_values(columns)
+    zero_premium = effectively_zero_premium_mask(columns, material_tolerance)
+    populations: dict[str, Any] = {}
+    for name, mask in sorted(population_masks(columns, bins).items()):
+        populations[name] = (
+            exceedance_statistics(values[mask], quantile_method=quantile_method)
+            if bool(mask.any())
+            else {"rows": 0, "quantiles": None, "count_above": None, "fraction_above": None}
+        )
+    populations["effectively_zero_premium"] = (
+        exceedance_statistics(values[zero_premium], quantile_method=quantile_method)
+        if bool(zero_premium.any())
+        else {"rows": 0, "quantiles": None, "count_above": None, "fraction_above": None}
+    )
+    return {
+        "definition": COMPARATOR_DISCREPANCY,
+        "sign_convention": (
+            "positive means the stored CRR European leg sits ABOVE the analytic "
+            "Black-Scholes value, so an analytic-European floor does not reach the stored "
+            "comparator on that row"
+        ),
+        "analytic_source": (
+            "differentiable_pricing.ml.american_dev.representation.european_price_array, the "
+            "same analytic function the smooth_lower_floor head enforces at inference"
+        ),
+        "effectively_zero_premium": {
+            "definition": "early_exercise_premium / A <= material_normalized_tolerance",
+            "material_normalized_tolerance": float(material_tolerance),
+            "rows": int(zero_premium.sum()),
+        },
+        "thresholds_above": [float(value) for value in DISCREPANCY_THRESHOLDS],
+        "quantiles": [float(value) for value in DISCREPANCY_QUANTILES],
+        "populations": populations,
+    }
+
+
 def column_consistency(columns: Mapping[str, np.ndarray]) -> dict[str, Any]:
     """How far the stored premium column is from the European slack it should equal.
 
@@ -384,7 +541,7 @@ def _guarded_output(project_root: Path, relative: str) -> Path:
 
 
 def acceptance_view(acceptance: Mapping[str, Any]) -> dict[str, Any]:
-    """The two acceptance keys this analysis reads, and no others.
+    """The three acceptance keys this analysis reads, and no others.
 
     Whitelisted by key for the same reason :func:`..workbench.locked_dataset_identity`
     is: the acceptance configuration also names Task 9G's final partition, and
@@ -392,11 +549,26 @@ def acceptance_view(acceptance: Mapping[str, Any]) -> dict[str, Any]:
     """
     bins = acceptance.get("bins")
     quantile_method = acceptance.get("quantile_method")
+    diagnostics = acceptance.get("diagnostics")
     if not isinstance(bins, Mapping):
         raise GeometryError(f"'{ACCEPTANCE_CONFIG_PATH}' declares no [bins] table")
     if not isinstance(quantile_method, str) or not quantile_method:
         raise GeometryError(f"'{ACCEPTANCE_CONFIG_PATH}' declares no quantile_method")
-    return {"bins": dict(bins), "quantile_method": quantile_method}
+    tolerance = (
+        diagnostics.get("material_normalized_tolerance")
+        if isinstance(diagnostics, Mapping)
+        else None
+    )
+    if not isinstance(tolerance, int | float) or not float(tolerance) > 0.0:
+        raise GeometryError(
+            f"'{ACCEPTANCE_CONFIG_PATH}' declares no positive "
+            "[diagnostics].material_normalized_tolerance"
+        )
+    return {
+        "bins": dict(bins),
+        "quantile_method": quantile_method,
+        "material_normalized_tolerance": float(tolerance),
+    }
 
 
 def analyze_validation_geometry(
@@ -446,6 +618,12 @@ def analyze_validation_geometry(
     populations = geometry_populations(
         columns, view["bins"], threshold_set, quantile_method=view["quantile_method"]
     )
+    discrepancy = comparator_discrepancy(
+        columns,
+        view["bins"],
+        quantile_method=view["quantile_method"],
+        material_tolerance=view["material_normalized_tolerance"],
+    )
 
     report = {
         "schema_version": GEOMETRY_SCHEMA,
@@ -484,6 +662,7 @@ def analyze_validation_geometry(
         "definitions": {
             "normalization": "A = spot * exp(-dividend_yield * maturity)",
             **MEASURED_QUANTITIES,
+            "comparator_discrepancy_normalized": COMPARATOR_DISCREPANCY,
             "slices": (
                 "differentiable_pricing.ml.american_pilot._slice_masks, the repository's single "
                 "definition of the validation slices, reused rather than reimplemented"
@@ -495,11 +674,19 @@ def analyze_validation_geometry(
         "quantile_method": view["quantile_method"],
         "column_consistency": column_consistency(columns),
         "populations": populations,
+        "comparator_discrepancy": discrepancy,
         "limitations": {
             "selection_bias": EXPLORATORY_LABEL,
             "descriptive_only": (
                 "this measures the geometry of the labels, not any model's behavior; it "
                 "predicts no violation count and admits no candidate"
+            ),
+            "analytic_european_is_not_the_comparator": (
+                "the european_comparator_lower_bound gate compares against the stored CRR "
+                "European leg, not against the analytic Black-Scholes value a model can "
+                "compute at inference; enforcing the analytic floor therefore enforces the "
+                "analytic bound and makes no claim about that gate, which is exactly what the "
+                "comparator discrepancy measures"
             ),
             "label_dependence": (
                 "every quantity is a stored dataset column under Task 9E's conditional, "
@@ -547,6 +734,25 @@ def compact_geometry(report: Mapping[str, Any]) -> dict[str, Any]:
                 "european_slack_normalized"
             ]["fraction_at_or_below"],
         },
+        "comparator_discrepancy": {
+            "definition": report["comparator_discrepancy"]["definition"],
+            "overall": {
+                "fraction_above": report["comparator_discrepancy"]["populations"]["overall"][
+                    "fraction_above"
+                ],
+                "quantiles": report["comparator_discrepancy"]["populations"]["overall"][
+                    "quantiles"
+                ],
+            },
+            "effectively_zero_premium": {
+                "rows": report["comparator_discrepancy"]["populations"][
+                    "effectively_zero_premium"
+                ]["rows"],
+                "fraction_above": report["comparator_discrepancy"]["populations"][
+                    "effectively_zero_premium"
+                ]["fraction_above"],
+            },
+        },
         "selection_bias": EXPLORATORY_LABEL,
     }
 
@@ -554,7 +760,10 @@ def compact_geometry(report: Mapping[str, Any]) -> dict[str, Any]:
 __all__ = [
     "ABSOLUTE_THRESHOLDS",
     "ANALYSIS_PARTITION",
+    "COMPARATOR_DISCREPANCY",
     "DEFAULT_OUTPUT",
+    "DISCREPANCY_QUANTILES",
+    "DISCREPANCY_THRESHOLDS",
     "GEOMETRY_SCHEMA",
     "GeometryError",
     "acceptance_view",
@@ -562,7 +771,11 @@ __all__ = [
     "attempt_rmse_thresholds",
     "column_consistency",
     "compact_geometry",
+    "comparator_discrepancy",
+    "comparator_discrepancy_values",
     "discounted_spot",
+    "effectively_zero_premium_mask",
+    "exceedance_statistics",
     "geometry_populations",
     "normalized_slacks",
     "population_masks",

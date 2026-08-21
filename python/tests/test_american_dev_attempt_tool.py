@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import tomllib
 from pathlib import Path
 from typing import Any, Final
 
@@ -137,7 +138,29 @@ def test_every_tracked_attempt_configuration_is_valid_and_marked_immutable(tool:
         "scratch_american_premium_v1",
         "scratch_conditioning_v1",
         "scratch_residual_premium_v1",
+        "scratch_residual_smooth_floor_v1",
     }
+
+
+def test_every_tracked_configuration_declares_a_consistent_head_temperature(tool: Any) -> None:
+    """The offline half of "the temperature matches the criterion's units"."""
+    rules = tool._load_attempt_rules()
+    assert tool.check_attempt_configurations(rules) == []
+    acceptance_path = PROJECT_ROOT / rules.ACCEPTANCE_CONFIG_PATH
+    with acceptance_path.open("rb") as stream:
+        acceptance = tomllib.load(stream)
+    assert rules.assert_temperature_consistent("smooth_lower_floor", acceptance) == 1.0e-4
+
+
+def test_the_check_would_catch_a_temperature_the_units_contradict(
+    tool: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A negative control: an inconsistent temperature is a check failure."""
+    rules = tool._load_attempt_rules()
+    monkeypatch.setattr(rules, "HEAD_TEMPERATURES", {"smooth_lower_floor": 1.0})
+    failures = tool.check_attempt_configurations(rules)
+    assert failures
+    assert any("inconsistent head temperature" in failure for failure in failures)
 
 
 def test_the_check_would_catch_an_edited_used_configuration(

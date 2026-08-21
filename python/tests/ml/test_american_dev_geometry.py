@@ -21,16 +21,21 @@ from typing import Any
 
 import numpy as np
 import pytest
+import torch
 from differentiable_pricing.ml.american_dev.attempts import (
     ATTEMPT_LOG_PATH,
     AttemptError,
     FinalPartitionAccessError,
+    load_toml,
     sha256_file,
 )
 from differentiable_pricing.ml.american_dev.geometry import (
     ABSOLUTE_THRESHOLDS,
     ANALYSIS_PARTITION,
+    COMPARATOR_DISCREPANCY,
     DEFAULT_OUTPUT,
+    DISCREPANCY_QUANTILES,
+    DISCREPANCY_THRESHOLDS,
     EXPLORATORY_LABEL,
     GEOMETRY_SCHEMA,
     MEASURED_QUANTITIES,
@@ -43,17 +48,28 @@ from differentiable_pricing.ml.american_dev.geometry import (
     attempt_rmse_thresholds,
     column_consistency,
     compact_geometry,
+    comparator_discrepancy,
+    comparator_discrepancy_values,
+    effectively_zero_premium_mask,
+    exceedance_statistics,
     geometry_populations,
     normalized_slacks,
     population_masks,
     slack_statistics,
     thresholds,
 )
+from differentiable_pricing.ml.american_dev.representation import (
+    european_price,
+    european_price_array,
+)
+from differentiable_pricing.ml.american_pilot import physical_features
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GEOMETRY_MODULE = PROJECT_ROOT / "python/src/differentiable_pricing/ml/american_dev/geometry.py"
 GEOMETRY_SCRIPT = PROJECT_ROOT / "scripts/analyze_american_dev_geometry.py"
 REAL_LOG = PROJECT_ROOT / ATTEMPT_LOG_PATH
+GEOMETRY_V1_REPORT = PROJECT_ROOT / "artifacts/task-9h/geometry/validation-geometry-v1.json"
+ACCEPTANCE_CONFIG = PROJECT_ROOT / "configs/american_neural_pilot_acceptance_v1.toml"
 BINS = {
     "expiry_edges_years": [0.25, 1.0, 2.0],
     "log_moneyness_edges": [-0.2, 0.2],
@@ -102,6 +118,17 @@ def _columns(count: int = 12) -> dict[str, np.ndarray]:
 # ---------------------------------------------------------------------------
 # One partition, fixed in the source
 # ---------------------------------------------------------------------------
+
+
+def test_the_v2_schema_writes_beside_the_v1_report_rather_than_over_it() -> None:
+    """An earlier published geometry report is evidence and is never overwritten."""
+    assert GEOMETRY_SCHEMA == "american-dev-validation-geometry/2"
+    assert DEFAULT_OUTPUT == "artifacts/task-9h/geometry/validation-geometry-v2.json"
+    assert str(GEOMETRY_V1_REPORT.relative_to(PROJECT_ROOT)) != DEFAULT_OUTPUT
+    if GEOMETRY_V1_REPORT.is_file():
+        published = json.loads(GEOMETRY_V1_REPORT.read_text(encoding="utf-8"))
+        assert published["schema_version"] == "american-dev-validation-geometry/1"
+        assert "comparator_discrepancy" not in published
 
 
 def test_the_analysis_partition_is_a_constant_naming_validation() -> None:
@@ -245,26 +272,153 @@ def test_a_disagreeing_premium_column_is_reported_not_hidden() -> None:
     assert consistency["maximum_normalized_difference"] > 0.0
 
 
-def test_the_acceptance_file_is_read_through_a_two_key_whitelist() -> None:
+def test_the_acceptance_file_is_read_through_a_three_key_whitelist() -> None:
     """The acceptance configuration also names Task 9G's final partition."""
     acceptance = {
         "bins": BINS,
         "quantile_method": "linear",
+        "diagnostics": {"material_normalized_tolerance": 1.0e-6, "output_projection": "none"},
         "final_partition": "interpolation_test",
         "validation_final_entry": {"normalized_rmse_max": 0.003},
     }
     view = acceptance_view(acceptance)
-    assert sorted(view) == ["bins", "quantile_method"]
+    assert sorted(view) == ["bins", "material_normalized_tolerance", "quantile_method"]
+    assert view["material_normalized_tolerance"] == 1.0e-6
     assert "interpolation_test" not in json.dumps(view)
 
 
 @pytest.mark.parametrize(
     "acceptance",
-    [{"quantile_method": "linear"}, {"bins": BINS}, {"bins": BINS, "quantile_method": ""}],
+    [
+        {"quantile_method": "linear", "diagnostics": {"material_normalized_tolerance": 1e-6}},
+        {"bins": BINS, "diagnostics": {"material_normalized_tolerance": 1e-6}},
+        {
+            "bins": BINS,
+            "quantile_method": "",
+            "diagnostics": {"material_normalized_tolerance": 1e-6},
+        },
+        {"bins": BINS, "quantile_method": "linear"},
+        {"bins": BINS, "quantile_method": "linear", "diagnostics": {}},
+        {
+            "bins": BINS,
+            "quantile_method": "linear",
+            "diagnostics": {"material_normalized_tolerance": 0.0},
+        },
+    ],
 )
 def test_an_incomplete_acceptance_file_fails_closed(acceptance: dict[str, Any]) -> None:
     with pytest.raises(GeometryError):
         acceptance_view(acceptance)
+
+
+def test_the_real_acceptance_file_supplies_the_whitelisted_keys() -> None:
+    view = acceptance_view(load_toml(ACCEPTANCE_CONFIG))
+    assert view["quantile_method"] == "linear"
+    assert view["material_normalized_tolerance"] == 1.0e-6
+
+
+# ---------------------------------------------------------------------------
+# The CRR versus analytic-European comparator discrepancy
+# ---------------------------------------------------------------------------
+
+
+def test_the_comparator_discrepancy_is_crr_minus_analytic_over_A() -> None:
+    """Sign convention fixed and checkable: positive means CRR sits above analytic."""
+    columns = _columns()
+    values = comparator_discrepancy_values(columns)
+    analytic = european_price_array(physical_features(columns))
+    expected = (
+        np.asarray(columns["european_crr_price"], dtype=np.float64) - analytic
+    ) / (columns["spot"] * np.exp(-columns["dividend_yield"] * columns["maturity"]))
+    np.testing.assert_allclose(values, expected, rtol=0.0, atol=0.0)
+    # Raising the stored CRR leg raises the discrepancy by exactly that amount.
+    lifted = dict(columns)
+    lifted["european_crr_price"] = columns["european_crr_price"] + 1.0
+    scale = columns["spot"] * np.exp(-columns["dividend_yield"] * columns["maturity"])
+    np.testing.assert_allclose(
+        comparator_discrepancy_values(lifted) - values, 1.0 / scale, rtol=1e-12, atol=0.0
+    )
+
+
+def test_the_analytic_leg_is_the_one_the_head_enforces() -> None:
+    """Measured and enforced by the same function, so they cannot drift apart."""
+    columns = _columns()
+    physical = physical_features(columns)
+    array = european_price_array(physical)
+    with torch.no_grad():
+        tensor = european_price(torch.as_tensor(physical, dtype=torch.float64)).numpy()
+    np.testing.assert_allclose(array, tensor, rtol=0.0, atol=0.0)
+
+
+def test_exceedance_counts_are_strictly_above_and_monotone() -> None:
+    values = np.asarray([-1.0e-3, 0.0, 1.0e-7, 1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3])
+    statistics = exceedance_statistics(values, quantile_method="linear")
+    counts = statistics["count_above"]
+    assert set(counts) == {f"above_{value:g}" for value in DISCREPANCY_THRESHOLDS}
+    # Strictly above: the row exactly on the threshold does not count.
+    assert counts["above_0"] == 5
+    assert counts["above_1e-06"] == 3
+    assert counts["above_0.0001"] == 1
+    assert list(counts.values()) == sorted(counts.values(), reverse=True)
+    assert statistics["fraction_above"]["above_0"] == pytest.approx(5 / 7)
+    assert set(statistics["quantiles"]) == {f"{q:g}" for q in DISCREPANCY_QUANTILES}
+    assert statistics["quantiles"]["1"] == pytest.approx(1.0e-3)
+    assert statistics["rows"] == 7
+
+
+def test_an_empty_or_non_finite_discrepancy_population_is_handled() -> None:
+    empty = exceedance_statistics(np.asarray([]), quantile_method="linear")
+    assert empty == {"rows": 0, "quantiles": None, "count_above": None, "fraction_above": None}
+    with pytest.raises(GeometryError, match="non-finite"):
+        exceedance_statistics(np.asarray([0.0, np.nan]), quantile_method="linear")
+
+
+def test_effectively_zero_premium_uses_the_acceptance_material_tolerance() -> None:
+    """Not a fresh number: the tolerance the violation counts already use."""
+    columns = _columns()
+    scale = columns["spot"] * np.exp(-columns["dividend_yield"] * columns["maturity"])
+    normalized = columns["early_exercise_premium"] / scale
+    mask = effectively_zero_premium_mask(columns, 1.0e-6)
+    np.testing.assert_array_equal(mask, normalized <= 1.0e-6)
+    assert int(mask.sum()) == 4
+    # The exact-zero repository slice is a subset of it, never the other way round.
+    exact = population_masks(columns, BINS)["premium_status:zero"]
+    assert bool((~exact | mask).all())
+
+
+@pytest.mark.parametrize("tolerance", [0.0, -1.0e-6, float("nan")])
+def test_an_invalid_material_tolerance_fails_closed(tolerance: float) -> None:
+    with pytest.raises(GeometryError, match="material normalized tolerance"):
+        effectively_zero_premium_mask(_columns(), tolerance)
+
+
+def test_the_discrepancy_block_reports_every_slice_and_the_binding_population() -> None:
+    columns = _columns()
+    block = comparator_discrepancy(
+        columns, BINS, quantile_method="linear", material_tolerance=1.0e-6
+    )
+    assert block["definition"] == COMPARATOR_DISCREPANCY
+    assert "ABOVE" in block["sign_convention"]
+    assert "european_price_array" in block["analytic_source"]
+    assert block["effectively_zero_premium"]["material_normalized_tolerance"] == 1.0e-6
+    assert block["effectively_zero_premium"]["rows"] == 4
+    populations = block["populations"]
+    assert {"overall", "option_type:call", "option_type:put"} <= set(populations)
+    assert "effectively_zero_premium" in populations
+    assert populations["overall"]["rows"] == 12
+    assert populations["effectively_zero_premium"]["rows"] == 4
+    assert set(populations["overall"]["fraction_above"]) == {
+        f"above_{value:g}" for value in DISCREPANCY_THRESHOLDS
+    }
+
+
+def test_the_discrepancy_measurement_opens_no_partition_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    before = {path: sha256_file(path) for path in [REAL_LOG, GEOMETRY_V1_REPORT]}
+    comparator_discrepancy(_columns(), BINS, quantile_method="linear", material_tolerance=1e-6)
+    assert {path: sha256_file(path) for path in [REAL_LOG, GEOMETRY_V1_REPORT]} == before
+    assert not list(tmp_path.iterdir())
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +612,9 @@ def test_the_compact_view_reports_only_numbers_the_report_carries() -> None:
         "populations": geometry_populations(
             columns, BINS, threshold_set, quantile_method="linear"
         ),
+        "comparator_discrepancy": comparator_discrepancy(
+            columns, BINS, quantile_method="linear", material_tolerance=1.0e-6
+        ),
     }
     compact = compact_geometry(report)
     assert compact["partition_analyzed"] == "validation"
@@ -465,6 +622,8 @@ def test_the_compact_view_reports_only_numbers_the_report_carries() -> None:
     assert set(compact["overall"]) == set(MEASURED_QUANTITIES)
     assert compact["premium_status:positive"]["rows"] == 8
     assert compact["selection_bias"] == EXPLORATORY_LABEL
+    assert compact["comparator_discrepancy"]["definition"] == COMPARATOR_DISCREPANCY
+    assert compact["comparator_discrepancy"]["effectively_zero_premium"]["rows"] == 4
     assert compact["overall"]["european_slack_normalized"]["median"] == (
         report["populations"]["overall"]["european_slack_normalized"]["quantiles"]["0.5"]
     )

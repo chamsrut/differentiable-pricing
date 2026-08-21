@@ -263,13 +263,13 @@ def test_every_candidate_shares_the_rows_the_shuffle_and_the_budget() -> None:
         validate_attempt_config(load_toml(path))
         for path in sorted(Path("configs").glob("american_dev_attempt_*.toml"))
     ]
-    assert len(configs) == 6
+    assert len(configs) == 7
     assert len({config["row_selection"]["salt"] for config in configs}) == 1
     assert len({config["row_selection"]["row_budget"] for config in configs}) == 1
     assert len({config["seeds"]["shuffle_label"] for config in configs}) == 1
     assert len({config["training"]["epochs"] for config in configs}) == 1
     assert len({config["checkpoint"]["rule"] for config in configs}) == 1
-    assert len({config["seeds"]["initialization_label"] for config in configs}) == 6
+    assert len({config["seeds"]["initialization_label"] for config in configs}) == 7
 
 
 # ---------------------------------------------------------------------------
@@ -453,14 +453,20 @@ def test_the_residual_premium_diagnostic_cannot_select_on_a_final_partition(
         validate_attempt_config(config)
 
 
-def test_the_residual_premium_diagnostic_is_not_yet_recorded_as_an_attempt() -> None:
-    """A predeclaration is not evidence: no run has happened and none is faked."""
+def test_the_predeclared_diagnostic_is_not_yet_recorded_as_an_attempt() -> None:
+    """A predeclaration is not evidence: no run has happened and none is faked.
+
+    ``scratch_residual_premium_v1`` (E1) has since been run by the human and is
+    recorded; ``scratch_residual_smooth_floor_v1`` (E2) is predeclared and has
+    not been run, and this test is what would fail if a result for it were ever
+    reconstructed rather than measured.
+    """
     logged = {
         record["attempt_id"]
         for record in attempt_log_entries(Path("docs/attempts/task-9h-attempt-log.jsonl"))
     }
-    assert "scratch_residual_architecture_v1" in logged
-    assert "scratch_residual_premium_v1" not in logged
+    assert {"scratch_residual_architecture_v1", "scratch_residual_premium_v1"} <= logged
+    assert "scratch_residual_smooth_floor_v1" not in logged
 
 
 # ---------------------------------------------------------------------------
@@ -1245,7 +1251,7 @@ def test_an_out_of_range_optimizer_value_is_refused(key: str, value: float) -> N
 def test_every_tracked_configuration_declares_only_dispatched_behavior() -> None:
     """Every immutable attempt survives the stricter rules unchanged."""
     paths = sorted(Path("configs").glob("american_dev_attempt_*.toml"))
-    assert len(paths) == 6
+    assert len(paths) == 7
     for path in paths:
         config = validate_attempt_config(load_toml(path))
         assert config["optimizer"]["name"] == "adamw"
