@@ -17,16 +17,19 @@ schema this workbench emits, judged against the canonical Task 9G acceptance
 configuration and section. A second log file, an unrecognized report, or an
 attempt that judged itself against some other criterion is refused.
 
-`check` enforces five properties:
+`check` enforces six properties:
 
 1. no Task 9H source names a final or held-out partition as data, using the
    **same** forbidden-token definition the runtime guard uses;
 2. the runner exposes no final-evaluation command;
-3. the attempt log is a valid append-only log, and every tracked attempt
+3. the validation-geometry analysis is validation-only: its partition is a
+   module constant, no other split name appears as a literal in its module or
+   its script, and its script exposes no final-evaluation subcommand;
+4. the attempt log is a valid append-only log, and every tracked attempt
    configuration is valid — which includes pointing at the canonical acceptance
    configuration;
-4. every logged attempt's configuration still hashes to its recorded digest;
-5. every logged attempt cites the canonical criterion file, section and digest.
+5. every logged attempt's configuration still hashes to its recorded digest;
+6. every logged attempt cites the canonical criterion file, section and digest.
 
 Every recorded attempt is a development measurement selected against
 `validation`. None of them is a project result.
@@ -50,13 +53,21 @@ PACKAGE: Final = PROJECT_ROOT / "python/src/differentiable_pricing/ml/american_d
 ATTEMPTS_MODULE: Final = PACKAGE / "attempts.py"
 ATTEMPT_LOG: Final = PROJECT_ROOT / "docs/attempts/task-9h-attempt-log.jsonl"
 RUNNER: Final = PROJECT_ROOT / "scripts/run_american_dev_attempt.py"
+GEOMETRY_MODULE: Final = PACKAGE / "geometry.py"
+GEOMETRY_SCRIPT: Final = PROJECT_ROOT / "scripts/analyze_american_dev_geometry.py"
 TASK_9H_SCRIPTS: Final = (
     "scripts/run_american_dev_attempt.py",
     "scripts/american_dev_attempts.py",
+    "scripts/analyze_american_dev_geometry.py",
 )
 ATTEMPT_CONFIG_GLOB: Final = "configs/american_dev_attempt_*.toml"
 
 EXPECTED_SUBCOMMANDS: Final = {"run", "status"}
+EXPECTED_GEOMETRY_SUBCOMMANDS: Final = {"analyze", "show"}
+#: The one partition the validation-geometry analysis may read as data. Checked
+#: against the module constant, and against every split name either the module
+#: or its script spells as a literal.
+GEOMETRY_PARTITION: Final = "validation"
 
 
 def _relative(path: Path) -> str:
@@ -287,6 +298,116 @@ def check_runner_has_no_final_evaluation() -> list[str]:
     return failures
 
 
+def _module_constant(tree: ast.AST, name: str) -> Any:
+    """The value assigned to a module-level string constant, or ``None``."""
+    for node in ast.walk(tree):
+        target = None
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target = node.target.id
+        elif (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            target = node.targets[0].id
+        if target != name or node.value is None:
+            continue
+        if isinstance(node.value, ast.Constant):
+            return node.value.value
+    return None
+
+
+def _declared_subcommands(tree: ast.AST) -> set[str]:
+    for node in ast.walk(tree):
+        target = None
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target = node.target.id
+        elif (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            target = node.targets[0].id
+        if target != "COMMANDS" or node.value is None:
+            continue
+        return {
+            element.value
+            for element in getattr(node.value, "elts", [])
+            if isinstance(element, ast.Constant) and isinstance(element.value, str)
+        }
+    return set()
+
+
+def check_geometry_is_validation_only(rules: Any) -> list[str]:
+    """The validation-geometry analysis reads one partition, fixed in the source.
+
+    Three separable properties, because the interesting failure is a later edit
+    that quietly widens the analysis rather than an obviously wrong one:
+
+    * the analysis partition is a **module constant** equal to ``validation`` —
+      not an argument, a configuration key or a subcommand flag;
+    * neither the module nor its script spells any *other* split name as a
+      string literal outside a docstring, so nothing can be pointed at ``train``
+      or anywhere else without this check noticing;
+    * the script declares exactly ``analyze`` and ``show``, and mentions no
+      final-evaluation command.
+
+    The final- and held-out-partition prohibition is not restated here: both
+    files are Task 9H sources, so :func:`check_no_final_partition_references`
+    already scans them with the runtime guard's own token list.
+    """
+    failures: list[str] = []
+    if not GEOMETRY_MODULE.is_file() or not GEOMETRY_SCRIPT.is_file():
+        return [
+            f"{_relative(GEOMETRY_MODULE)} and {_relative(GEOMETRY_SCRIPT)} must both exist; "
+            "the validation-geometry analysis is part of the checked Task 9H surface"
+        ]
+    module_tree = ast.parse(
+        GEOMETRY_MODULE.read_text(encoding="utf-8"), filename=str(GEOMETRY_MODULE)
+    )
+    declared_partition = _module_constant(module_tree, "ANALYSIS_PARTITION")
+    if declared_partition != GEOMETRY_PARTITION:
+        failures.append(
+            f"{_relative(GEOMETRY_MODULE)} declares ANALYSIS_PARTITION "
+            f"{declared_partition!r}; the geometry analysis reads {GEOMETRY_PARTITION!r} and "
+            "nothing else"
+        )
+    other_splits = {name for name in rules.ALLOWED_SPLITS if name != GEOMETRY_PARTITION}
+    for path, tree in (
+        (GEOMETRY_MODULE, module_tree),
+        (
+            GEOMETRY_SCRIPT,
+            ast.parse(GEOMETRY_SCRIPT.read_text(encoding="utf-8"), filename=str(GEOMETRY_SCRIPT)),
+        ),
+    ):
+        docstrings = _docstring_nodes(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if id(node) in docstrings or node.value not in other_splits:
+                continue
+            failures.append(
+                f"{_relative(path)}:{node.lineno} names partition {node.value!r}; the "
+                f"validation-geometry analysis reads {GEOMETRY_PARTITION!r} as data and derives "
+                "every other partition name from attempts.ALLOWED_SPLITS"
+            )
+    script_text = GEOMETRY_SCRIPT.read_text(encoding="utf-8")
+    script_tree = ast.parse(script_text, filename=str(GEOMETRY_SCRIPT))
+    declared = _declared_subcommands(script_tree)
+    if declared != EXPECTED_GEOMETRY_SUBCOMMANDS:
+        failures.append(
+            f"{_relative(GEOMETRY_SCRIPT)} declares subcommands {sorted(declared)}; expected "
+            f"exactly {sorted(EXPECTED_GEOMETRY_SUBCOMMANDS)}"
+        )
+    for forbidden in ("final-evaluate", "final_evaluate"):
+        if f'"{forbidden}"' in script_text or f"'{forbidden}'" in script_text:
+            failures.append(
+                f"{_relative(GEOMETRY_SCRIPT)} references {forbidden!r}; Task 9H exposes no "
+                "final-evaluation command and no flag that adds one"
+            )
+    return failures
+
+
 def check_attempt_configurations(rules: Any) -> list[str]:
     failures: list[str] = []
     for path in sorted(PROJECT_ROOT.glob(ATTEMPT_CONFIG_GLOB)):
@@ -303,6 +424,7 @@ def check(rules: Any) -> int:
     failures: list[str] = []
     failures.extend(check_no_final_partition_references())
     failures.extend(check_runner_has_no_final_evaluation())
+    failures.extend(check_geometry_is_validation_only(rules))
     attempts = 0
     if not ATTEMPT_LOG.is_file():
         failures.append(f"{_relative(ATTEMPT_LOG)} is missing")
@@ -324,7 +446,8 @@ def check(rules: Any) -> int:
     print(
         f"task 9H attempts ok: {configurations} attempt configuration(s) valid, "
         f"{attempts} logged attempt(s) with immutable configurations and the canonical "
-        "criterion, no final-partition reference, no final-evaluation command"
+        "criterion, no final-partition reference, no final-evaluation command, "
+        f"geometry analysis restricted to {GEOMETRY_PARTITION!r}"
     )
     return 0
 

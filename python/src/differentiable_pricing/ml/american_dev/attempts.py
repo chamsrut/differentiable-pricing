@@ -315,14 +315,15 @@ def verify_committed_source(project_root: Path, relatives: Iterable[str]) -> dic
         committed = head_blob(project_root, relative)
         if committed is None:
             raise AttemptError(
-                f"'{relative}' is not tracked at HEAD; a Task 9H attempt runs only from "
-                "committed source — commit the exact source state first"
+                f"'{relative}' is not tracked at HEAD; a Task 9H attempt or analysis runs only "
+                "from committed source — commit the exact source state first"
             )
         working = worktree_blob(project_root, relative)
         if working != committed:
             raise AttemptError(
                 f"'{relative}' differs from its HEAD blob ({working[:12]}… vs "
-                f"{committed[:12]}…); a Task 9H attempt runs only from committed source"
+                f"{committed[:12]}…); a Task 9H attempt or analysis runs only from committed "
+                "source"
             )
         identities[relative] = committed
     return identities

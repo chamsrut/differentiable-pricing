@@ -24,7 +24,13 @@ TOOL: Final = PROJECT_ROOT / "scripts/american_dev_attempts.py"
 PACKAGE: Final = PROJECT_ROOT / "python/src/differentiable_pricing/ml/american_dev"
 RUNNER: Final = PROJECT_ROOT / "scripts/run_american_dev_attempt.py"
 ATTEMPT_LOG: Final = PROJECT_ROOT / "docs/attempts/task-9h-attempt-log.jsonl"
-MANUAL_ONLY: Final = ("run_american_dev_attempt.py", "run_american_neural_pilot.py")
+MANUAL_ONLY: Final = (
+    "run_american_dev_attempt.py",
+    "run_american_neural_pilot.py",
+    "analyze_american_dev_geometry.py",
+)
+GEOMETRY_MODULE: Final = PACKAGE / "geometry.py"
+GEOMETRY_SCRIPT: Final = PROJECT_ROOT / "scripts/analyze_american_dev_geometry.py"
 
 
 @pytest.fixture(scope="module")
@@ -53,8 +59,8 @@ def test_the_tool_needs_no_torch_and_no_compiled_extension() -> None:
     assert not [name for name in imported if name.startswith("differentiable_pricing")]
 
 
-def test_no_repository_check_or_ci_job_launches_a_training_run() -> None:
-    """Training stays a manual, terminal-invoked human job."""
+def test_no_repository_check_or_ci_job_launches_a_training_run_or_the_analysis() -> None:
+    """Training and the geometry analysis stay manual, terminal-invoked human jobs."""
     for relative in ("scripts/check.sh", ".github/workflows/ci.yml"):
         text = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
         for command in MANUAL_ONLY:
@@ -130,6 +136,7 @@ def test_every_tracked_attempt_configuration_is_valid_and_marked_immutable(tool:
         "scratch_residual_architecture_v1",
         "scratch_american_premium_v1",
         "scratch_conditioning_v1",
+        "scratch_residual_premium_v1",
     }
 
 
@@ -182,20 +189,96 @@ def test_the_tracked_attempt_log_is_a_header_then_append_only_attempts() -> None
     assert "scratch_direct_control_v1" in identifiers
 
 
-def test_the_task_9h_package_is_exactly_the_five_retained_modules(tool: Any) -> None:
+def test_the_task_9h_package_is_exactly_the_six_retained_modules(tool: Any) -> None:
     """Nothing is kept "for later": Greeks, latency, IV and transfer are absent."""
     assert {path.name for path in PACKAGE.glob("*.py")} == {
         "__init__.py",
         "attempts.py",
+        "geometry.py",
         "models.py",
         "representation.py",
         "workbench.py",
     }
     assert {path.name for path in tool._task_9h_sources()} >= {
         "attempts.py",
+        "geometry.py",
         "workbench.py",
         "run_american_dev_attempt.py",
+        "analyze_american_dev_geometry.py",
     }
+
+
+# ---------------------------------------------------------------------------
+# The validation-geometry analysis is validation-only
+# ---------------------------------------------------------------------------
+
+
+def test_the_geometry_analysis_is_validation_only(tool: Any) -> None:
+    rules = tool._load_attempt_rules()
+    assert tool.check_geometry_is_validation_only(rules) == []
+    assert tool.GEOMETRY_PARTITION == "validation"
+
+
+def test_the_geometry_script_declares_exactly_analyze_and_show(tool: Any) -> None:
+    tree = ast.parse(GEOMETRY_SCRIPT.read_text(encoding="utf-8"), filename=str(GEOMETRY_SCRIPT))
+    assert tool._declared_subcommands(tree) == tool.EXPECTED_GEOMETRY_SUBCOMMANDS
+    text = GEOMETRY_SCRIPT.read_text(encoding="utf-8")
+    for forbidden in ("final-evaluate", "final_evaluate"):
+        assert f'"{forbidden}"' not in text
+        assert f"'{forbidden}'" not in text
+
+
+def test_the_check_would_catch_a_geometry_analysis_pointed_at_another_partition(
+    tool: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A negative control: the check fails when the property it guards is broken."""
+    rules = tool._load_attempt_rules()
+    offending = tmp_path / "geometry.py"
+    offending.write_text('ANALYSIS_PARTITION: Final = "train"\n', encoding="utf-8")
+    monkeypatch.setattr(tool, "GEOMETRY_MODULE", offending)
+    failures = tool.check_geometry_is_validation_only(rules)
+    assert failures
+    assert any("ANALYSIS_PARTITION" in failure for failure in failures)
+
+
+def test_the_check_would_catch_a_geometry_script_naming_another_partition(
+    tool: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rules = tool._load_attempt_rules()
+    offending = tmp_path / "analyze.py"
+    offending.write_text(
+        'COMMANDS: Final = ("analyze", "show")\nSPLIT = "train"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(tool, "GEOMETRY_SCRIPT", offending)
+    failures = tool.check_geometry_is_validation_only(rules)
+    assert failures
+    assert any("names partition 'train'" in failure for failure in failures)
+
+
+def test_the_check_would_catch_a_geometry_script_that_grew_a_subcommand(
+    tool: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rules = tool._load_attempt_rules()
+    offending = tmp_path / "analyze.py"
+    offending.write_text(
+        'COMMANDS: Final = ("analyze", "show", "final-evaluate")\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(tool, "GEOMETRY_SCRIPT", offending)
+    failures = tool.check_geometry_is_validation_only(rules)
+    assert len(failures) == 2
+    assert any("declares subcommands" in failure for failure in failures)
+    assert any("no final-evaluation command" in failure for failure in failures)
+
+
+def test_the_geometry_analysis_never_writes_the_attempt_log(tool: Any) -> None:
+    """`record` stays the only writer of the append-only log."""
+    tree = ast.parse(GEOMETRY_MODULE.read_text(encoding="utf-8"), filename=str(GEOMETRY_MODULE))
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "append_attempt" not in called
 
 
 def _report(**overrides: Any) -> dict[str, Any]:

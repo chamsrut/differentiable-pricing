@@ -205,16 +205,18 @@ does not reinterpret or rerun it.**
 - **No accepted, versioned PDE-labelled SPY training dataset exists**, and no
   SPY neural surrogate exists. **No American neural surrogate has yet been
   trained and accepted** — task 9G trained two arms and accepted neither.
-- **Task 9H supplies price-only development infrastructure, and one attempt has
-  been run and recorded.** The package
+- **Task 9H supplies price-only development infrastructure, and five attempts
+  have been run and recorded.** The package
   `python/src/differentiable_pricing/ml/american_dev/`
-  holds four modules: `attempts` (partition guard and its single forbidden-token
+  holds five modules: `attempts` (partition guard and its single forbidden-token
   list, row/seed selection, digests, clean-tree and committed-source checks,
   strict configuration validation, attempt-log rules; PyTorch-free),
   `representation` (the five `american_forward_carry_v1` coordinates, the
   European anchor, conditioning features, heads, physical reconstruction),
-  `models` (a dense and a residual network plus dispatch) and `workbench` (one
-  attempt end to end).
+  `models` (a dense and a residual network plus dispatch), `workbench` (one
+  attempt end to end) and `geometry` (the exploratory validation-set geometry of
+  the binding constraints; it reads one partition, trains nothing and writes no
+  attempt evidence).
   Evaluation reuses Task 9G's `sliced_metrics`, `shape_diagnostics` and
   `assess_arm` against `configs/american_neural_pilot_acceptance_v1.toml`, so
   the criterion is shared code rather than a copied number, and an attempt may
@@ -225,16 +227,24 @@ does not reinterpret or rerun it.**
   `configs/american_neural_pilot_protocol_v1.toml` locked for Task 9G; it then
   reuses Task 9G's row-level `verify_partition_policy` on both partitions
   (DEC-042). The scripts are the human-only
-  `scripts/run_american_dev_attempt.py` (`run`, `status`) and the
+  `scripts/run_american_dev_attempt.py` (`run`, `status`), the human-only
+  `scripts/analyze_american_dev_geometry.py` (`analyze`, `show`) and the
   offline `scripts/american_dev_attempts.py` (`record`, `check`; the `check`
-  mode is wired into `scripts/check.sh` and CI). Configurations are the five
+  mode is wired into `scripts/check.sh` and CI). Configurations are the six
   immutable `configs/american_dev_attempt_scratch_*.toml`. The append-only
-  attempt log is `docs/attempts/task-9h-attempt-log.jsonl`; it holds **one**
-  attempt, `scratch_direct_control_v1`, recorded at `193ab11` with
-  `outcome=criterion_not_met` (normalized RMSE 5.73e-3, p99 2.03e-2, maximum
-  1.19e-1, 10,121 material bound and 1,460 material shape violations, best epoch
-  120 of 120). That is a development measurement selected against `validation`,
-  not a project result. No further model has been trained. No Greek, latency,
+  attempt log is `docs/attempts/task-9h-attempt-log.jsonl`; it holds **five**
+  attempts, all `outcome=criterion_not_met`: `scratch_direct_control_v1`
+  (normalized RMSE 5.73e-3, 10,121 bound / 1,460 shape violations),
+  `scratch_capacity_v1` (3.50e-3, 9,083 / 854), `scratch_american_premium_v1`
+  (6.98e-3, 1,116 / 330 — zero European-comparator violations),
+  `scratch_conditioning_v1` (4.22e-3, 9,205 / 1,537) and
+  `scratch_residual_architecture_v1` (2.11e-3, 8,569 / 683 — all three
+  price-error gates passed), recorded at `193ab11`, `3c4fdb8`, `7099c57`,
+  `15bba65` and `32258bf`. Those are development measurements selected against
+  `validation`, not project results. **One exploratory validation-geometry
+  analysis and one decision-gating diagnostic,
+  `scratch_residual_premium_v1`, are predeclared and not yet run** (DEC-043); a
+  predeclared configuration is a plan, not a measurement. No Greek, latency,
   implied-volatility or transfer machinery exists in task 9H.
 
 ## Exact next task
@@ -699,7 +709,7 @@ training (DEC-014, DEC-025).
 | Market ingestion (9A) / reconstruction (9B) | [market-state-reconstruction-contract.md](market-state-reconstruction-contract.md) | none — local-only, never staged |
 | Local data holdings (9D audit) | [data-holdings-catalogue.md](data-holdings-catalogue.md) | none — audit record, not frozen evidence, no generator script |
 | CRR dataset conditional admission (9E) | [american-crr-dataset-admission.md](american-crr-dataset-admission.md), [american-crr-contract.md](american-crr-contract.md) ("Label policy v1") | none — conditional mapping-only admission, not frozen evidence; implemented checks live in `data/american_admission.py` and incomplete gates are recorded |
-| American price-model development loop (9H) | [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md) | none, and none is expected — task 9H produces development records, not frozen evidence. Its recorded search lives in the append-only `docs/attempts/task-9h-attempt-log.jsonl` (one entry: the failed `scratch_direct_control_v1` control) and is checked offline by `python3 scripts/american_dev_attempts.py check` in `scripts/check.sh` and CI (DEC-041, DEC-042) |
+| American price-model development loop (9H) | [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md) | none, and none is expected — task 9H produces development records, not frozen evidence. Its recorded search lives in the append-only `docs/attempts/task-9h-attempt-log.jsonl` (five entries, all `criterion_not_met`) and is checked offline by `python3 scripts/american_dev_attempts.py check` in `scripts/check.sh` and CI (DEC-041, DEC-042, DEC-043). The exploratory validation-geometry report is written beneath the ignored `artifacts/` tree and is never committed |
 | American neural-pricer feasibility pilot (9G) | [architecture.md](architecture.md) ("Phase-1 American surrogate representation"), [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md) | [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json) — frozen negative result, `validation_gates_failed` / `failure_to_learn`, final partition unconsumed. Enforced by `scripts/freeze_american_neural_pilot_results.py --check` in `scripts/check.sh` and CI (DEC-036, DEC-037, DEC-038); result acceptance pending fresh top-level review |
 
 ## New-agent checklist

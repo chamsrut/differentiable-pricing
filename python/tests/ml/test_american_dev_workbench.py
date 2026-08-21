@@ -33,6 +33,7 @@ from differentiable_pricing.ml.american_dev.attempts import (
     assert_path_allowed,
     assert_report_is_recordable,
     assert_split_allowed,
+    attempt_log_entries,
     attempt_seeds,
     check_configuration_immutability,
     derive_seed,
@@ -45,10 +46,12 @@ from differentiable_pricing.ml.american_dev.attempts import (
     validate_attempt_log,
     verify_committed_source,
 )
+from differentiable_pricing.ml.american_dev.models import parameter_count
 from differentiable_pricing.ml.american_dev.representation import (
     AmericanDevPriceModel,
     discounted_spot,
     european_price,
+    feature_order,
     representation_arrays,
 )
 from differentiable_pricing.ml.american_dev.workbench import (
@@ -69,6 +72,9 @@ from differentiable_pricing.ml.american_dev.workbench import (
 from differentiable_pricing.ml.model import fit_scaling
 
 CONTROL_CONFIG = Path("configs/american_dev_attempt_scratch_direct_control_v1.toml")
+RESIDUAL_CONFIG = Path("configs/american_dev_attempt_scratch_residual_architecture_v1.toml")
+PREMIUM_CONFIG = Path("configs/american_dev_attempt_scratch_american_premium_v1.toml")
+RESIDUAL_PREMIUM_CONFIG = Path("configs/american_dev_attempt_scratch_residual_premium_v1.toml")
 ACCEPTANCE_CONFIG = Path("configs/american_neural_pilot_acceptance_v1.toml")
 
 
@@ -257,13 +263,13 @@ def test_every_candidate_shares_the_rows_the_shuffle_and_the_budget() -> None:
         validate_attempt_config(load_toml(path))
         for path in sorted(Path("configs").glob("american_dev_attempt_*.toml"))
     ]
-    assert len(configs) == 5
+    assert len(configs) == 6
     assert len({config["row_selection"]["salt"] for config in configs}) == 1
     assert len({config["row_selection"]["row_budget"] for config in configs}) == 1
     assert len({config["seeds"]["shuffle_label"] for config in configs}) == 1
     assert len({config["training"]["epochs"] for config in configs}) == 1
     assert len({config["checkpoint"]["rule"] for config in configs}) == 1
-    assert len({config["seeds"]["initialization_label"] for config in configs}) == 5
+    assert len({config["seeds"]["initialization_label"] for config in configs}) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +319,148 @@ def test_an_unknown_conditioning_feature_is_refused() -> None:
     config["conditioning_features"] = ["implied_vol_ratio"]
     with pytest.raises(AttemptError, match="unknown conditioning feature"):
         validate_attempt_config(config)
+
+
+# ---------------------------------------------------------------------------
+# The residual + premium diagnostic composes existing components only
+# ---------------------------------------------------------------------------
+
+
+def _flatten(section: Any, prefix: str = "") -> dict[str, Any]:
+    flat: dict[str, Any] = {}
+    for key, value in section.items():
+        if isinstance(value, dict):
+            flat.update(_flatten(value, f"{prefix}{key}."))
+        else:
+            flat[f"{prefix}{key}"] = value
+    return flat
+
+
+def test_the_residual_premium_diagnostic_changes_only_the_head_and_its_seed() -> None:
+    """Against its parent, exactly one behavioral field moves: the head.
+
+    ``attempt_id``, ``parent_attempt``, ``hypothesis`` and the two output paths
+    are identity, not behavior, and the initialization label is derived from the
+    new attempt ID by the existing rule -- the one confound this composition
+    necessarily carries. Everything that determines the training run itself is
+    byte-identical to the parent's.
+    """
+    parent = _flatten(load_toml(RESIDUAL_CONFIG))
+    child = _flatten(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    differing = {key for key in parent | child if parent.get(key) != child.get(key)}
+    assert differing == {
+        "attempt_id",
+        "parent_attempt",
+        "hypothesis",
+        "head",
+        "seeds.initialization_label",
+        "paths.output_directory",
+        "paths.ledger",
+    }
+    assert parent["head"] == "direct"
+    assert child["head"] == "premium_over_european"
+    assert child["parent_attempt"] == "scratch_residual_architecture_v1"
+    assert child["seeds.initialization_label"] == "scratch_residual_premium_v1/init"
+
+
+def test_the_residual_premium_diagnostic_changes_only_the_backbone_from_the_premium_control(
+) -> None:
+    """Against the small premium arm, only the backbone and identity move."""
+    control = _flatten(load_toml(PREMIUM_CONFIG))
+    child = _flatten(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    behavioral = {
+        key
+        for key in control | child
+        if control.get(key) != child.get(key)
+        and not key.startswith(("attempt_id", "parent_attempt", "hypothesis", "paths.", "seeds."))
+    }
+    assert behavioral == {
+        "architecture.name",
+        "architecture.width",
+        "architecture.blocks",
+        "architecture.hidden_dimensions",
+    }
+    assert child["architecture.name"] == "smooth_residual"
+    assert child["architecture.width"] == 128
+    assert child["architecture.blocks"] == 6
+    assert child["architecture.activation"] == "tanh"
+
+
+def test_the_residual_premium_diagnostic_uses_the_five_base_features_only() -> None:
+    config = validate_attempt_config(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    assert config["conditioning_features"] == []
+    assert feature_order(()) == (
+        "option_type",
+        "log_forward_moneyness",
+        "total_volatility",
+        "rate_time",
+        "yield_time",
+    )
+
+
+def test_the_residual_premium_diagnostic_declares_no_normalization_or_dropout() -> None:
+    """Neither exists in the architectures; the section may not declare one."""
+    config = validate_attempt_config(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    assert set(config["architecture"]) == {"name", "width", "blocks", "activation"}
+    for unsupported in ("normalization", "dropout"):
+        broken = {**config, "architecture": {**config["architecture"], unsupported: "none"}}
+        with pytest.raises(AttemptError, match="unsupported key"):
+            validate_attempt_config(broken)
+
+
+def test_the_residual_premium_diagnostic_builds_at_the_parent_capacity() -> None:
+    """Composition only: both components already exist and are dispatched."""
+    config = validate_attempt_config(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    parent = validate_attempt_config(load_toml(RESIDUAL_CONFIG))
+    physical = _physical()
+    prices = np.linspace(4.0, 16.0, physical.shape[0])
+    features, targets = representation_arrays(physical, prices, ())
+    scaling = fit_scaling(features, targets)
+    model = build_model(config, scaling)
+    assert model.head == "premium_over_european"
+    assert parameter_count(model.network) == parameter_count(
+        build_model(parent, scaling).network
+    )
+    with torch.no_grad():
+        predicted = model(torch.as_tensor(physical, dtype=torch.float64))
+        anchor = european_price(torch.as_tensor(physical, dtype=torch.float64))
+    # The head's guarantee is non-strict and not bitwise: the A * (E / A)
+    # round-trip can leave the price one unit in the last place below the
+    # anchor, which is what the tolerance below allows and nothing more.
+    assert bool((predicted >= anchor - 8.0 * np.finfo(np.float64).eps * anchor.abs()).all())
+
+
+@pytest.mark.parametrize(
+    "key", ["dataset", "dataset_manifest", "output_directory", "ledger"]
+)
+def test_the_residual_premium_diagnostic_cannot_be_pointed_at_a_final_partition(
+    key: str,
+) -> None:
+    config = validate_attempt_config(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    config["paths"] = {**config["paths"], key: "data/american-option-v1/interpolation_test"}
+    with pytest.raises(FinalPartitionAccessError):
+        validate_attempt_config(config)
+
+
+@pytest.mark.parametrize("section", ["row_selection", "checkpoint"])
+def test_the_residual_premium_diagnostic_cannot_select_on_a_final_partition(
+    section: str,
+) -> None:
+    config = validate_attempt_config(load_toml(RESIDUAL_PREMIUM_CONFIG))
+    key = "partition" if section == "row_selection" else "selection_partition"
+    config[section] = {**config[section], key: "interpolation_test"}
+    with pytest.raises(FinalPartitionAccessError):
+        validate_attempt_config(config)
+
+
+def test_the_residual_premium_diagnostic_is_not_yet_recorded_as_an_attempt() -> None:
+    """A predeclaration is not evidence: no run has happened and none is faked."""
+    logged = {
+        record["attempt_id"]
+        for record in attempt_log_entries(Path("docs/attempts/task-9h-attempt-log.jsonl"))
+    }
+    assert "scratch_residual_architecture_v1" in logged
+    assert "scratch_residual_premium_v1" not in logged
 
 
 # ---------------------------------------------------------------------------
@@ -1095,9 +1243,9 @@ def test_an_out_of_range_optimizer_value_is_refused(key: str, value: float) -> N
 
 
 def test_every_tracked_configuration_declares_only_dispatched_behavior() -> None:
-    """The five immutable attempts survive the stricter rules unchanged."""
+    """Every immutable attempt survives the stricter rules unchanged."""
     paths = sorted(Path("configs").glob("american_dev_attempt_*.toml"))
-    assert len(paths) == 5
+    assert len(paths) == 6
     for path in paths:
         config = validate_attempt_config(load_toml(path))
         assert config["optimizer"]["name"] == "adamw"

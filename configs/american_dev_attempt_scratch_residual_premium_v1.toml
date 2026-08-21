@@ -1,0 +1,102 @@
+# Task 9H attempt: scratch_residual_premium_v1
+#
+# IMMUTABLE AFTER USE. Once an attempt has run against this file it is never
+# edited: a changed idea gets a new attempt ID and a new file, and
+# `python3 scripts/american_dev_attempts.py check` re-verifies that every logged
+# attempt's configuration still hashes to the digest that attempt recorded.
+#
+# Composition only. Relative to its parent `scratch_residual_architecture_v1`
+# exactly two things change: the head, `direct` -> `premium_over_european`, and
+# the initialization seed, which is derived from this attempt's own ID by the
+# existing rule. The backbone (smooth_residual, width 128, 6 blocks, tanh, no
+# normalization, no dropout), the five base features, the representation, the
+# target, the reconstruction, the selected training rows, the shuffle seed, the
+# validation partition, the optimizer, the schedule, the budget, the precision,
+# the thread count, the checkpoint semantics and the criterion are unchanged.
+# No model or training code changes for this attempt; both components already
+# exist and are dispatched.
+#
+# DECISION-GATING DIAGNOSTIC, NOT YET A CANDIDATE. No currently implemented head
+# enforces the intrinsic floor, so this attempt is *not* expected to satisfy the
+# complete zero-bound-violation criterion: `scratch_american_premium_v1` left
+# 1,116 `intrinsic_lower_bound` violations that a European anchor does not
+# address. Its purpose is to isolate the effect of the premium head at
+# residual-backbone capacity. The criterion is not revised to accommodate it.
+# The predeclared interpretation and decision rule are in
+# `docs/tasks/active/task-9h-american-pricer-development.md`.
+schema_version = "american-dev-attempt/1"
+attempt_id = "scratch_residual_premium_v1"
+parent_attempt = "scratch_residual_architecture_v1"
+hypothesis = "The residual backbone's price accuracy and the premium head's European floor compose: at matched capacity, rows and budget, the head removes the european_comparator_lower_bound violations without the price cost it showed at control capacity."
+objective = "price_only"
+representation = "american_forward_carry_v1"
+target = "u = V / (S * exp(-q * T))"
+physical_reconstruction = "V = S * exp(-q * T) * u"
+head = "premium_over_european"
+conditioning_features = []
+dtype = "float64"
+device = "cpu"
+
+[architecture]
+# Identical to scratch_residual_architecture_v1: no normalization and no
+# dropout anywhere, so a row's prediction never depends on batch composition or
+# on a random mask.
+name = "smooth_residual"
+width = 128
+blocks = 6
+activation = "tanh"
+
+[seeds]
+# Paired across candidates where technically meaningful: the shuffle label is
+# shared, so every attempt walks the same 32,768 rows in the same order, and
+# only the initialization label differs per architecture. The initialization
+# label is this attempt's own ID under the existing derivation rule, which is
+# also the one confound this composition carries.
+initialization_label = "scratch_residual_premium_v1/init"
+shuffle_label = "task-9h/shuffle-v1"
+derivation = "first four bytes of SHA-256(label), unsigned big-endian"
+
+[row_selection]
+# The same salt and budget in every attempt, so all candidates see exactly the
+# same training rows and the comparison is paired by construction. Rule and
+# budget carried over from Task 9G.
+partition = "train"
+row_budget = 32768
+salt = "task-9h-train-subset-v1"
+rule = "lowest SHA-256(salt + NUL + sample_id), sample_id tie-break"
+
+[training]
+batch_size = 2048
+epochs = 120
+num_threads = 4
+deterministic_algorithms = true
+shuffle = "torch.randperm from the shuffle seed once per epoch"
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 0.00000001
+schedule = "cosine_annealing"
+minimum_learning_rate = 0.0
+schedule_period_epochs = 120
+
+[checkpoint]
+selection_partition = "validation"
+metric = "standardized_target_mse"
+rule = "minimum metric; earliest epoch wins exact ties"
+
+[evaluation]
+batch_size = 4096
+
+[paths]
+dataset = "data/american-option-v1"
+dataset_manifest = "data/american-option-v1/manifest.json"
+# The development criterion, reused verbatim. This file is digest-pinned by the
+# Task 9G protocol and reconciled in scripts/check.sh and CI, so the criterion
+# cannot be quietly loosened after an attempt fails.
+acceptance_config = "configs/american_neural_pilot_acceptance_v1.toml"
+output_directory = "artifacts/task-9h/scratch_residual_premium_v1"
+ledger = "runs/task-9h/scratch_residual_premium_v1/attempt.json"

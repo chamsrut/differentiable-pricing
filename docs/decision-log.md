@@ -1548,3 +1548,72 @@ snapshot, which remains authoritative for the numbers.
   [attempts/README.md](attempts/README.md),
   [project-state.md](project-state.md),
   DEC-038, DEC-039, DEC-041
+
+### DEC-043 — Task 9H: validation-geometry analysis and one predeclared premium-composition diagnostic
+
+- **Status:** Active. Applies to task 9H (DEC-041, DEC-042) and to nothing
+  already frozen. It establishes **no numerical result**, authorizes no training
+  run, and changes no threshold.
+- **Context.** Five task 9H attempts have been run by the human and recorded in
+  `docs/attempts/task-9h-attempt-log.jsonl`, all `criterion_not_met`. Two
+  findings are separable and point in opposite directions:
+  `scratch_residual_architecture_v1` passed all three price-error gates at the
+  capacity model's parameter count and left the structural gates untouched;
+  `scratch_american_premium_v1`, at the smallest capacity in the loop, drove
+  `european_comparator_lower_bound` violations to exactly zero and made price
+  accuracy the worst of the five. Neither has been observed with the other.
+- **Decision 1 — measure the geometry before designing a floor.** A new
+  human-invoked, exploratory analysis
+  (`python/src/differentiable_pricing/ml/american_dev/geometry.py`,
+  `scripts/analyze_american_dev_geometry.py analyze|show`) measures on
+  `validation` the normalized European slack, the normalized intrinsic slack and
+  the normalized early-exercise premium, with quantiles, row counts and the
+  fraction of rows at or below `1e-6`, `1e-4`, `1e-3` and the recorded
+  normalized RMSE of the control, capacity and residual attempts. Every
+  definition — `A = S*exp(-q*T)`, the CRR European comparator, the intrinsic
+  value, the validation slices — is the repository's existing one, reused rather
+  than restated, and the three RMSE thresholds are read out of the attempt log
+  rather than typed in.
+- **How it is constrained.** `validation` is a module constant, not an argument,
+  a flag or a configuration key; `python3 scripts/american_dev_attempts.py
+  check` re-verifies offline that it still is, that neither the module nor its
+  script spells any other split name as a literal, and that the script declares
+  exactly `analyze` and `show`. It reuses the hardened manifest restriction,
+  dataset-identity pinning, row-level policy verification and committed-source
+  provenance guards unchanged, so `train` is hashed for identity while only
+  `validation` is read as data and the report says exactly that. It trains
+  nothing, reserves no attempt directory or ledger, appends nothing to the
+  attempt log, mutates no existing attempt evidence, and writes beneath the
+  ignored `artifacts/` tree.
+- **Decision 2 — one predeclared composition diagnostic.**
+  `configs/american_dev_attempt_scratch_residual_premium_v1.toml` composes the
+  residual backbone with the premium head. Relative to its parent
+  `scratch_residual_architecture_v1` exactly one behavioral field moves — `head`
+  `direct` → `premium_over_european` — plus the initialization seed the existing
+  rule derives from the new attempt ID. **No model or training code changes**;
+  both components already exist and are dispatched.
+- **Predeclared interpretation, recorded before it runs.** It is a
+  **decision-gating diagnostic, not yet a candidate**. No implemented head
+  enforces the intrinsic floor, so it is **not expected** to satisfy the
+  complete zero-bound-violation criterion; its purpose is to isolate the effect
+  of the premium head at residual-backbone capacity. Failing structurally is the
+  expected outcome and is not grounds for revising the criterion.
+- **Predeclared decision rule, recorded before it runs.** All three price gates
+  pass and European violations zero → proceed toward E2. Normalized RMSE at most
+  `0.0045` → the gentler E2 design. Normalized RMSE at least `0.005` → preserve
+  the direct-price target and implement the floor as an output transformation
+  rather than reusing the premium target. Any price metric within 10% of its
+  gate → two additional initialization seeds before drawing a conclusion. E2 and
+  E3 are conditional on this result and are neither implemented nor designed.
+- **Non-claims.** Nothing here is a project result. The geometry report measures
+  the *labels*, not any model, on the partition this loop selects against. A
+  predeclared configuration is a plan, not a measurement: nothing about
+  `scratch_residual_premium_v1` is a result until the human has run it and the
+  outcome is in the append-only log. The fixed criterion, the five recorded
+  attempts, their configurations and the append-only log are unchanged, and no
+  task 9G tracked input was edited.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [attempts/README.md](attempts/README.md),
+  [project-state.md](project-state.md),
+  DEC-038, DEC-039, DEC-041, DEC-042

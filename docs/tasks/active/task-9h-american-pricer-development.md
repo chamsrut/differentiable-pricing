@@ -5,8 +5,10 @@
 `status=active; type=adaptive_exploratory_development; scope=price_only;
 branch=experiment/task-9h-american-pricer-development;
 partitions_available=train+validation; final_partition_access=forbidden;
-infrastructure implemented and hardened; one attempt recorded
-(scratch_direct_control_v1, criterion_not_met); no attempt running.`
+infrastructure implemented and hardened; five attempts recorded, all
+criterion_not_met; one exploratory validation-geometry analysis and one
+decision-gating diagnostic (scratch_residual_premium_v1) predeclared and not yet
+run; no attempt running.`
 
 Task 9G is terminal and negative ([decision-log.md](../../decision-log.md)
 DEC-038, approved by DEC-039). This task is opened by DEC-041.
@@ -180,6 +182,116 @@ Every other bound remains a reported diagnostic.
 deterministic function of inputs the network already receives, so the candidate
 tests conditioning, not extra knowledge.
 
+## What the first five attempts measured
+
+All five were run by the human, recorded in the append-only log, and all five
+returned `criterion_not_met`. Every number below is a development measurement
+selected against `validation`; none is a project result.
+
+| Attempt | normalized RMSE | material bound violations | material shape violations |
+|---|---:|---:|---:|
+| `scratch_direct_control_v1` | 0.005725170440175143 | 10,121 | 1,460 |
+| `scratch_capacity_v1` | 0.003500912482274842 | 9,083 | 854 |
+| `scratch_american_premium_v1` | 0.006982320321969395 | 1,116 | 330 |
+| `scratch_conditioning_v1` | 0.004223135357900415 | 9,205 | 1,537 |
+| `scratch_residual_architecture_v1` | 0.002111941927713822 | 8,569 | 683 |
+
+Two separable findings, and they point in opposite directions. The residual
+backbone passed **all three price-error gates** at the capacity model's
+parameter count, and left the structural gates untouched. The premium head, at
+the smallest capacity in the loop, drove `european_comparator_lower_bound`
+violations to **exactly zero** and cut shape violations to the best count
+anywhere in this project, and made price accuracy the worst of the five.
+
+Neither result has been observed with the other. That is what the next two
+sections are for.
+
+## The exploratory validation-set geometry analysis
+
+**Predeclared, exploratory, and not a candidate for anything.** Every attempt's
+structural failure is counted against a material tolerance of `1e-6` in
+normalized units, and how many rows a model can fail that way is a joint
+property of the model *and* of how much slack the labels leave above each bound.
+That second half has never been measured. Deciding between architectural floor
+designs without it would be guessing.
+
+The analysis measures, on `validation` only, in the repository's existing
+definitions:
+
+- the normalized European slack `(V_American - V_European_CRR) / A`, using the
+  stored CRR European leg — the same comparator the
+  `european_comparator_lower_bound` diagnostic uses;
+- the normalized intrinsic slack `(V_American - intrinsic) / A`;
+- the normalized early-exercise premium, reported for the positive-premium
+  population separately;
+- for each, quantiles, row counts, and the fraction of rows at or below `1e-6`,
+  `1e-4`, `1e-3` and the recorded normalized RMSE of the control, capacity and
+  residual attempts — read out of the attempt log, never typed in;
+
+sliced by `ml.american_pilot`'s own validation slices rather than by new ones.
+
+**What it is not.** It measures the geometry of the *labels*, not any model's
+behavior. It predicts no violation count, admits no candidate, and revises no
+threshold. It is measured on the partition this loop selects against, so it
+carries the same selection bias as every other task 9H number and is labelled
+that way inside its own report payload.
+
+**How it is constrained.** `validation` is a module constant in
+`ml.american_dev.geometry`, not an argument, a flag or a configuration key;
+`python3 scripts/american_dev_attempts.py check` re-verifies offline that it
+still is, that neither the module nor its script spells any other split name as
+a literal, and that the script declares exactly `analyze` and `show`. The
+analysis reuses the hardened manifest restriction, dataset-identity pinning,
+row-level policy verification and committed-source provenance guards unchanged,
+so `train` is hashed for identity while only `validation` is read as data — the
+report says exactly that. It trains nothing, reserves no attempt directory or
+ledger, appends nothing to the attempt log, and mutates no existing attempt
+evidence. Its output lives beneath the ignored `artifacts/` tree and is never
+committed.
+
+## Predeclared diagnostic: `scratch_residual_premium_v1`
+
+`configs/american_dev_attempt_scratch_residual_premium_v1.toml`. Composition
+only: relative to its parent `scratch_residual_architecture_v1` exactly one
+behavioral field moves, `head` `direct` → `premium_over_european`, plus the
+initialization seed that the existing rule derives from the new attempt ID. The
+backbone (`smooth_residual`, width 128, 6 blocks, `tanh`, no normalization, no
+dropout), the five base features, the representation, the target, the
+reconstruction, the selected training rows, the shuffle seed, the validation
+partition, the optimizer, the schedule, the budget, the precision, the CPU
+thread count, the checkpoint semantics and the criterion are unchanged. **No
+model or training code changes for it**; both components already exist and are
+dispatched.
+
+**Predeclared interpretation, before it runs.** This is a **decision-gating
+diagnostic, not yet a candidate.** No currently implemented head enforces the
+intrinsic floor, so it is **not expected** to satisfy the complete
+zero-bound-violation criterion: `scratch_american_premium_v1` left 1,116
+`intrinsic_lower_bound` violations, which a European anchor does not address.
+Its purpose is to isolate the effect of the premium head at residual-backbone
+capacity. Failing the structural criterion is therefore the expected outcome and
+is **not** grounds for revising the criterion — the criterion is not revised
+because an attempt failed.
+
+**Predeclared decision rule, before it runs.**
+
+- If all three price gates pass **and** European violations are zero, proceed
+  toward E2.
+- If normalized RMSE is **at most 0.0045**, use the gentler E2 design.
+- If normalized RMSE is **at least 0.005**, preserve the direct-price target and
+  implement the floor as an **output transformation** instead of reusing the
+  premium target.
+- If any price metric lands **within 10% of its gate**, run two additional
+  initialization seeds before drawing any conclusion.
+
+E2 and E3 are **not implemented and not designed here**. They are conditional on
+this result, and nothing about them is built speculatively.
+
+**Its one confound, stated.** The initialization seed differs from the parent's,
+because it is derived from the attempt ID and an attempt configuration is
+immutable. A single seed cannot separate a small effect from seed noise, which
+is exactly what the fourth branch of the decision rule exists to catch.
+
 ## Files
 
 | Path | What it is |
@@ -188,9 +300,11 @@ tests conditioning, not extra knowledge.
 | `python/src/differentiable_pricing/ml/american_dev/representation.py` | the five coordinates, the European anchor, conditioning features, heads, physical reconstruction |
 | `python/src/differentiable_pricing/ml/american_dev/models.py` | the dense and residual networks, and their dispatch |
 | `python/src/differentiable_pricing/ml/american_dev/workbench.py` | pre-flight, dataset identity pinning and row-level policy verification, one attempt end to end, evaluated against the reused Task 9G criterion |
-| `configs/american_dev_attempt_scratch_*.toml` | the five immutable attempt configurations |
+| `python/src/differentiable_pricing/ml/american_dev/geometry.py` | the exploratory validation-set geometry of the binding constraints; reads one partition, trains nothing, writes no attempt evidence |
+| `configs/american_dev_attempt_scratch_*.toml` | the six immutable attempt configurations |
 | `scripts/run_american_dev_attempt.py` | **manual**: `run`, `status` — and no third command |
-| `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log and configurations |
+| `scripts/analyze_american_dev_geometry.py` | **manual**: `analyze`, `show` — and no third command |
+| `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log, the configurations and the geometry analysis's validation-only restriction |
 | `docs/attempts/task-9h-attempt-log.jsonl` | the append-only recorded search |
 
 Checkpoints, reports, compact summaries and the run ledger live beneath the
@@ -213,6 +327,16 @@ python3 scripts/american_dev_attempts.py record \
     --outcome criterion_met|criterion_not_met|abandoned|infrastructure_failure \
     --interpretation "<one honest sentence>" \
     --next-action "continue|stop|change-direction, and why"
+```
+
+The exploratory geometry analysis is also a manual, terminal-invoked human
+command — it opens a dataset partition, so no test, hook, CI job or repository
+check calls it. It trains nothing and records no attempt.
+
+```
+python3 scripts/analyze_american_dev_geometry.py analyze
+
+python3 scripts/analyze_american_dev_geometry.py show
 ```
 
 Agent-safe and offline, run by `scripts/check.sh` and CI:
@@ -248,6 +372,12 @@ last try.
   `validation`, repeatedly, so every task 9H number carries selection bias.
 - Task 9H makes and measures **no Greek, latency or implied-volatility claim**,
   and no transfer-learning claim.
+- The validation-geometry report is an **exploratory measurement of the labels**
+  on the partition this loop selects against. It is not frozen evidence, is
+  never committed, admits no candidate and revises no threshold.
+- A predeclared attempt configuration is a **plan, not a measurement**. Nothing
+  about `scratch_residual_premium_v1` is a result until the human has run it and
+  the outcome is in the append-only log.
 - Task 9H establishes no H2 result, no converged American-price truth, no OOD
   behavior, no discrete-dividend applicability and no market performance.
 - Task 9E's conditional, mapping-only dataset admission is unchanged.
