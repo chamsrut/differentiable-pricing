@@ -388,7 +388,8 @@ strike set, and fitting variation.
 | Local data-holdings catalogue and integrity audit (task 9D) | **Complete** — documentation and audit only, admitted nothing | [catalogue](docs/data-holdings-catalogue.md), [task spec](docs/tasks/active/task-9d-data-holdings-audit.md), [decision log](docs/decision-log.md) DEC-031 |
 | CRR dataset admission (task 9E) | **Reconciled, conditional** — mapping-only use; cross-check, semantic judgement, and near-duplicate gate not discharged; authorizes no training | [admission record](docs/american-crr-dataset-admission.md), [task spec](docs/tasks/active/task-9e-crr-dataset-admission.md), [decision log](docs/decision-log.md) DEC-034 |
 | Private object storage and entitlement-aware vendor ingestion (task 9F) | **On hold** — a plan only, every convention still open | [task spec](docs/tasks/active/task-9f-remote-data-access-plan.md) |
-| American neural-pricer feasibility pilot (task 9G) | **Active at protocol/implementation scope; execution blocked on entry gates** | [task spec](docs/tasks/active/task-9g-american-neural-pricer-pilot.md), [decision log](docs/decision-log.md) DEC-034 |
+| American neural-pricer feasibility pilot (task 9G) | **Complete, frozen, terminal — negative `failure_to_learn`**; neither arm passed its validation gates, the final partition is unconsumed, and `final-evaluate` is forbidden under that protocol. Fresh top-level review returned `APPROVE TASK 9G RESULT FOR MERGE` | [pilot snapshot](docs/results/american_neural_pilot_results_v1.json), [task spec](docs/tasks/active/task-9g-american-neural-pricer-pilot.md), [decision log](docs/decision-log.md) DEC-038, DEC-039 |
+| American price-model development loop (task 9H) | **Active — adaptive exploratory development; infrastructure implemented, nothing run.** `train`/`validation` only, price only; selects against validation, so it produces **no project result** | [task spec](docs/tasks/active/task-9h-american-pricer-development.md), [attempt log](docs/attempts/task-9h-attempt-log.jsonl), [decision log](docs/decision-log.md) DEC-041 |
 | The local candidate CRR dataset (continuous dividend yield) | **Catalogued and conditionally admitted only for learning the known CRR mapping**; still not regenerable from tracked sources | Git-ignored, untracked; generator on an unmerged branch; [catalogue](docs/data-holdings-catalogue.md), [admission record](docs/american-crr-dataset-admission.md) |
 | An accepted, versioned American training dataset | Not started | separately gated; **not** authorized by the accepted label policy |
 | American neural training, transfer; swaption stages 3–4 | Not started | no American neural surrogate has yet been trained and accepted |
@@ -1067,16 +1068,38 @@ near-duplicate gate cannot be satisfied retroactively. Admission authorizes
 task 9G uses `american_forward_carry_v1`: encoded type, `log(F/K)`,
 `sigma*sqrt(T)`, `rT`, and `qT`, with target `V/(S*exp(-q*T))`.
 
-**Task 9G is the exact next task**, at protocol-and-implementation scope. It is
-one architecture, one scratch seed, one transfer seed, one budget, no sweep,
-validation model selection, and one-shot `interpolation_test`. Its entry gates
-include fresh review of the conditional admission, the missing row/manifest
-policy invariants, independent-cross-check resolution, recovery of the frozen
-European `weights.npz`, exact float64 transfer-lift identity, and frozen
-training, latency, and IV protocols. No run is authorized before that PR is
-reviewed and merged. One seed and one budget make this a feasibility pilot, not
-an H2 test; a promising result requires a separate replication with at least
-five seeds and several predeclared label budgets.
+**Task 9G is complete, frozen and terminal, with a negative result.** It was one
+architecture, one scratch seed, one transfer seed, one budget, no sweep, and
+validation-only model selection. Every entry gate passed — the independent PDE
+mapping check on 21 of 21 rows, and the exact European-to-American transfer lift
+at all eight pinned probes — and then **neither arm passed every validation
+gate**: `status=validation_gates_failed`, `outcome=failure_to_learn`. Transfer's
+validation RMSE was strictly better than scratch's, but the two arm seeds also
+produce different epoch shuffles, so that is a confounded within-pilot
+observation and not evidence that transfer initialization helps. **No final
+evaluation occurred** (`final_evaluation_attempts = 0`,
+`final_partition_consumed = false`) and `final-evaluate` is **forbidden** under
+that protocol; any future final evaluation needs a new protocol and a fresh
+final partition. One seed and one budget make this a feasibility pilot, not an
+H2 test. The frozen evidence is the
+[pilot snapshot](docs/results/american_neural_pilot_results_v1.json), approved
+by fresh top-level review (DEC-038, DEC-039).
+
+**Task 9H is the exact next task**: adaptive American **price**-model
+development on branch `experiment/task-9h-american-pricer-development`. It
+iterates on capacity, representation, target and architecture until a price
+model meets a fixed development criterion on `train` and `validation` — Task
+9G's own normalized RMSE, p99, maximum-error and material bound/shape rule,
+reused rather than restated so it cannot be loosened after an attempt fails.
+Greeks, latency, implied volatility and transfer learning are separate follow-up
+stages that begin only after a candidate works, and none of their machinery is
+built in advance. It is **development, not confirmatory research**: it selects
+against `validation` repeatedly, so nothing it produces is a project result, and
+a candidate that meets the criterion would require a separately predeclared
+confirmation on a fresh final partition as its own task. `interpolation_test`
+and every other final partition stay inaccessible throughout, and its runner
+exposes no final-evaluation command. Its infrastructure exists and **no model
+has been trained** (DEC-041).
 
 The deferred plan for private object storage and
 entitlement-aware Databento ingestion is **task 9F**, on hold — a plan only,
@@ -1092,7 +1115,9 @@ label policy remains frozen evidence that the roadmap lock does not reinterpret
 or rerun. Gamma is still not training-ready and remains evaluation-only; vega is
 supervision-eligible where task 9C-C3 measured it to be. **Task 9C-B remains
 `no_policy_selected`** — v2 answered a new question and never reinterpreted it.
-Current state and the exact next task:
+**No American neural surrogate has been trained and accepted**: task 9G trained
+two arms and accepted neither, and task 9H has trained none. Current state and
+the exact next task:
 [docs/project-state.md](docs/project-state.md).
 
 ---

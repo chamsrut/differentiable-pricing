@@ -1339,3 +1339,133 @@ snapshot, which remains authoritative for the numbers.
   [project-state.md](project-state.md),
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
   DEC-034, DEC-035, DEC-036, DEC-037
+
+### DEC-039 — Fresh top-level review approved the Task 9G result for merge
+
+- **Status:** Active. This entry records a review verdict; it changes no locked
+  experimental value, no threshold, no seed, and no earlier decision.
+- **Context:** DEC-038 froze task 9G's negative result and explicitly stated
+  that recording the outcome is not the same thing as materially accepting it.
+  `AGENTS.md` requires that material acceptance of a numerical result come from
+  a fresh top-level session with no prior anchoring on the implementing
+  session's reasoning.
+- **Reviewed change:** the result-only commit `a4fd9f2` ("results: freeze Task
+  9G validation failure"), merged as pull request #27 with `main` at
+  `5c0ef6a`. That change adds the frozen snapshot
+  [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json)
+  (SHA-256 `8a125c81d469c320bc3a2cea9709f695e11c0a3a4ed59b985b88b93e3f3cdedc`,
+  distilled from validation report SHA-256 `9a4acdfd…`), wires
+  `python3 scripts/freeze_american_neural_pilot_results.py --check` into
+  `scripts/check.sh` and CI, and updates the task spec, project state and this
+  log. It changes no config, threshold, seed, protocol value, training code,
+  evaluation code, runner behavior, freezer semantics, or other frozen
+  evidence.
+- **Verdict:** **APPROVE TASK 9G RESULT FOR MERGE.**
+- **What the verdict accepts:** the recorded outcome as an honest, complete
+  negative result — `status = validation_gates_failed`,
+  `outcome = failure_to_learn`, `final_evaluation_attempts = 0`,
+  `final_partition_consumed = false` — and the snapshot as the authoritative
+  record of that run's numbers.
+- **What the verdict does not accept, authorize, or establish:** it approves no
+  H2 result, no converged American-price truth, no American Greek accuracy, no
+  OOD or extrapolation behavior, no discrete-dividend applicability, no market
+  or bid--ask-relative performance, and no portable latency conclusion. **One
+  seed and one budget do not establish H2.** It does not authorize
+  `final-evaluate`, which stays forbidden under the task 9G protocol because
+  `validation_final_entry_passed = false`; any future final evaluation needs a
+  new predeclared protocol and a fresh final partition. It does not upgrade
+  task 9E's conditional, mapping-only dataset admission, and it does not
+  authorize any training.
+- **Consequences:** task 9G is **terminal**. Its protocol, configs, runner,
+  freezer, model behavior and snapshot are frozen inputs from here on and are
+  never rerun, retuned, reinterpreted, or edited. Its snapshot is additionally
+  pinned by the conventional preservation test
+  `python/tests/test_american_neural_pilot_results_snapshot.py`, which pins the
+  snapshot SHA-256 and invokes the designated offline checker in-process.
+- **Authoritative links:**
+  [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json),
+  [project-state.md](project-state.md),
+  [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
+  DEC-036, DEC-037, DEC-038
+
+### DEC-040 — Non-material process deviation during Task 9G result preparation
+
+- **Status:** Active, recorded for honesty. It corrects nothing, because
+  nothing was corrupted.
+- **What happened:** the session that prepared the task 9G result-only change
+  computed a read-only SHA-256 of the ignored raw validation report, contrary
+  to an instruction given in that session.
+- **Assessment:** the deviation is **non-material**. Hashing is read-only. It
+  changed no evidence, ran no pricing, training, latency measurement or IV
+  inversion, and accessed no final partition. The digest it produced,
+  `9a4acdfd…`, is the same value the designated freeze tool records and the
+  frozen snapshot publishes, so nothing downstream depends on the deviation
+  having happened.
+- **Why it is recorded anyway:** an instruction in force during a session is a
+  constraint even when breaking it is harmless, and a project whose evidence
+  rests on process discipline records process failures rather than silently
+  absorbing them. A later reader comparing session transcripts to this log
+  should find the deviation here, not discover it.
+- **Consequences:** none for the frozen result, which stands as approved in
+  DEC-039. The standing rule is unchanged: agents read what a session
+  authorizes and nothing else, and ignored raw reports stay untouched unless a
+  designated tool is invoked on them.
+- **Authoritative links:**
+  [results/american_neural_pilot_results_v1.json](results/american_neural_pilot_results_v1.json),
+  DEC-038, DEC-039
+
+### DEC-041 — Task 9H opened: adaptive American price-model development
+
+- **Status:** Active. Task 9H is the current task.
+- **Context:** task 9G is terminal and negative (DEC-038, DEC-039): one fixed
+  five-input `tanh` MLP, one budget, price supervision, and neither arm met the
+  predeclared feasibility gates. That closes a confirmatory experiment; it does
+  not answer whether *some* architecture learns the American price map at useful
+  accuracy.
+- **Decision:** open **task 9H**, an **adaptive, exploratory price-model
+  development loop** on the branch
+  `experiment/task-9h-american-pricer-development`, specified in
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md).
+  It iterates on capacity, representation, target and architecture on `train`
+  and `validation` until a **price** model meets a fixed development criterion.
+- **Scope is price only, deliberately.** Greeks, latency, implied volatility and
+  transfer learning are separate follow-up stages that begin only after a
+  candidate works. None of their machinery is built in advance, and no unused
+  framework is kept "for later" — that is what made an earlier draft of this
+  task over-scoped.
+- **"Works" is fixed before the first attempt, and is Task 9G's criterion
+  reused rather than restated:** normalized RMSE `<= 0.003`, p99 `<= 0.015`,
+  maximum `<= 0.08`, zero material bound violations, zero material shape
+  violations. Task 9H reads those numbers from
+  `configs/american_neural_pilot_acceptance_v1.toml` and applies them through
+  `differentiable_pricing.ml.american_pilot`, the same code that judged task 9G.
+  That file is digest-pinned by the task 9G protocol and reconciled in
+  `scripts/check.sh` and CI, so **the criterion cannot be quietly loosened
+  after an attempt fails**. Any future revision is argued for in the task
+  specification first, before the attempt that would benefit from it runs.
+- **Development is not confirmatory research.** `validation` is used repeatedly
+  for selection, so seeing validation results is expected and creates selection
+  bias. Nothing task 9H produces is a project result. A candidate that meets the
+  criterion requires a separately predeclared confirmation on a fresh final
+  partition, as its own task with its own gates and its own review.
+- **Final-partition prohibition:** no task 9H code path may open, hash, stat,
+  import, count or inspect `interpolation_test` or any other final partition,
+  and task 9H exposes no final-evaluation command at all. Task 9G's
+  `interpolation_test` stays unconsumed and is never tuned against.
+- **Division of labour:** agents implement code and configuration and analyze
+  compact summaries. **Agents launch no training.** The human commits the exact
+  source state and invokes every run from a terminal, under the standing
+  `AGENTS.md` manual-run rule.
+- **Recorded search:** every attempt — successful, failed and abandoned alike —
+  is appended to `docs/attempts/task-9h-attempt-log.jsonl`. An existing entry is
+  never rewritten, and an attempt configuration is immutable once used;
+  `python3 scripts/american_dev_attempts.py check` re-verifies both offline.
+  Every real attempt runs from a clean committed tree and records its commit.
+- **Non-claims:** this entry establishes no result. It authorizes no training
+  run by itself, upgrades no dataset admission, and makes no claim about H2,
+  Greeks, latency, implied volatility, transfer learning, converged
+  American-price truth, discrete dividends or market fit.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [project-state.md](project-state.md),
+  DEC-034, DEC-038, DEC-039

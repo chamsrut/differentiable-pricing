@@ -45,6 +45,12 @@ python3 scripts/freeze_pde_label_policy_v2_results.py --check
 # no pricing, training, latency measurement or IV inversion, and never opens a
 # dataset partition, so it passes with artifacts/ absent.
 python3 scripts/freeze_american_neural_pilot_results.py --check
+# Task 9H attempt-log checks. Static and offline: they parse tracked sources,
+# attempt configurations and the append-only attempt log, import nothing from
+# the project package, and need neither PyTorch nor a compiled extension. No
+# pricing, training or dataset access happens here; training stays a manual,
+# terminal-invoked human job.
+python3 scripts/american_dev_attempts.py check
 
 if command -v ruff >/dev/null 2>&1; then
     ruff check python scripts .claude/hooks

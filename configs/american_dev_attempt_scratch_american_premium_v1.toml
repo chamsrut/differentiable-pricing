@@ -1,0 +1,83 @@
+# Task 9H attempt: scratch_american_premium_v1
+#
+# IMMUTABLE AFTER USE. Once an attempt has run against this file it is never
+# edited: a changed idea gets a new attempt ID and a new file, and
+# `python3 scripts/american_dev_attempts.py check` re-verifies that every logged
+# attempt's configuration still hashes to the digest that attempt recorded.
+#
+# The head is anchor + price_scale * softplus(raw) with the anchor the
+# analytic continuous-yield European price, so the reconstructed price
+# cannot fall below it. The bound is non-strict: softplus underflows to
+# exactly zero in float64 for a very negative pre-activation, which
+# collapses the price onto the anchor rather than below it. Every other
+# bound stays a reported diagnostic.
+schema_version = "american-dev-attempt/1"
+attempt_id = "scratch_american_premium_v1"
+parent_attempt = ""
+hypothesis = "Learning the American premium over an explicit European anchor is easier than learning the whole price map."
+objective = "price_only"
+representation = "american_forward_carry_v1"
+target = "u = V / (S * exp(-q * T))"
+physical_reconstruction = "V = S * exp(-q * T) * u"
+head = "premium_over_european"
+conditioning_features = []
+dtype = "float64"
+device = "cpu"
+
+[architecture]
+name = "smooth_mlp"
+hidden_dimensions = [64, 64, 64]
+activation = "tanh"
+
+[seeds]
+# Paired across candidates where technically meaningful: the shuffle label is
+# shared, so every attempt walks the same 32,768 rows in the same order, and
+# only the initialization label differs per architecture.
+initialization_label = "scratch_american_premium_v1/init"
+shuffle_label = "task-9h/shuffle-v1"
+derivation = "first four bytes of SHA-256(label), unsigned big-endian"
+
+[row_selection]
+# The same salt and budget in every attempt, so all candidates see exactly the
+# same training rows and the comparison is paired by construction. Rule and
+# budget carried over from Task 9G.
+partition = "train"
+row_budget = 32768
+salt = "task-9h-train-subset-v1"
+rule = "lowest SHA-256(salt + NUL + sample_id), sample_id tie-break"
+
+[training]
+batch_size = 2048
+epochs = 120
+num_threads = 4
+deterministic_algorithms = true
+shuffle = "torch.randperm from the shuffle seed once per epoch"
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 0.00000001
+schedule = "cosine_annealing"
+minimum_learning_rate = 0.0
+schedule_period_epochs = 120
+
+[checkpoint]
+selection_partition = "validation"
+metric = "standardized_target_mse"
+rule = "minimum metric; earliest epoch wins exact ties"
+
+[evaluation]
+batch_size = 4096
+
+[paths]
+dataset = "data/american-option-v1"
+dataset_manifest = "data/american-option-v1/manifest.json"
+# The development criterion, reused verbatim. This file is digest-pinned by the
+# Task 9G protocol and reconciled in scripts/check.sh and CI, so the criterion
+# cannot be quietly loosened after an attempt fails.
+acceptance_config = "configs/american_neural_pilot_acceptance_v1.toml"
+output_directory = "artifacts/task-9h/scratch_american_premium_v1"
+ledger = "runs/task-9h/scratch_american_premium_v1/attempt.json"

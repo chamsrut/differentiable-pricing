@@ -2,11 +2,24 @@
 
 ## Status
 
-`status=validation_gates_failed; outcome=failure_to_learn. Implementation
-merged at e930454; the single human-invoked locked run-to-validation completed;
-neither arm passed every validation gate; final_evaluation_attempts=0;
-final_partition_consumed=false; final evaluation is forbidden under this
-protocol.`
+`status=validation_gates_failed; outcome=failure_to_learn; result approved and
+merged; task closed and terminal. Implementation merged at e930454; the single
+human-invoked locked run-to-validation completed; neither arm passed every
+validation gate; final_evaluation_attempts=0; final_partition_consumed=false;
+final evaluation is forbidden under this protocol.`
+
+**Task 9G is closed.** Fresh top-level review of the result-only change at
+`a4fd9f2` (merged as pull request #27, `main` at `5c0ef6a`) returned exactly
+`APPROVE TASK 9G RESULT FOR MERGE`
+([../../decision-log.md](../../decision-log.md) DEC-039). That verdict accepts
+the recorded negative outcome and the frozen snapshot as authoritative for its
+numbers. It approves no H2 result, no converged American-price truth, no
+American Greek accuracy and no latency conclusion, and it does not authorize
+`final-evaluate`, which stays forbidden under this protocol. The active task is
+now **task 9H**
+([task-9h-american-pricer-development.md](task-9h-american-pricer-development.md),
+DEC-041); this specification is history and is not reopened.
+
 This specification defined the active task after the task 9E planning
 reconciliation. Fresh independent review of that reconciliation was discharged
 by `APPROVE PLANNING RECONCILIATION` (DEC-035). The protocol-and-implementation
@@ -19,8 +32,8 @@ locked `run-to-validation` once. Its frozen result is recorded below and in
 DEC-038. The pilot is closed with a negative, honest outcome: the experiment
 ran as predeclared, and the predeclared feasibility gates were not met. One
 seed and one budget do not establish H2, and this result does not either.
-Material acceptance of this recorded result still requires its own fresh
-top-level review of the result-only change.
+Material acceptance of this recorded result has since been obtained through
+that fresh top-level review of the result-only change (DEC-039).
 
 ## Recorded result
 
@@ -330,11 +343,18 @@ extension or rerun inside task 9G. **The pilot was not promising**, so no H2
 replication is predeclared here. The next intended task is instead task 9H, the
 explicitly exploratory development loop described below.
 
-## Next intended task — task 9H (not implemented here)
+## Next intended task — task 9H
 
-Task 9H is recorded as intent only. Nothing in this result-only closure
-implements, scopes, or authorizes it; it needs its own predeclared spec and its
-own review before any work begins.
+**Update.** Task 9H has since been opened with its own predeclared
+specification and charter
+([task-9h-american-pricer-development.md](task-9h-american-pricer-development.md),
+DEC-041). The intent recorded below is what that specification was built from;
+it is preserved unchanged as history, and the specification, not this section,
+governs task 9H.
+
+At the time of this closure, task 9H was recorded as intent only. Nothing in
+this result-only closure implemented, scoped, or authorized it; it needed its
+own predeclared spec and its own review before any work began.
 
 - **Task 9H: an explicitly exploratory American neural-pricer development
   loop, on `train` and `validation` data only.** It is development, not a
@@ -372,8 +392,9 @@ The intended sequence is mandatory:
    approved at `8d27c23` and merged at `e930454` (DEC-036, DEC-037);
 3. manual locked experiment run — performed once by the human operator;
 4. result-only PR with no gate, seed, training-code, or evaluation-code change
-   — the current PR;
-5. fresh top-level review of the result — outstanding.
+   — merged at `a4fd9f2` (pull request #27, `main` at `5c0ef6a`);
+5. fresh top-level review of the result — **discharged**, verdict
+   `APPROVE TASK 9G RESULT FOR MERGE` (DEC-039).
 
 The implementation PR requires code review for lifecycle, artifact, dataset,
 lift, and timing code and numerical review for the cross-check resolution,
@@ -444,5 +465,6 @@ and `interpolation_test` was never accessed. **One seed and one budget do not
 establish H2**, and nothing in this result may be cited as H2 evidence,
 converged American-price truth, American Greek accuracy, OOD behavior,
 discrete-dividend applicability, market or bid--ask performance, or a portable
-latency conclusion. The exact next task is task 9H above, recorded as intent
-only and not implemented here.
+latency conclusion. The exact next task is task 9H above, which
+was recorded as intent only in this closure and has since been opened with its
+own specification and review (DEC-041).

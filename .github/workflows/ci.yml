@@ -78,6 +78,12 @@ jobs:
         # pricing, training, latency measurement, IV inversion or partition
         # access happens. Nothing else in this workflow invokes it.
         run: python3 scripts/freeze_american_neural_pilot_results.py --check
+      - name: Task 9H attempt-log checks hold
+        # Static and offline: parses tracked Task 9H sources, attempt
+        # configurations and the append-only attempt log. It imports nothing
+        # from the project package, so it runs in this PyTorch-free job, and it
+        # performs no pricing, training or dataset access.
+        run: python3 scripts/american_dev_attempts.py check
 
   ml:
     name: Neural baseline / CPU

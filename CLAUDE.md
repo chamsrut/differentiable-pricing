@@ -13,18 +13,48 @@ remains the canonical source for those shared rules.
 
 Also read, before starting work:
 [docs/project-state.md](docs/project-state.md) (current state and the exact
-next task) and, if it applies to the work at hand, the active task spec
+next task) and the active task spec
+[docs/tasks/active/task-9h-american-pricer-development.md](docs/tasks/active/task-9h-american-pricer-development.md)
+(task 9H — adaptive American **price**-model development on branch
+`experiment/task-9h-american-pricer-development`). **Task 9H is development,
+not confirmatory research**: it selects against `validation` repeatedly, so
+nothing it produces is a project result, and a candidate that meets its
+criterion needs a separately predeclared confirmation on a fresh final partition
+as its own task. **No task 9H code path may open, hash, stat, import, count or
+inspect `interpolation_test` or any other final partition**, and its runner
+exposes no final-evaluation command. Its scope is **price only** — Greeks,
+latency, IV and transfer are separate follow-up stages and none of their
+machinery exists. Its "works" criterion is Task 9G's, read from
+`configs/american_neural_pilot_acceptance_v1.toml` and applied through
+`ml.american_pilot`; it is not restated in task 9H and not revised because an
+attempt failed. Agents implement code and analyze compact summaries; **the human
+invokes every training run**.
+
+Task 9G is **terminal and approved**:
 [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
-(task 9G — **implementation merged at `e930454`; the single human-invoked
-locked `run-to-validation` completed and its validation gates failed;
-`status=validation_gates_failed`, `outcome=failure_to_learn`;
-`final_evaluation_attempts=0`, `final_partition_consumed=false`, and
-`final-evaluate` is forbidden under that protocol**). The frozen result is
+— implementation merged at `e930454`, the single human-invoked locked
+`run-to-validation` completed and its validation gates failed
+(`status=validation_gates_failed`, `outcome=failure_to_learn`,
+`final_evaluation_attempts=0`, `final_partition_consumed=false`), and
+`final-evaluate` is forbidden under that protocol. The frozen result is
 [docs/results/american_neural_pilot_results_v1.json](docs/results/american_neural_pilot_results_v1.json)
-(DEC-038); its acceptance still needs a fresh top-level review of the
-result-only change. One seed and one budget do not establish H2. Do not rerun
-task 9G, retune against it, or open `interpolation_test`; task 9E's conditional
-admission alone authorizes no training. Three other
+(DEC-038), approved by a fresh top-level `APPROVE TASK 9G RESULT FOR MERGE`
+(DEC-039). One seed and one budget do not establish H2. Do not rerun task 9G,
+retune against it, or open `interpolation_test`; task 9E's conditional
+admission alone authorizes no training.
+
+**Task 9G's protocol pins 35 tracked files by SHA-256**, and
+`scripts/check_american_neural_pilot_protocol.py` reconciles them in both
+`scripts/check.sh` and CI. That set includes `docs/architecture.md`,
+`docs/research-contract.md`, `docs/american-crr-contract.md`,
+`docs/american-crr-dataset-admission.md`, `docs/pde-numerical-contract.md`,
+`pyproject.toml`, `python/src/differentiable_pricing/__init__.py`, the
+`ml/american*.py`, `ml/artifact.py`, `ml/config.py` and `ml/model.py` modules,
+the task 9G scripts, `CMakeLists.txt` and the listed C++/binding sources.
+**Editing any of them breaks a historical protocol check**; new work adds new
+files instead, and records the resulting wording limitation.
+
+Three other
 specs stay in `docs/tasks/active/` and are **not** work to pick up: task 9C-C2b2 is `Deferred`
 ([docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md)),
 to be resumed only when the XSP/SPY phase needs dataset-scale PDE generation;
@@ -112,17 +142,16 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
   load-bearing rules, rather than trusting a command copied from an older
   conversation or an out-of-date narrative document.
 - **Active task:**
-  [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
-  (task 9G — continuous-yield American neural-pricer feasibility pilot), status
-  `validation_gates_failed; outcome=failure_to_learn; implementation merged at
-  e930454; locked run complete; final partition unconsumed`. The outstanding
-  step is fresh top-level review and merge of the result-only closure on branch
-  `results/task-9g-american-neural-pilot-v1`. `final-evaluate` is **forbidden**
-  under the 9G protocol: its final-entry rule failed, so no final evaluation
-  may be invoked now or later, and any future one needs a new protocol and a
-  fresh final partition. The next intended task is task 9H, an explicitly
-  exploratory `train`/`validation`-only development loop — recorded as intent
-  only, not implemented, and not to be started without its own spec and review.
+  [docs/tasks/active/task-9h-american-pricer-development.md](docs/tasks/active/task-9h-american-pricer-development.md)
+  (task 9H — adaptive American price-model development), status
+  `infrastructure implemented; nothing run`. Its manual human command is
+  `python3 scripts/run_american_dev_attempt.py run|status` — **an agent reports
+  it and stops**. The offline, agent-safe tool is
+  `python3 scripts/american_dev_attempts.py record|check`.
+  Task 9G is terminal and approved (DEC-038, DEC-039); `final-evaluate` is
+  **forbidden** under the 9G protocol, since its final-entry rule failed, so no
+  final evaluation may be invoked now or later, and any future one needs a new
+  protocol and a fresh final partition.
   Task 9C-C2b2 is deferred,
   tasks 9C-C3 and 9D are completed and terminal, and task 9F is on hold; do not
   treat any of those still-present specs as the active one.
@@ -132,7 +161,10 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
   offline: they read only tracked files and rerun no pricing, training,
   latency measurement, or IV inversion. The task 9C-C3 and task 9G snapshots
   they enforce are frozen evidence — never regenerate, reformat, or hand-edit
-  either to make a check pass.
+  either to make a check pass. `python3 scripts/american_dev_attempts.py check`
+  runs beside them and is also offline: it parses tracked task 9H sources,
+  attempt configurations and the append-only attempt log, and imports nothing
+  from the project package.
 
 ## Required workflow
 

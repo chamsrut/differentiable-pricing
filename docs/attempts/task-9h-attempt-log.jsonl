@@ -1,0 +1,1 @@
+{"append_only": true, "record": "header", "schema_version": "american-dev-attempt-log/1", "selection_bias": "every entry is a development measurement selected against validation; none is a project result", "task": "task-9h-american-pricer-development"}
