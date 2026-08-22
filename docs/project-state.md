@@ -222,11 +222,15 @@ does not reinterpret or rerun it.**
   rule; it opens no partition and modifies no configuration or source) and
   `latency` (the ungated matched latency diagnostic for one recorded checkpoint,
   measured by Task 9G's own `run_latency` under Task 9G's own contract; it opens
-  no partition). Three heads are implemented and dispatched: `direct`,
-  `premium_over_european` and `smooth_lower_floor`, the last a smooth one-sided
-  projection onto `max(analytic European, intrinsic)` at a predeclared
-  normalized temperature of `1e-4` that preserves the direct price target
-  (DEC-044).
+  no partition). Five heads are implemented and dispatched: `direct`,
+  `premium_over_european`, `smooth_lower_floor` — a smooth one-sided projection
+  onto `max(analytic European, intrinsic)` at a predeclared normalized
+  temperature of `1e-4` that preserves the direct price target (DEC-044) —
+  `smooth_lower_floor_raw_loss`, which deploys that projection while
+  differentiating the pre-projection value (DEC-045), and
+  `smooth_lower_floor_margin_raw_loss`, which is the same again with the derived
+  additive margin `attempts.EUROPEAN_FLOOR_MARGIN = 1e-4` added to the analytic
+  European leg before the smooth maximum (DEC-047).
   Evaluation reuses Task 9G's `sliced_metrics`, `shape_diagnostics` and
   `assess_arm` against `configs/american_neural_pilot_acceptance_v1.toml`, so
   the criterion is shared code rather than a copied number, and an attempt may
@@ -242,7 +246,7 @@ does not reinterpret or rerun it.**
   `scripts/analyze_american_dev_domain.py` (`analyze`, `show`) and
   `scripts/benchmark_american_dev_latency.py` (`benchmark`, `show`), and the
   offline `scripts/american_dev_attempts.py` (`record`, `check`; the `check`
-  mode is wired into `scripts/check.sh` and CI). Configurations are the eight
+  mode is wired into `scripts/check.sh` and CI). Configurations are the nine
   immutable `configs/american_dev_attempt_scratch_*.toml`. The append-only
   attempt log is `docs/attempts/task-9h-attempt-log.jsonl`. Eight attempts have
   been run and none met the criterion: `scratch_direct_control_v1`
@@ -271,15 +275,22 @@ does not reinterpret or rerun it.**
   intrinsic violations, 4,135 stored-CRR comparator violations and 532 shape
   violations, at best epoch 89 of 120. It still did not meet the criterion; it is
   a development measurement selected against `validation`, not a project result.
-  **Two label-free analyses are now prepared and not yet run** (DEC-046): the
-  European CRR-versus-Black-Scholes domain characterization, which derives a
-  candidate additive floor margin under a rule predeclared in code, and the
-  ungated matched E2b latency diagnostic. Neither opens a partition, trains
-  anything, records an attempt or modifies a configuration or source file, and a
-  prepared analysis is a plan until the human runs it. No dataset partition was
-  opened and the final partition remains untouched. **Task 9H still makes no
-  Greek, latency, implied-volatility or transfer claim**: the latency diagnostic
-  is ungated and is not offered as evidence for or against any hypothesis.
+  **Both label-free analyses have run** (DEC-047). The domain characterization
+  measured a supremum of `(E_CRR - E_BS) / A` over the declared domain of
+  `4.192769575172157e-05`; under the rule predeclared in code before that run,
+  `delta = max(1e-4, ceil_to_1e-5(2 * supremum)) = 1e-4`, the rule's declared
+  minimum, at a realized safety factor of 2.385. The ungated matched latency
+  diagnostic measured median end-to-end speedups of 3.36 at batch 1 and 7.88 at
+  batch 8, both below Task 9G's reference bar of 10, which was recorded as
+  context and not applied. **Task 9H still makes no Greek, latency,
+  implied-volatility or transfer claim.** **E3 is not authorized and is not
+  implemented**: no shape-penalty machinery, tunable loss weight, architecture
+  alternative or framework exists. **E2c,
+  `scratch_residual_smooth_floor_margin_v1`, is predeclared and not yet run**
+  (DEC-047): E2b with `delta` added to the analytic European leg of the floor
+  before the existing smooth maximum with intrinsic value, and nothing else
+  changed. A predeclared configuration is a plan, not a measurement. No dataset
+  partition was opened and the final partition remains untouched.
 
 ## Exact next task
 
@@ -310,18 +321,18 @@ learning are separate follow-up stages that begin only after a candidate works;
 none of their machinery is built in advance.
 
 Its current state is **infrastructure implemented and hardened, eight attempts
-recorded**: eight immutable attempt configurations, a human-only runner, three
+recorded**: nine immutable attempt configurations, a human-only runner, three
 human-only analyses, an offline attempt-log recorder/checker, and an append-only
 attempt log holding all eight failed attempts. The human invokes every training
 run; agents implement code and analyze compact summaries and launch nothing.
 
 The recorded price leader is `scratch_residual_smooth_floor_raw_loss_v1` (E2b),
 which passes the three price gates and fails the two structural ones (DEC-046).
-**No next attempt is implemented.** What exists and has not been run is the pair
-of label-free analyses DEC-046 predeclares — the European
-CRR-versus-Black-Scholes domain characterization, which derives a candidate
-additive floor margin, and the ungated matched E2b latency diagnostic. No earlier
-attempt is rerun.
+The next attempt is `scratch_residual_smooth_floor_margin_v1` (E2c), whose
+immutable configuration exists and has not been run: E2b with the derived
+`delta = 1e-4` added to the analytic European leg of its floor, targeting the
+stored-CRR comparator gate only. No earlier attempt is rerun, and E3 is not
+authorized.
 
 **Task 9G is closed and terminal.** Fresh top-level review of the result-only
 change at `a4fd9f2` (merged as PR #27, `main` at `5c0ef6a`) returned **APPROVE

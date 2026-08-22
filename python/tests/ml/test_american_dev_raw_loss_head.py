@@ -47,6 +47,7 @@ from differentiable_pricing.ml.model import fit_scaling
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 E2_CONFIG = Path("configs/american_dev_attempt_scratch_residual_smooth_floor_v1.toml")
 E2B_CONFIG = Path("configs/american_dev_attempt_scratch_residual_smooth_floor_raw_loss_v1.toml")
+E2C_CONFIG = Path("configs/american_dev_attempt_scratch_residual_smooth_floor_margin_v1.toml")
 PARENT_CONFIG = Path("configs/american_dev_attempt_scratch_residual_architecture_v1.toml")
 TAU = SMOOTH_FLOOR_TEMPERATURE
 PROJECTED_HEAD = "smooth_lower_floor"
@@ -267,8 +268,10 @@ def test_every_other_head_trains_on_exactly_what_it_deploys(head: str) -> None:
     model, _ = _fitted(head, physical_array)
     with torch.no_grad():
         assert torch.equal(model.training_target(physical), model.normalized_target(physical))
-    assert RAW_LOSS_HEADS == (RAW_LOSS_HEAD,)
     assert head not in RAW_LOSS_HEADS
+    # Every raw-loss head is a floor head: the distinction is which prediction
+    # the loss reads, never a general per-attempt objective axis.
+    assert all(name.startswith("smooth_lower_floor") for name in RAW_LOSS_HEADS)
 
 
 def test_the_two_floor_heads_deploy_bit_identical_outputs() -> None:
@@ -348,7 +351,8 @@ def test_the_deployed_output_still_enforces_both_floors() -> None:
 def test_the_raw_loss_head_carries_the_same_predeclared_temperature() -> None:
     assert RAW_LOSS_HEAD in HEADS
     assert HEAD_TEMPERATURES[RAW_LOSS_HEAD] == HEAD_TEMPERATURES[PROJECTED_HEAD] == 1.0e-4
-    assert set(HEAD_TEMPERATURES) == {PROJECTED_HEAD, RAW_LOSS_HEAD}
+    assert {PROJECTED_HEAD, RAW_LOSS_HEAD} <= set(HEAD_TEMPERATURES)
+    assert len(set(HEAD_TEMPERATURES.values())) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +437,8 @@ def test_every_earlier_attempt_configuration_is_byte_identical_to_head() -> None
         capture_output=True,
         text=True,
     ).stdout.split()
-    earlier = [name for name in tracked if not name.endswith(E2B_CONFIG.name)]
+    later = {E2B_CONFIG.name, E2C_CONFIG.name}
+    earlier = [name for name in tracked if Path(name).name not in later]
     assert len(earlier) == 7
     modified = subprocess.run(
         ["git", "diff", "--name-only", "--", *earlier],

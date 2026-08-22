@@ -29,6 +29,8 @@ from ..config import FEATURE_ORDER
 from ..model import PhysicalInputError, Scaling, validate_physical_features
 from .attempts import (
     CONDITIONING_FEATURES,
+    EUROPEAN_FLOOR_MARGIN,
+    HEAD_EUROPEAN_MARGINS,
     HEAD_TEMPERATURES,
     HEADS,
     NORMALIZED_TARGET,
@@ -42,6 +44,7 @@ from .attempts import (
 #: PyTorch-free configuration validator and this module cannot disagree about
 #: what an attempt is allowed to declare.
 __all__ = [
+    "EUROPEAN_FLOOR_MARGIN",
     "NORMALIZED_TARGET",
     "PHYSICAL_RECONSTRUCTION",
     "REPRESENTATION",
@@ -199,24 +202,42 @@ def smooth_lower_bound(
 
 
 def normalized_lower_floor(
-    physical_features: torch.Tensor, temperature: float = SMOOTH_FLOOR_TEMPERATURE
+    physical_features: torch.Tensor,
+    temperature: float = SMOOTH_FLOOR_TEMPERATURE,
+    european_margin: float = 0.0,
 ) -> torch.Tensor:
     """The deployment-computable normalized lower floor of the American price.
 
-    ``smooth_max(E_analytic / A, intrinsic / A)``. Both terms are computable from
-    the seven physical contract inputs alone, so nothing here needs a lattice at
-    inference: **no CRR price is computed, read or required**.
+    ``smooth_max(E_analytic / A + delta, intrinsic / A)``, with ``delta`` the
+    additive ``european_margin``. Every term is computable from the seven
+    physical contract inputs alone, so nothing here needs a lattice at inference:
+    **no CRR price is computed, read or required**.
 
-    That is also the limit of what it can promise. The project's
+    **The margin is added to the European leg only**, before the smooth maximum.
+    The intrinsic leg is the same object in this floor and in the
+    ``intrinsic_lower_bound`` diagnostic, so it carries no discretization gap and
+    lifting it would buy nothing and bias the deep-in-the-money region. The
+    European leg is where the two differ: the
     ``european_comparator_lower_bound`` diagnostic compares against the dataset's
-    **stored CRR** European leg, which differs from this analytic value by the
-    lattice's own discretization error. Enforcing this floor therefore enforces
-    the analytic European bound and the intrinsic bound, and makes **no claim**
-    about the CRR comparator gate.
+    **stored CRR** European leg, which sits above this analytic value by the
+    lattice's own discretization error.
+
+    At ``european_margin = 0.0`` this is exactly the zero-margin floor, and the
+    addition is skipped rather than performed with a zero, so a zero-margin head
+    is bitwise unchanged. What the floor then enforces is the analytic European
+    bound and the intrinsic bound, and it makes **no claim** about the CRR
+    comparator gate. A positive margin raises the European leg to cover the
+    measured discretization gap; how far it covers is a property of the margin,
+    not a guarantee of this function.
     """
+    if not math.isfinite(european_margin) or european_margin < 0.0:
+        raise ValueError("the European-leg margin must be a finite non-negative number")
     scale = discounted_spot(physical_features)
+    european = european_price(physical_features) / scale
+    if european_margin > 0.0:
+        european = european + european_margin
     return smooth_maximum(
-        european_price(physical_features) / scale,
+        european,
         intrinsic_value(physical_features) / scale,
         temperature,
     )
@@ -338,6 +359,10 @@ class AmericanDevPriceModel(nn.Module):
         #: definition in :mod:`attempts`, so the model and the offline validator
         #: cannot disagree about which temperature ran.
         self.temperature = HEAD_TEMPERATURES.get(head)
+        #: ``0.0`` for a head that adds no margin to the European leg of its
+        #: floor. Read from the single definition in :mod:`attempts`, so the
+        #: model and the offline validator cannot disagree about which margin ran.
+        self.european_margin = float(HEAD_EUROPEAN_MARGINS.get(head, 0.0))
         self.conditioning = tuple(conditioning)
         self.representation = REPRESENTATION
         self.network = network
@@ -402,9 +427,11 @@ class AmericanDevPriceModel(nn.Module):
         direct = self._direct_from_raw(raw)
         if self.head == "direct":
             return direct
-        # Both floor heads apply the same transformation, bit for bit: a smooth
-        # one-sided projection onto [floor, inf). They differ only in what
-        # :meth:`training_target` returns.
+        # Every floor head applies the same transformation: a smooth one-sided
+        # projection onto [floor, inf). They differ in two orthogonal ways --
+        # what :meth:`training_target` returns, and whether the floor's European
+        # leg carries an additive margin. Both are read from the head's entry in
+        # :mod:`attempts`, so there is one projection here and no per-head branch.
         #
         # The floor holds bitwise in *normalized* units. It is not bitwise on the
         # reconstructed physical price: ``forward`` multiplies by ``A``, so the
@@ -415,7 +442,9 @@ class AmericanDevPriceModel(nn.Module):
         # qualification the premium head carries, for the same arithmetic reason.
         return smooth_lower_bound(
             direct,
-            normalized_lower_floor(physical_features, self.temperature),
+            normalized_lower_floor(
+                physical_features, self.temperature, self.european_margin
+            ),
             self.temperature,
         )
 

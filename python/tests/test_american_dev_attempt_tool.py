@@ -140,6 +140,7 @@ def test_every_tracked_attempt_configuration_is_valid_and_marked_immutable(tool:
         "scratch_residual_premium_v1",
         "scratch_residual_smooth_floor_v1",
         "scratch_residual_smooth_floor_raw_loss_v1",
+        "scratch_residual_smooth_floor_margin_v1",
     }
 
 
@@ -162,6 +163,30 @@ def test_the_check_would_catch_a_temperature_the_units_contradict(
     failures = tool.check_attempt_configurations(rules)
     assert failures
     assert any("inconsistent head temperature" in failure for failure in failures)
+
+
+def test_every_tracked_configuration_declares_a_consistent_head_margin(tool: Any) -> None:
+    """The offline half of "the European-leg margin matches the criterion's units"."""
+    rules = tool._load_attempt_rules()
+    acceptance_path = PROJECT_ROOT / rules.ACCEPTANCE_CONFIG_PATH
+    with acceptance_path.open("rb") as stream:
+        acceptance = tomllib.load(stream)
+    margin = rules.assert_margin_consistent("smooth_lower_floor_margin_raw_loss", acceptance)
+    assert margin == rules.EUROPEAN_FLOOR_MARGIN == 1.0e-4
+    assert rules.assert_margin_consistent("smooth_lower_floor_raw_loss", acceptance) == 0.0
+
+
+def test_the_check_would_catch_a_margin_the_units_contradict(
+    tool: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A negative control: an inconsistent margin is a check failure."""
+    rules = tool._load_attempt_rules()
+    monkeypatch.setattr(
+        rules, "HEAD_EUROPEAN_MARGINS", {"smooth_lower_floor_margin_raw_loss": 1.0}
+    )
+    failures = tool.check_attempt_configurations(rules)
+    assert failures
+    assert any("inconsistent head European-leg margin" in failure for failure in failures)
 
 
 def test_the_check_would_catch_an_edited_used_configuration(

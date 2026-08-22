@@ -430,14 +430,20 @@ def check_attempt_configurations(rules: Any) -> list[str]:
             continue
         if acceptance is None:
             continue
-        # A head carrying a predeclared normalized temperature is re-checked
-        # offline against the units the acceptance file states its thresholds in,
-        # so an inconsistency surfaces in check.sh and CI rather than only at the
-        # moment a human starts an expensive run.
+        # A head carrying a predeclared normalized temperature or European-leg
+        # margin is re-checked offline against the units the acceptance file
+        # states its thresholds in, so an inconsistency surfaces in check.sh and
+        # CI rather than only at the moment a human starts an expensive run.
         try:
             rules.assert_temperature_consistent(str(payload.get("head")), acceptance)
         except Exception as error:
             failures.append(f"{_relative(path)} declares an inconsistent head temperature: {error}")
+        try:
+            rules.assert_margin_consistent(str(payload.get("head")), acceptance)
+        except Exception as error:
+            failures.append(
+                f"{_relative(path)} declares an inconsistent head European-leg margin: {error}"
+            )
     return failures
 
 

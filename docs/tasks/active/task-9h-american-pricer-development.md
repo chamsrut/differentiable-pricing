@@ -7,10 +7,10 @@ branch=experiment/task-9h-american-pricer-development;
 partitions_available=train+validation; final_partition_access=forbidden;
 infrastructure implemented and hardened; eight attempts completed, none meeting
 the criterion; E2b (scratch_residual_smooth_floor_raw_loss_v1) is the recorded
-price leader and fails only the two structural gates; two label-free,
-human-invoked analyses are prepared and not yet run — the European
-CRR-versus-Black-Scholes domain characterization and the matched E2b latency
-diagnostic; no attempt running; final partition untouched.`
+price leader and fails only the two structural gates; both label-free analyses
+have run, fixing delta = 1e-4 and leaving E3 unauthorized; E2c
+(scratch_residual_smooth_floor_margin_v1) is predeclared and not yet run; no
+attempt running; final partition untouched.`
 
 Task 9G is terminal and negative ([decision-log.md](../../decision-log.md)
 DEC-038, approved by DEC-039). This task is opened by DEC-041.
@@ -428,15 +428,16 @@ it is derived from the attempt ID and an attempt configuration is immutable. A
 single seed cannot separate a small effect from seed noise — though the effect
 this attempt is looking for is a factor of three in RMSE, not a small one.
 
-## The two label-free analyses, prepared and not yet run
+## The two label-free analyses
 
 E2b passed all three price gates and failed only the two structural ones, with
 **4,135** of its remaining violations against the **stored CRR** European
 comparator rather than against the analytic value its floor enforces. Two
 questions follow, and neither needs a label, a partition or a training run.
-Both analyses below are **prepared, human-invoked and unrun**; both are
-exploratory; both write only beneath the ignored `artifacts/` tree; and **neither
-modifies any configuration or source file**. Nothing here implements an attempt.
+Both analyses below are exploratory; both write only beneath the ignored
+`artifacts/` tree; and **neither modifies any configuration or source file**.
+Both have now been run once by the human, and their results are recorded at the
+end of each subsection.
 
 ### A. The European CRR-versus-Black-Scholes domain characterization
 
@@ -502,6 +503,13 @@ derivation uses no partition row and no sampling location derived from one, and
 the rule was fixed in code before the run; the report records the exposure rather
 than arguing it away.
 
+**Result.** Measured supremum of `(E_CRR - E_BS) / A` over the declared domain:
+**`4.192769575172157e-05`**. Under the rule, `2 * supremum =
+8.385539150344314e-05`, `ceil_to_1e-5` gives `9e-5`, and the rule's declared
+minimum binds: **`delta = 1e-4`**, a realized safety factor of **2.385** over the
+measured supremum. The margin is therefore the rule's floor, not a value fitted
+to the measurement.
+
 ### B. The matched E2b latency diagnostic
 
 `python/src/differentiable_pricing/ml/american_dev/latency.py`, run by
@@ -548,6 +556,113 @@ CRR comparator and of the neural end-to-end path, and the paired median speedup
 with the contract's own distribution-free interval. Seven repetitions on one
 machine in one process: it characterizes this machine under these conditions and
 is not a portable performance claim.
+
+**Result.** Median end-to-end speedup **3.36** at batch 1 and **7.88** at
+batch 8. Both are below Task 9G's reference bar of 10, which is recorded here as
+context and **not applied**: this diagnostic is ungated and neither passes nor
+fails a Task 9G gate.
+
+**What it changes in this task.** Nothing about the criterion, which is price
+only and unrevised. One thing about sequencing: a shape-penalty attempt would be
+the loop's first tunable weight and its most expensive remaining investment, and
+spending it on a model whose end-to-end cost is this far from the objective that
+motivates a surrogate is not warranted on this measurement. **E3 is therefore not
+authorized**, is not implemented, and nothing about it is built speculatively.
+
+## Predeclared candidate: `scratch_residual_smooth_floor_margin_v1` (E2c)
+
+`configs/american_dev_attempt_scratch_residual_smooth_floor_margin_v1.toml`.
+Relative to E2b, exactly one behavioural field moves: `head`
+`smooth_lower_floor_raw_loss` → `smooth_lower_floor_margin_raw_loss`, plus the
+initialization seed the existing rule derives from the new attempt ID. Everything
+else is E2b's: the backbone (`smooth_residual`, width 128, 6 blocks, `tanh`, no
+normalization, no dropout), the five base features, the direct normalized-price
+target, the raw-price training loss, the reconstruction, `tau = 1e-4`, the
+selected training rows, the shuffle seed, the validation partition, the
+optimizer, the schedule, the epochs, the batch sizes, the precision, the CPU
+thread count, the checkpoint semantics and the criterion.
+
+**The one change.**
+
+```
+raw_standardized = residual_network(features)
+raw_u            = raw_standardized * price_scale + price_mean
+floor            = smooth_max(E_analytic / A + delta, intrinsic / A)
+final_u          = floor + tau * softplus((raw_u - floor) / tau)
+
+loss             = MSE(raw_standardized, standardized_direct_price_target)
+```
+
+`delta` is added to the **European leg only**, before the existing smooth
+maximum. The intrinsic leg is the same object in the floor and in the
+`intrinsic_lower_bound` diagnostic, so it carries no discretization gap; lifting
+it would buy nothing and would bias the deep-in-the-money region. At `delta = 0`
+the floor is **bitwise** the floor that already ran, so no earlier head moves.
+
+**Why a margin, and why not a temperature.** The deployed floor enforces the
+**analytic** European value; the `european_comparator_lower_bound` diagnostic
+compares against the dataset's **stored CRR** European leg. The two differ by the
+lattice's own discretization error, so a prediction resting on the analytic floor
+is counted as violating the stored comparator wherever that difference exceeds
+the `1e-6` material tolerance. A zero-margin analytic floor therefore cannot
+satisfy that gate at any accuracy. Temperature is not a substitute lever: the
+smooth maximum's own margin above the hard maximum is `tau*log(2)` only where the
+two legs are equal, and decays to zero where the prediction is projected from
+below — which is exactly where the violations are.
+
+**`delta` is derived, and it is not in the configuration.** It is pinned in code
+as `american_dev.attempts.EUROPEAN_FLOOR_MARGIN = 1e-4`, for the reason `tau` is:
+every attempt configuration declares exactly the same top-level keys, so a
+per-attempt field would have to be added to the configurations that already ran.
+It is therefore in `source_digests` and recorded in the attempt report.
+Its value is the label-free domain characterization's, through the rule
+predeclared in code before that analysis ran: measured supremum
+`4.192769575172157e-05`, `ceil_to_1e-5(2 * supremum) = 9e-5`, and
+`delta = max(1e-4, 9e-5) = 1e-4` — the rule's declared minimum, at a realized
+safety factor of 2.385. `attempts.assert_margin_consistent` re-derives from the
+digest-pinned acceptance file that `1e-4` sits strictly between the material
+tolerance `1e-6` and the normalized RMSE limit `3e-3`; the check runs in
+`scripts/check.sh`, in CI and in the runner's pre-flight.
+
+**Predeclared interpretation, before it runs.**
+
+- E2c is **exploratory and validation-selected**, like every task 9H attempt.
+  Nothing it produces is a project result.
+- It tests one thing: whether E2b's residual `european_comparator_lower_bound`
+  violations are floor **placement** rather than model quality. Zero material
+  violations on that check supports the placement account; a non-zero count with
+  `delta` above the measured domain supremum refutes it, and which of the two
+  causes — a state where the gap exceeds the characterization, or a wrong account
+  of which rows are projected — is diagnosed before anything is changed.
+- The **intrinsic** and **margined analytic-European** bounds stay enforced by
+  construction. The intrinsic count is expected to stay at zero.
+- The price gates are expected to hold. Wherever the projection binds, the margin
+  is added to the prediction, and `1e-4` is a thirtieth of the normalized RMSE
+  limit; a price gate degrading materially would mean the account of which rows
+  are projected is wrong, and is a reason to stop and re-analyze rather than to
+  adjust `delta`.
+- E2c **does not target shape**. Nothing here addresses spot monotonicity, spot
+  convexity or volatility monotonicity, and raising the floor changes which rows
+  are projected, so the shape counts may move in either direction without that
+  being evidence about this change.
+- **E3 remains unauthorized and is not implemented.** No shape penalty, no
+  tunable loss weight, no architecture alternative and no framework is built.
+
+**Its confounds, stated.**
+
+- The initialization seed differs from E2b's, because it is derived from the
+  attempt ID and an attempt configuration is immutable. A single seed cannot
+  separate a small effect from seed noise.
+- `delta` was fixed after the validation-set distribution of the same
+  CRR-versus-analytic quantity had already been observed by the geometry
+  analysis. The rule was predeclared in code before the domain characterization
+  ran, the derivation used no partition row and no partition-derived sampling
+  location, and the rule's minimum — not the measurement — binds. The exposure is
+  disclosed, not argued away.
+- Satisfying an exact-zero gate this way is **engineering a characterized margin,
+  not a mathematical guarantee** that the analytic floor dominates the stored
+  comparator everywhere. A finite deterministic sample bounds the gap where it
+  looks. Any confirmation protocol has to carry that qualification.
 
 ## The exploratory validation-set geometry analysis
 
@@ -673,7 +788,7 @@ is exactly what the fourth branch of the decision rule exists to catch.
 | `python/src/differentiable_pricing/ml/american_dev/geometry.py` | the exploratory validation-set geometry of the binding constraints, including the CRR-versus-analytic comparator discrepancy; reads one partition, trains nothing, writes no attempt evidence |
 | `python/src/differentiable_pricing/ml/american_dev/domain.py` | the label-free European CRR-versus-Black-Scholes characterization over the declared domain, and the predeclared additive-margin rule; opens no partition, trains nothing, modifies no configuration or source |
 | `python/src/differentiable_pricing/ml/american_dev/latency.py` | the ungated matched latency diagnostic for one recorded checkpoint, measured by Task 9G's own `run_latency` under Task 9G's own contract; opens no partition, trains nothing |
-| `configs/american_dev_attempt_scratch_*.toml` | the eight immutable attempt configurations |
+| `configs/american_dev_attempt_scratch_*.toml` | the nine immutable attempt configurations |
 | `scripts/run_american_dev_attempt.py` | **manual**: `run`, `status` — and no third command |
 | `scripts/analyze_american_dev_geometry.py` | **manual**: `analyze`, `show` — and no third command |
 | `scripts/analyze_american_dev_domain.py` | **manual**: `analyze`, `show` — and no third command |
@@ -691,10 +806,10 @@ stops.
 
 ```
 python3 scripts/run_american_dev_attempt.py run \
-    --config configs/american_dev_attempt_scratch_direct_control_v1.toml
+    --config configs/american_dev_attempt_scratch_residual_smooth_floor_margin_v1.toml
 
 python3 scripts/run_american_dev_attempt.py status \
-    --config configs/american_dev_attempt_scratch_direct_control_v1.toml
+    --config configs/american_dev_attempt_scratch_residual_smooth_floor_margin_v1.toml
 
 python3 scripts/american_dev_attempts.py record \
     --report artifacts/task-9h/<attempt_id>/attempt-report.json \
@@ -764,9 +879,13 @@ last try.
   no gate is applied to it, it neither passes nor fails a Task 9G gate, and it is
   not offered as evidence for or against any hypothesis.
 - The domain characterization derives a **candidate** additive margin from the
-  declared domain. It admits nothing, revises no threshold, implements no
-  attempt, and modifies no configuration or source file; applying the margin
-  would be a separate, separately predeclared attempt.
+  declared domain. It admits nothing and revises no threshold. E2c applies that
+  margin as its own predeclared attempt.
+- Satisfying the `european_comparator_lower_bound` gate with an additive margin
+  is **engineering a characterized margin, not a mathematical guarantee** that
+  the analytic floor dominates the stored CRR comparator over the whole domain.
+- **E3 is not authorized and is not implemented.** No shape-penalty machinery,
+  tunable loss weight, architecture alternative or framework exists in task 9H.
 - The validation-geometry report is an **exploratory measurement of the labels**
   on the partition this loop selects against. It is not frozen evidence, is
   never committed, admits no candidate and revises no threshold.

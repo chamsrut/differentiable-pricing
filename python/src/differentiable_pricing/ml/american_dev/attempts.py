@@ -77,11 +77,17 @@ ARCHITECTURES: Final = ("smooth_mlp", "smooth_residual")
 #: **same output**, bit for bit: the same floor, the same temperature, the same
 #: projection. They differ only in which prediction the training loss is
 #: computed against -- see :data:`RAW_LOSS_HEADS`.
+#:
+#: ``smooth_lower_floor_margin_raw_loss`` is ``smooth_lower_floor_raw_loss``
+#: with :data:`EUROPEAN_FLOOR_MARGIN` added to the analytic European leg before
+#: the smooth maximum with intrinsic value. Same temperature, same projection,
+#: same training loss; one additive constant, on one leg.
 HEADS: Final = (
     "direct",
     "premium_over_european",
     "smooth_lower_floor",
     "smooth_lower_floor_raw_loss",
+    "smooth_lower_floor_margin_raw_loss",
 )
 
 #: Heads whose training loss is computed against the **pre-projection** direct
@@ -100,7 +106,10 @@ HEADS: Final = (
 #: the direct-price problem the residual architecture already solved. Evaluation,
 #: checkpoint selection, bound diagnostics and shape diagnostics are unaffected:
 #: all of them read the projected output.
-RAW_LOSS_HEADS: Final = ("smooth_lower_floor_raw_loss",)
+RAW_LOSS_HEADS: Final = (
+    "smooth_lower_floor_raw_loss",
+    "smooth_lower_floor_margin_raw_loss",
+)
 
 #: The **predeclared** normalized temperature of the ``smooth_lower_floor``
 #: head, fixed here rather than in a configuration file.
@@ -126,6 +135,48 @@ SMOOTH_FLOOR_TEMPERATURE: Final = 1.0e-4
 HEAD_TEMPERATURES: Final = {
     "smooth_lower_floor": SMOOTH_FLOOR_TEMPERATURE,
     "smooth_lower_floor_raw_loss": SMOOTH_FLOOR_TEMPERATURE,
+    "smooth_lower_floor_margin_raw_loss": SMOOTH_FLOOR_TEMPERATURE,
+}
+
+#: The **predeclared** additive margin, in normalized units, applied to the
+#: analytic European leg of the floor before the smooth maximum with intrinsic
+#: value is taken. A code constant for the same reason
+#: :data:`SMOOTH_FLOOR_TEMPERATURE` is one: every attempt configuration declares
+#: exactly the same top-level keys, so a per-attempt field would have to be added
+#: to the configurations that already ran, which "immutable after use" forbids.
+#: Pinning it here keeps it in ``source_digests``, so the attempt report records
+#: which margin ran.
+#:
+#: **Why the floor needs one.** The floor enforces the analytic Black-Scholes
+#: European value; the ``european_comparator_lower_bound`` diagnostic compares
+#: against the dataset's stored CRR European leg. The two differ by the lattice's
+#: discretization error, so a prediction resting on the analytic floor is counted
+#: as violating the stored comparator wherever that difference exceeds the
+#: material tolerance. A zero-margin analytic floor therefore cannot satisfy that
+#: gate, whatever the model does.
+#:
+#: **Its value is derived, not chosen.** The label-free characterization of
+#: ``(E_CRR - E_BS) / A`` over the declared domain
+#: (``american_dev.domain``) measured a supremum of
+#: ``4.192769575172157e-05``. Its rule, predeclared in code before that run, is
+#: ``delta = max(1e-4, ceil_to_1e-5(2 * supremum))``, which gives
+#: ``ceil_to_1e-5(8.385539150344314e-05) = 9e-5`` and therefore
+#: ``delta = 1e-4``: the rule's declared minimum binds, at a realized safety
+#: factor of ``2.385`` over the measured supremum. The derivation used no
+#: partition row and no partition-derived sampling location.
+#:
+#: :func:`assert_margin_consistent` re-derives from the digest-pinned acceptance
+#: file that the value sits strictly above the material violation tolerance
+#: (``1e-6``, below which the margin would be unresolvable) and strictly below
+#: the normalized RMSE limit (``3e-3``, at or above which the margin's own bias
+#: would consume the accuracy budget).
+EUROPEAN_FLOOR_MARGIN: Final = 1.0e-4
+
+#: Heads that add a margin to the European leg of their floor, and the margin
+#: each adds. A head absent from this mapping adds none: its floor is the
+#: zero-margin analytic value, and ``0.0`` is what the model applies.
+HEAD_EUROPEAN_MARGINS: Final = {
+    "smooth_lower_floor_margin_raw_loss": EUROPEAN_FLOOR_MARGIN,
 }
 #: Deterministic conditioning features, computed from the physical inputs.
 CONDITIONING_FEATURES: Final = ("european_price_ratio", "intrinsic_ratio", "european_gap")
@@ -680,6 +731,59 @@ def head_temperature(head: str) -> float | None:
     if head not in HEADS:
         raise AttemptError(f"unknown head {head!r}")
     return HEAD_TEMPERATURES.get(head)
+
+
+def head_european_margin(head: str) -> float:
+    """The predeclared normalized European-leg margin of ``head``, or ``0.0``."""
+    if head not in HEADS:
+        raise AttemptError(f"unknown head {head!r}")
+    return float(HEAD_EUROPEAN_MARGINS.get(head, 0.0))
+
+
+def assert_margin_consistent(head: str, acceptance: Mapping[str, Any]) -> float:
+    """Check the head's European-leg margin against the units of the criterion.
+
+    The margin is normalized, in the units of ``u = V / (S*exp(-q*T))`` -- the
+    units the acceptance criterion is also stated in. Two bounds, both read from
+    the digest-pinned acceptance file rather than restated:
+
+    * it must exceed the **material violation tolerance**. A margin at or below
+      it lifts the floor by less than the diagnostics can resolve, which is
+      indistinguishable from no margin at all.
+    * it must fall below the **normalized RMSE limit**. Wherever the projection
+      binds, the margin is added to the prediction, so a margin at or above the
+      accuracy limit would spend the entire error budget it exists inside.
+
+    A head that declares no margin returns ``0.0`` and is not checked, because
+    zero is the absence of the transformation rather than a value of it.
+
+    Raises rather than silently substituting another value: if the repository's
+    units ever contradict the predeclared margin, that is a fact to report, not a
+    number to quietly change.
+    """
+    margin = head_european_margin(head)
+    if margin == 0.0:
+        return margin
+    diagnostics = acceptance.get("diagnostics")
+    criterion = acceptance.get(CRITERION_SECTION)
+    tolerance = diagnostics.get("material_normalized_tolerance") if isinstance(
+        diagnostics, Mapping
+    ) else None
+    accuracy = criterion.get("normalized_rmse_max") if isinstance(criterion, Mapping) else None
+    if not isinstance(tolerance, int | float) or not isinstance(accuracy, int | float):
+        raise AttemptError(
+            "the head European-leg margin is checked against the acceptance file's "
+            f"[diagnostics].material_normalized_tolerance and [{CRITERION_SECTION}]."
+            "normalized_rmse_max; both must be numbers"
+        )
+    if not float(tolerance) < margin < float(accuracy):
+        raise AttemptError(
+            f"head {head!r} declares normalized European-leg margin {margin:g}, which is not "
+            f"strictly between the material tolerance {float(tolerance):g} and the normalized "
+            f"RMSE limit {float(accuracy):g}; the repository's units contradict the predeclared "
+            "value and the discrepancy is reported, never silently resolved"
+        )
+    return margin
 
 
 def assert_temperature_consistent(head: str, acceptance: Mapping[str, Any]) -> float | None:

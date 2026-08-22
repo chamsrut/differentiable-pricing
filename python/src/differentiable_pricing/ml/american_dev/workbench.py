@@ -66,6 +66,7 @@ from .attempts import (
     PROTOCOL_CONFIG_PATH,
     RAW_LOSS_HEADS,
     assert_contained_relative_path,
+    assert_margin_consistent,
     assert_path_allowed,
     assert_split_allowed,
     assert_temperature_consistent,
@@ -549,11 +550,12 @@ def preflight(config_path: Path, project_root: Path) -> dict[str, Any]:
     )
     acceptance = load_toml(acceptance_path)
     validate_acceptance_config(acceptance)
-    # A head that carries a predeclared normalized temperature is checked
-    # against the units the acceptance file states its own thresholds in, before
-    # the attempt reserves anything. An inconsistency is reported, never
-    # silently resolved by substituting another temperature.
+    # A head that carries a predeclared normalized temperature or European-leg
+    # margin is checked against the units the acceptance file states its own
+    # thresholds in, before the attempt reserves anything. An inconsistency is
+    # reported, never silently resolved by substituting another value.
     temperature = assert_temperature_consistent(str(config["head"]), acceptance)
+    european_margin = assert_margin_consistent(str(config["head"]), acceptance)
 
     protocol_path = project_root / PROTOCOL_CONFIG_PATH
     protocol = load_toml(protocol_path)
@@ -578,6 +580,7 @@ def preflight(config_path: Path, project_root: Path) -> dict[str, Any]:
         "source_digests": digests,
         "committed_source": committed,
         "head_temperature": temperature,
+        "head_european_margin": european_margin,
     }
 
 
@@ -702,9 +705,12 @@ def execute_attempt(config_path: Path, project_root: Path) -> dict[str, Any]:
                 "parameters": parameter_count(model.network),
                 "head": str(config["head"]),
                 "conditioning_features": list(conditioning),
-                # ``None`` for a head that carries no temperature. Recorded so
-                # the attempt log describes exactly which transformation ran.
+                # ``None`` for a head that carries no temperature, ``0.0`` for
+                # one that adds no margin to the European leg of its floor.
+                # Recorded so the attempt log describes exactly which
+                # transformation ran.
                 "head_temperature": checked["head_temperature"],
+                "head_european_margin": checked["head_european_margin"],
             },
             "features": list(feature_order(conditioning)),
             "target_and_reconstruction": {

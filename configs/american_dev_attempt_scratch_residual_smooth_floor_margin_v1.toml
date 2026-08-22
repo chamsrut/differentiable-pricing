@@ -1,0 +1,139 @@
+# Task 9H attempt: scratch_residual_smooth_floor_margin_v1
+#
+# IMMUTABLE AFTER USE. Once an attempt has run against this file it is never
+# edited: a changed idea gets a new attempt ID and a new file, and
+# `python3 scripts/american_dev_attempts.py check` re-verifies that every logged
+# attempt's configuration still hashes to the digest that attempt recorded.
+#
+# E2c. Relative to E2b (`scratch_residual_smooth_floor_raw_loss_v1`) exactly one
+# behavioural field changes: the head, `smooth_lower_floor_raw_loss` ->
+# `smooth_lower_floor_margin_raw_loss`. The initialization seed follows, because
+# the existing rule derives it from the attempt ID. Everything else is E2b's: the
+# backbone (smooth_residual, width 128, 6 blocks, tanh, no normalization, no
+# dropout), the five base features, the representation, the direct normalized
+# price regression target, the reconstruction, the raw-price training loss, the
+# tau = 1e-4 temperature, the selected training rows, the shuffle seed, the
+# validation partition, the optimizer, the schedule, the epochs, the batch sizes,
+# the precision, the thread count, the checkpoint semantics and the criterion.
+#
+# THE ONE CHANGE. A predeclared additive margin delta is added to the analytic
+# European leg of the floor, before the existing smooth maximum with intrinsic
+# value:
+#     raw_u   = raw * price_scale + price_mean
+#     floor   = smooth_max(E_analytic / A + delta, intrinsic / A)
+#     final_u = floor + tau * softplus((raw_u - floor) / tau)
+#     loss    = MSE(raw_standardized, standardized_direct_price_target)
+# The margin is on the European leg only. The intrinsic leg is the same object in
+# the floor and in the `intrinsic_lower_bound` diagnostic, so it carries no
+# discretization gap; lifting it would buy nothing and bias the deep-in-the-money
+# region.
+#
+# WHY. E2b's deployed output enforces the ANALYTIC European value, while the
+# `european_comparator_lower_bound` diagnostic compares against the dataset's
+# STORED CRR European leg. The two differ by the lattice's own discretization
+# error, so a prediction resting on the analytic floor is counted as violating
+# the stored comparator wherever that difference exceeds the 1e-6 material
+# tolerance. A zero-margin analytic floor therefore cannot satisfy that gate at
+# any accuracy. E2b left 4,135 such violations with a maximum violation of
+# 0.0045 price units, and zero intrinsic violations.
+#
+# DELTA IS DERIVED, NOT CHOSEN, AND IT IS NOT IN THIS FILE. It is pinned in code
+# as `american_dev.attempts.EUROPEAN_FLOOR_MARGIN = 1e-4`, for the same reason
+# tau is: every attempt configuration declares exactly the same top-level keys,
+# so a per-attempt field would have to be added to the configurations that
+# already ran. The label-free characterization of (E_CRR - E_BS) / A over the
+# declared domain measured a supremum of 4.192769575172157e-05; the rule
+# predeclared in code before that run,
+# delta = max(1e-4, ceil_to_1e-5(2 * supremum)), gives
+# ceil_to_1e-5(8.385539150344314e-05) = 9e-5 and therefore delta = 1e-4, the
+# rule's declared minimum, at a realized safety factor of 2.385 over the measured
+# supremum. The derivation used no partition row and no partition-derived
+# sampling location. `assert_margin_consistent` re-derives from the acceptance
+# file that 1e-4 sits strictly between the material tolerance (1e-6) and the
+# normalized RMSE limit (3e-3).
+#
+# WHAT IT DELIBERATELY DOES NOT USE. No premium target, no warm start, no
+# auxiliary loss, no shape penalty, no conditioning feature, no different
+# architecture, no different temperature, no longer budget. Temperature is not a
+# substitute lever: the smooth maximum's own margin above the hard maximum is
+# tau*log(2) only where the two legs are equal and decays to zero where the
+# prediction is projected from below, which is exactly where the violations are.
+#
+# EXPLORATORY AND VALIDATION-SELECTED. It targets the stored-CRR comparator gate.
+# It does not target shape: nothing here addresses spot monotonicity, spot
+# convexity or volatility monotonicity, and raising the floor changes which rows
+# are projected, so the shape counts may move in either direction without that
+# being evidence about this change. The predeclared interpretation is in
+# `docs/tasks/active/task-9h-american-pricer-development.md`.
+schema_version = "american-dev-attempt/1"
+attempt_id = "scratch_residual_smooth_floor_margin_v1"
+parent_attempt = "scratch_residual_smooth_floor_raw_loss_v1"
+hypothesis = "E2b's remaining european_comparator_lower_bound violations arise from its deployed output resting on a zero-margin analytic European floor that sits below the stored CRR comparator by the lattice's discretization error; adding a predeclared additive margin of 1e-4 normalized units to the analytic European leg of the floor, a margin exceeding the measured supremum of that discrepancy over the declared domain, drives those violations to zero while leaving the three price gates passing, because the margin is applied only where the projection binds and is two orders of magnitude below the normalized RMSE limit."
+objective = "price_only"
+representation = "american_forward_carry_v1"
+target = "u = V / (S * exp(-q * T))"
+physical_reconstruction = "V = S * exp(-q * T) * u"
+head = "smooth_lower_floor_margin_raw_loss"
+conditioning_features = []
+dtype = "float64"
+device = "cpu"
+
+[architecture]
+# Identical to scratch_residual_smooth_floor_raw_loss_v1, which is in turn the
+# direct residual parent's: no normalization and no dropout anywhere, so a row's
+# prediction never depends on batch composition or on a random mask.
+name = "smooth_residual"
+width = 128
+blocks = 6
+activation = "tanh"
+
+[seeds]
+# The shuffle label is shared with every earlier attempt, so this attempt walks
+# the same 32,768 rows in the same order. Only the initialization label differs,
+# because the existing rule derives it from the attempt ID; that is the one
+# confound this composition carries.
+initialization_label = "scratch_residual_smooth_floor_margin_v1/init"
+shuffle_label = "task-9h/shuffle-v1"
+derivation = "first four bytes of SHA-256(label), unsigned big-endian"
+
+[row_selection]
+partition = "train"
+row_budget = 32768
+salt = "task-9h-train-subset-v1"
+rule = "lowest SHA-256(salt + NUL + sample_id), sample_id tie-break"
+
+[training]
+batch_size = 2048
+epochs = 120
+num_threads = 4
+deterministic_algorithms = true
+shuffle = "torch.randperm from the shuffle seed once per epoch"
+
+[optimizer]
+name = "adamw"
+learning_rate = 0.001
+weight_decay = 0.000001
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 0.00000001
+schedule = "cosine_annealing"
+minimum_learning_rate = 0.0
+schedule_period_epochs = 120
+
+[checkpoint]
+selection_partition = "validation"
+metric = "standardized_target_mse"
+rule = "minimum metric; earliest epoch wins exact ties"
+
+[evaluation]
+batch_size = 4096
+
+[paths]
+dataset = "data/american-option-v1"
+dataset_manifest = "data/american-option-v1/manifest.json"
+# The development criterion, reused verbatim. This file is digest-pinned by the
+# Task 9G protocol and reconciled in scripts/check.sh and CI, so the criterion
+# cannot be quietly loosened after an attempt fails.
+acceptance_config = "configs/american_neural_pilot_acceptance_v1.toml"
+output_directory = "artifacts/task-9h/scratch_residual_smooth_floor_margin_v1"
+ledger = "runs/task-9h/scratch_residual_smooth_floor_margin_v1/attempt.json"

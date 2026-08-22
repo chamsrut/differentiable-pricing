@@ -255,6 +255,7 @@ def load_benchmarked_model(
         "recorded_in": ATTEMPT_LOG_PATH,
         "head": str(config["head"]),
         "head_temperature": model.temperature,
+        "head_european_margin": model.european_margin,
         "conditioning_features": list(config.get("conditioning_features", ())),
         "architecture": dict(config["architecture"]),
         "parameters": parameters,

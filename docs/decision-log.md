@@ -1822,3 +1822,78 @@ snapshot, which remains authoritative for the numbers.
   [attempts/README.md](attempts/README.md),
   [project-state.md](project-state.md),
   DEC-041, DEC-042, DEC-043, DEC-044, DEC-045
+
+### DEC-047 — Task 9H: delta fixed at 1e-4, E3 unauthorized, E2c predeclared
+
+- **Status:** Active. Applies to task 9H (DEC-041 through DEC-046) and to nothing
+  already frozen. It establishes **no numerical result**, authorizes no training
+  run, and changes no threshold.
+- **Domain characterization outcome.** The label-free measurement of
+  `(E_CRR - E_BS) / A` over the declared domain returned a supremum of
+  `4.192769575172157e-05`. Under the rule predeclared in code before that run,
+  `2 * supremum = 8.385539150344314e-05`, `ceil_to_1e-5` gives `9e-5`, and the
+  rule's declared minimum binds: **`delta = 1e-4`**, at a realized safety factor
+  of **2.385**. The margin is the rule's floor, not a value fitted to the
+  measurement. The derivation used no partition row and no partition-derived
+  sampling location.
+- **Latency outcome, and what it authorizes.** The ungated matched diagnostic
+  measured median end-to-end speedups of **3.36** at batch 1 and **7.88** at
+  batch 8 against the adjacent-average CRR comparator at `N = 1024/1025`. Task
+  9G's reference bar of 10 was recorded as context and **not applied**; Task 9H
+  makes no latency claim and this measurement neither passes nor fails a Task 9G
+  gate. Its consequence is one of sequencing: a shape-penalty attempt would be
+  the loop's first tunable weight and its most expensive remaining investment.
+  **E3 is not authorized, is not implemented, and no shape-penalty machinery,
+  tunable loss weight, architecture alternative or framework is built.**
+- **Decision — E2c.**
+  `configs/american_dev_attempt_scratch_residual_smooth_floor_margin_v1.toml`,
+  head `smooth_lower_floor_margin_raw_loss`. Relative to E2b exactly one
+  behavioural field moves, plus the initialization seed the existing rule derives
+  from the attempt ID. The floor becomes
+  `smooth_max(E_analytic / A + delta, intrinsic / A)`; the temperature, the
+  projection, the raw-price training loss, the residual backbone, the features,
+  the target, the reconstruction, the selected rows, the shuffle seed, the
+  optimizer, the schedule, the budget and the criterion are unchanged.
+- **The margin is on the European leg only.** The intrinsic leg is the same
+  object in the floor and in the `intrinsic_lower_bound` diagnostic, so it
+  carries no discretization gap; lifting it would buy nothing and would bias the
+  deep-in-the-money region. At `delta = 0` the floor is bitwise the floor that
+  already ran, so no earlier head moves.
+- **The mechanism of the change.** One constant,
+  `attempts.EUROPEAN_FLOOR_MARGIN`, one per-head mapping,
+  `attempts.HEAD_EUROPEAN_MARGINS`, and one optional argument on the existing
+  `representation.normalized_lower_floor`. `delta` is a code constant for the
+  reason `tau` is: every attempt configuration declares exactly the same
+  top-level keys, so a per-attempt field would have to be added to the
+  configurations that already ran. `attempts.assert_margin_consistent` re-derives
+  from the digest-pinned acceptance file that `1e-4` sits strictly between the
+  material tolerance `1e-6` and the normalized RMSE limit `3e-3`, and runs in the
+  runner's pre-flight, in `scripts/check.sh` and in CI.
+- **Predeclared interpretation, recorded before it runs.** E2c tests whether
+  E2b's residual `european_comparator_lower_bound` violations are floor
+  **placement** rather than model quality. Zero material violations on that check
+  supports the placement account; a non-zero count with `delta` above the measured
+  domain supremum refutes it and is diagnosed before anything is changed. The
+  intrinsic and margined analytic-European bounds stay enforced by construction.
+  The price gates are expected to hold, and a material degradation there means the
+  account of which rows are projected is wrong — a reason to stop and re-analyze,
+  not to adjust `delta`. E2c does **not** target shape, and the shape counts may
+  move in either direction without that being evidence about this change.
+- **Confounds.** The initialization seed differs from E2b's. `delta` was fixed
+  after the validation-set distribution of the same quantity had already been
+  observed by the geometry analysis; the rule was predeclared in code before the
+  domain characterization ran, the derivation used no partition row, and the
+  rule's minimum rather than the measurement binds — the exposure is disclosed,
+  not argued away. Satisfying an exact-zero gate this way is **engineering a
+  characterized margin, not a mathematical guarantee** that the analytic floor
+  dominates the stored comparator everywhere; any confirmation protocol has to
+  carry that qualification.
+- **Non-claims.** Nothing here is a project result. A predeclared configuration is
+  a plan, not a measurement. The fixed criterion, the recorded attempts, their
+  configurations and the append-only log are unchanged, no partition was opened,
+  and no Task 9G tracked input was edited.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [attempts/README.md](attempts/README.md),
+  [project-state.md](project-state.md),
+  DEC-041, DEC-042, DEC-043, DEC-044, DEC-045, DEC-046
