@@ -59,6 +59,8 @@ TASK_9H_SCRIPTS: Final = (
     "scripts/run_american_dev_attempt.py",
     "scripts/american_dev_attempts.py",
     "scripts/analyze_american_dev_geometry.py",
+    "scripts/analyze_american_dev_domain.py",
+    "scripts/benchmark_american_dev_latency.py",
 )
 ATTEMPT_CONFIG_GLOB: Final = "configs/american_dev_attempt_*.toml"
 

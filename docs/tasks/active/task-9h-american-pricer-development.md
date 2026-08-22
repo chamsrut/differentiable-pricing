@@ -5,9 +5,12 @@
 `status=active; type=adaptive_exploratory_development; scope=price_only;
 branch=experiment/task-9h-american-pricer-development;
 partitions_available=train+validation; final_partition_access=forbidden;
-infrastructure implemented and hardened; seven attempts completed, none meeting
-the criterion; E2b (scratch_residual_smooth_floor_raw_loss_v1) is predeclared
-and not yet run; no attempt running; final partition untouched.`
+infrastructure implemented and hardened; eight attempts completed, none meeting
+the criterion; E2b (scratch_residual_smooth_floor_raw_loss_v1) is the recorded
+price leader and fails only the two structural gates; two label-free,
+human-invoked analyses are prepared and not yet run — the European
+CRR-versus-Black-Scholes domain characterization and the matched E2b latency
+diagnostic; no attempt running; final partition untouched.`
 
 Task 9G is terminal and negative ([decision-log.md](../../decision-log.md)
 DEC-038, approved by DEC-039). This task is opened by DEC-041.
@@ -285,7 +288,7 @@ tests conditioning, not extra knowledge.
 
 ## Progress: every completed attempt
 
-Seven attempts have been run by the human. **None met the criterion.** Every
+Eight attempts have been run by the human. **None met the criterion.** Every
 number below is a development measurement selected against `validation`; none is
 a project result. `RMSE <= 0.003`, `p99 <= 0.015`, `max <= 0.08`, `bound = 0`
 and `shape = 0` are the fixed gates.
@@ -299,6 +302,7 @@ and `shape = 0` are the fixed gates.
 | 5 | `scratch_residual_architecture_v1` | residual 128x6 | **0.002111941927713822** | **0.008157** | **0.031097** | 8,569 | 683 | 117 | **all three price gates passed**; structure untouched. The parent of 6 and 7 |
 | 6 | `scratch_residual_premium_v1` (E1) | 5 + premium head | 0.006852205444033097 | 0.032496 | 0.13867 | 6,925 | 312 | 118 | premium target costs 3.2x RMSE at any capacity; analytic anchor leaves 5,839 CRR violations |
 | 7 | `scratch_residual_smooth_floor_v1` (E2) | 5 + smooth floor, loss through the projection | 0.007201588210459 | 0.033562 | 0.093093 | 15,507 | **0** | **1** | collapsed onto the floor; gradient saturation, not a floor-versus-accuracy result |
+| 8 | `scratch_residual_smooth_floor_raw_loss_v1` (E2b) | 7 + loss on the pre-projection value | **0.0013192586235663635** | **0.005480** | **0.019006** | 4,135 | 532 | 89 | **the price leader**; all three price gates passed with room to spare, intrinsic violations **0**, and the first best epoch selected before the end of the budget |
 
 Reading across the table, three separable findings:
 
@@ -306,9 +310,11 @@ Reading across the table, three separable findings:
   else tried.
 - **Structural validity is solved by architectural floors** (rows 3, 6, 7), and
   by nothing else tried. Row 7 drove shape violations to zero as well.
-- **The two have not yet been obtained together**, and rows 6 and 7 failed for
-  two *different* reasons: row 6 because the premium target is a harder
-  regression, row 7 because its loss could not reach the network at all.
+- **Rows 6 and 7 failed for two *different* reasons**: row 6 because the premium
+  target is a harder regression, row 7 because its loss could not reach the
+  network at all. Row 8 removed the second cause and obtained price accuracy and
+  the enforced floor together, leaving the two structural gates — the stored CRR
+  European comparator and shape — as the whole of the remaining failure.
 
 ## What E1 measured, and what it settled
 
@@ -421,6 +427,127 @@ architecture, no different temperature, no longer budget.
 it is derived from the attempt ID and an attempt configuration is immutable. A
 single seed cannot separate a small effect from seed noise — though the effect
 this attempt is looking for is a factor of three in RMSE, not a small one.
+
+## The two label-free analyses, prepared and not yet run
+
+E2b passed all three price gates and failed only the two structural ones, with
+**4,135** of its remaining violations against the **stored CRR** European
+comparator rather than against the analytic value its floor enforces. Two
+questions follow, and neither needs a label, a partition or a training run.
+Both analyses below are **prepared, human-invoked and unrun**; both are
+exploratory; both write only beneath the ignored `artifacts/` tree; and **neither
+modifies any configuration or source file**. Nothing here implements an attempt.
+
+### A. The European CRR-versus-Black-Scholes domain characterization
+
+`python/src/differentiable_pricing/ml/american_dev/domain.py`, run by
+`python3 scripts/analyze_american_dev_domain.py analyze`.
+
+It measures `(E_CRR - E_BS) / A` over the **declared input domain**, where
+
+- `E_CRR` is the **stored comparator's own semantics**: the European CRR price
+  formed the way the label policy `american-crr-adjacent-average/1` forms it,
+  `0.5 * (E_CRR(N) + E_CRR(N+1))` at `N = [label].steps = 1024`, on the same
+  lattice family and through the compiled engine's batch boundary. **No dataset
+  column is read** — the comparator is recomputed;
+- `E_BS` is `american_dev.representation.european_price_array`, **the same
+  analytic function the `smooth_lower_floor` head enforces at inference**, so
+  the measurement and the enforcement cannot drift apart;
+- `A = spot * exp(-dividend_yield * maturity)`, the normalized target's own
+  reconstruction scale;
+- the declared domain is the `[domain]` table of
+  `configs/american_option_dataset_v1.toml`, read through a whitelist of its six
+  coordinates — the per-partition row table is never resolved — and re-verified
+  against the digest the locked Task 9G protocol pins for that file. Its
+  `spot`, `volatility` and `log_moneyness` intervals are additionally required
+  to agree with the acceptance file's own diagnostics domain.
+
+**The sample.** Four deterministic constructions, each evaluated at **both**
+option types: a 131,072-point Halton sequence in the six declared coordinates
+(bases 2, 3, 5, 7, 11, 13, leading 1,024 points skipped), a structured sweep of
+the numerically hardest regions (both maturity, volatility, rate, dividend-yield
+and spot endpoints crossed with a fine near-the-money log-moneyness sweep and
+both moneyness endpoints), every vertex of the declared box, and one centred
+point per box face. **No sampling location is derived from any partition**, and
+the module imports no partition machinery at all.
+
+**The margin rule, predeclared in code before the run:**
+
+```text
+domain_supremum = maximum positive normalized CRR-minus-BS gap
+candidate       = ceil_to_1e-5(2 * domain_supremum)
+delta           = max(1e-4, candidate)
+```
+
+It lives in `domain.MARGIN_SAFETY_FACTOR`, `domain.MARGIN_QUANTUM`,
+`domain.MINIMUM_MARGIN` and the single function `domain.derive_margin`, so it has
+**no free parameter left to tune** once the measurement lands. The report carries
+the sample construction and counts, the CRR resolution semantics, the maximum and
+the p50/p90/p95/p99/p999 quantiles, the fraction strictly above `0`, `1e-6`,
+`1e-5` and `1e-4`, the derived `delta`, and the realized safety factor against
+the measured supremum.
+
+**What it is not.** It derives a **candidate margin** and nothing else. It admits
+nothing, implements no attempt, and applying the margin would be a separate,
+separately predeclared attempt with its own configuration and its own recorded
+result. A finite sample bounds the gap where it looks; it is not a proof of a
+supremum over the continuum, which is why the rule carries a predeclared safety
+factor and a floor rather than the measured maximum itself. The declared domain
+is the bounding box of the sampling strata, so a supremum over it is
+conservative for the dataset and says nothing about states outside it.
+
+**Disclosed contamination.** The validation-set supremum of this same quantity
+was already observed by the geometry analysis and cannot be un-seen. The
+derivation uses no partition row and no sampling location derived from one, and
+the rule was fixed in code before the run; the report records the exposure rather
+than arguing it away.
+
+### B. The matched E2b latency diagnostic
+
+`python/src/differentiable_pricing/ml/american_dev/latency.py`, run by
+`python3 scripts/benchmark_american_dev_latency.py benchmark`.
+
+**Task 9H's scope is price only and it makes no latency claim.** This is an
+**ungated exploratory diagnostic with no validation exposure**, recorded because
+the decision about what to build next depends on it. **No gate is applied**:
+Task 9G's bar is written into the report as context and explicitly not
+evaluated, and a Task 9H measurement neither passes nor fails a Task 9G gate.
+
+It benchmarks the recorded E2b checkpoint at
+`artifacts/task-9h/scratch_residual_smooth_floor_raw_loss_v1/checkpoint.pt`,
+rebuilt from the **tracked immutable attempt configuration** plus the train-fitted
+scaling the attempt report recorded. The configuration must still hash to the
+digest the attempt ran, and the attempt must appear exactly once in the
+append-only log under that digest, so an unrecorded checkpoint cannot be
+benchmarked. **No partition is opened**: the scaling is read, never refitted.
+
+**The contract is Task 9G's, reused rather than restated.** The measurement is
+performed by `ml.american_pilot.run_latency` itself, driven by
+`configs/american_neural_pilot_latency_cases_v1.toml`, whose digest is
+re-verified against the value the locked Task 9G protocol pins. The clock
+(`time.perf_counter_ns`), the two warm-ups, the seven repetitions, the
+deterministic cyclic measurement rotation, the request shapes (batch 1 and
+batch 8), the per-shape thread budgets (1 and 4), the inter-op budget of 1, the
+eight fixed synthetic cases, the CRR operation `0.5 * (CRR(N) + CRR(N+1))` priced
+through the compiled batch boundary, and the timed neural region — feature
+construction, standardization, inference, inverse target transform and physical
+reconstruction, which for this head includes the analytic-European and intrinsic
+floor and the physical price reconstruction — are all the contract's and the
+reused implementation's. **Artifact loading is excluded from the timed region**,
+exactly as Task 9G excludes it.
+
+**Two deviations from the Task 9G run, recorded in the report rather than
+glossed:** the CRR depth ladder is restricted to the matched depth `N = 1024`
+(priced as `1024/1025`), the label policy's own resolution and the depth the
+acceptance file names for interpretation; and one model is timed instead of two
+arms, so the deterministic rotation alternates between two operations rather than
+three. No other semantic changes.
+
+**Reported:** per request shape, the median and p95 nanoseconds of the matched
+CRR comparator and of the neural end-to-end path, and the paired median speedup
+with the contract's own distribution-free interval. Seven repetitions on one
+machine in one process: it characterizes this machine under these conditions and
+is not a portable performance claim.
 
 ## The exploratory validation-set geometry analysis
 
@@ -544,9 +671,13 @@ is exactly what the fourth branch of the decision rule exists to catch.
 | `python/src/differentiable_pricing/ml/american_dev/models.py` | the dense and residual networks, and their dispatch |
 | `python/src/differentiable_pricing/ml/american_dev/workbench.py` | pre-flight, dataset identity pinning and row-level policy verification, one attempt end to end, evaluated against the reused Task 9G criterion |
 | `python/src/differentiable_pricing/ml/american_dev/geometry.py` | the exploratory validation-set geometry of the binding constraints, including the CRR-versus-analytic comparator discrepancy; reads one partition, trains nothing, writes no attempt evidence |
+| `python/src/differentiable_pricing/ml/american_dev/domain.py` | the label-free European CRR-versus-Black-Scholes characterization over the declared domain, and the predeclared additive-margin rule; opens no partition, trains nothing, modifies no configuration or source |
+| `python/src/differentiable_pricing/ml/american_dev/latency.py` | the ungated matched latency diagnostic for one recorded checkpoint, measured by Task 9G's own `run_latency` under Task 9G's own contract; opens no partition, trains nothing |
 | `configs/american_dev_attempt_scratch_*.toml` | the eight immutable attempt configurations |
 | `scripts/run_american_dev_attempt.py` | **manual**: `run`, `status` — and no third command |
 | `scripts/analyze_american_dev_geometry.py` | **manual**: `analyze`, `show` — and no third command |
+| `scripts/analyze_american_dev_domain.py` | **manual**: `analyze`, `show` — and no third command |
+| `scripts/benchmark_american_dev_latency.py` | **manual**: `benchmark`, `show` — and no third command |
 | `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log, the configurations and the geometry analysis's validation-only restriction |
 | `docs/attempts/task-9h-attempt-log.jsonl` | the append-only recorded search |
 
@@ -582,6 +713,21 @@ python3 scripts/analyze_american_dev_geometry.py analyze
 python3 scripts/analyze_american_dev_geometry.py show
 ```
 
+The two label-free analyses are manual, terminal-invoked human commands too. The
+domain characterization prices hundreds of thousands of lattices and the latency
+diagnostic is a timing measurement that needs a quiet machine, so no test, hook,
+CI job or repository check calls either one. Neither opens a dataset partition,
+neither trains anything, neither records an attempt, and neither modifies a
+configuration or a source file.
+
+```
+python3 scripts/analyze_american_dev_domain.py analyze
+python3 scripts/analyze_american_dev_domain.py show
+
+python3 scripts/benchmark_american_dev_latency.py benchmark
+python3 scripts/benchmark_american_dev_latency.py show
+```
+
 Agent-safe and offline, run by `scripts/check.sh` and CI:
 
 ```
@@ -614,7 +760,13 @@ last try.
 - Nothing task 9H produces is a project result. It selects against
   `validation`, repeatedly, so every task 9H number carries selection bias.
 - Task 9H makes and measures **no Greek, latency or implied-volatility claim**,
-  and no transfer-learning claim.
+  and no transfer-learning claim. The matched latency diagnostic is **ungated**:
+  no gate is applied to it, it neither passes nor fails a Task 9G gate, and it is
+  not offered as evidence for or against any hypothesis.
+- The domain characterization derives a **candidate** additive margin from the
+  declared domain. It admits nothing, revises no threshold, implements no
+  attempt, and modifies no configuration or source file; applying the margin
+  would be a separate, separately predeclared attempt.
 - The validation-geometry report is an **exploratory measurement of the labels**
   on the partition this loop selects against. It is not frozen evidence, is
   never committed, admits no candidate and revises no threshold.

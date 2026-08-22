@@ -1744,3 +1744,81 @@ snapshot, which remains authoritative for the numbers.
   [attempts/README.md](attempts/README.md),
   [project-state.md](project-state.md),
   DEC-041, DEC-042, DEC-043, DEC-044
+
+### DEC-046 — Task 9H E2b is the price leader; two label-free analyses predeclared before E2c
+
+- **Status:** Active. Applies to task 9H (DEC-041 through DEC-045) and to nothing
+  already frozen. It establishes **no numerical result**, authorizes no training
+  run, changes no threshold, and modifies no configuration.
+- **E2b's outcome.** `scratch_residual_smooth_floor_raw_loss_v1` ran at `fefcc3b`
+  and was recorded at `9698f27`. It did not meet the criterion, and it is the
+  best price model the loop has produced: normalized RMSE
+  `0.0013192586235663635`, p99 `0.005480095733763145`, maximum
+  `0.01900577580721763` — all three price gates passed — with **0** intrinsic
+  violations, **4,135** material bound violations, all of them against the stored
+  CRR European comparator, and 532 material shape violations (57
+  spot-monotonicity, 271 spot-convexity, 204 volatility-monotonicity). Best epoch
+  **89** of 120, the first checkpoint in the loop selected before the end of the
+  budget. **This confirms E2's failure was optimization**, not an incompatibility
+  between the enforced floor and price accuracy (DEC-045).
+- **What the remaining bound count is.** The deployed floor enforces the
+  **analytic** European value; the gate compares against the dataset's **stored
+  CRR** European leg. The two differ by the lattice's own discretization error,
+  so a model resting on the analytic floor is counted as violating the stored
+  comparator wherever that difference exceeds the material tolerance. That was
+  stated as a limitation before E2 ran and is unchanged.
+- **Decision — two label-free analyses are prepared, and neither has been run.**
+  Both are human-invoked, exploratory, partition-free and write only beneath the
+  ignored `artifacts/` tree. Neither implements an attempt, reserves an attempt ID
+  or ledger, appends to the attempt log, or modifies a configuration or source
+  file.
+  - **A. European CRR-versus-Black-Scholes domain characterization**
+    (`ml/american_dev/domain.py`, `scripts/analyze_american_dev_domain.py`). It
+    measures `(E_CRR - E_BS) / A` over the declared `[domain]` of
+    `configs/american_option_dataset_v1.toml` — digest-verified against the value
+    the locked Task 9G protocol pins, and read through a whitelist that never
+    resolves the per-partition row table. `E_CRR` reproduces the label policy's
+    own `0.5 * (E_CRR(N) + E_CRR(N+1))` at `N = 1024` through the compiled
+    engine, reading no stored column; `E_BS` is
+    `representation.european_price_array`, the same analytic function the
+    `smooth_lower_floor` head enforces. The sample is deterministic: a
+    131,072-point Halton sequence in the six declared coordinates, a structured
+    sweep of the hardest lattice regions, every box vertex and one point per
+    face, each evaluated at both option types. **No sampling location derives
+    from any partition.**
+  - **The margin rule, predeclared in code before the run:**
+    `domain_supremum = maximum positive normalized CRR-minus-BS gap`,
+    `candidate = ceil_to_1e-5(2 * domain_supremum)`,
+    `delta = max(1e-4, candidate)` — three constants and the single function
+    `domain.derive_margin`, with no free parameter left to tune once the
+    measurement lands. It yields a **candidate** only.
+  - **B. Matched E2b latency diagnostic** (`ml/american_dev/latency.py`,
+    `scripts/benchmark_american_dev_latency.py`). It measures the recorded E2b
+    checkpoint against the matched adjacent-average CRR comparator at `N =
+    1024/1025`, at batch 1 and batch 8, on the existing fixed synthetic cases,
+    using `ml.american_pilot.run_latency` itself under
+    `configs/american_neural_pilot_latency_cases_v1.toml`, whose digest is
+    re-verified against the locked protocol. Artifact loading is outside the timed
+    region, as in Task 9G. Two deviations are recorded: the depth ladder is
+    restricted to the matched depth, and one model is timed instead of two arms,
+    so the deterministic rotation alternates between two operations rather than
+    three.
+- **The latency diagnostic is ungated.** Task 9H's scope is price only and it
+  makes no latency claim. Task 9G's bar is written into the report as context and
+  explicitly **not applied**; the measurement neither passes nor fails a Task 9G
+  gate and is not offered as evidence for or against any hypothesis.
+- **Disclosed contamination.** The validation-set supremum of the same
+  CRR-versus-analytic quantity was already observed by the exploratory geometry
+  analysis and cannot be un-seen. The margin rule was fixed in code before the
+  run, the derivation uses no partition row and no partition-derived sampling
+  location, and the report records the exposure rather than arguing it away.
+- **Non-claims.** Nothing here is a project result. A prepared analysis is a plan
+  until the human runs it. A derived margin admits nothing, revises no threshold
+  and implements no attempt. No candidate for E2c is implemented, no shape
+  treatment is designed, no partition was opened, and no Task 9G tracked input was
+  edited.
+- **Authoritative links:**
+  [tasks/active/task-9h-american-pricer-development.md](tasks/active/task-9h-american-pricer-development.md),
+  [attempts/README.md](attempts/README.md),
+  [project-state.md](project-state.md),
+  DEC-041, DEC-042, DEC-043, DEC-044, DEC-045

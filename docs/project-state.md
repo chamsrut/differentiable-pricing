@@ -205,19 +205,24 @@ does not reinterpret or rerun it.**
 - **No accepted, versioned PDE-labelled SPY training dataset exists**, and no
   SPY neural surrogate exists. **No American neural surrogate has yet been
   trained and accepted** — task 9G trained two arms and accepted neither.
-- **Task 9H supplies price-only development infrastructure; seven attempts have
-  been run, six of them recorded.** The package
-  `python/src/differentiable_pricing/ml/american_dev/`
-  holds five modules: `attempts` (partition guard and its single forbidden-token
+- **Task 9H supplies price-only development infrastructure; eight attempts have
+  been run and recorded, and two label-free analyses are prepared but unrun.**
+  The package `python/src/differentiable_pricing/ml/american_dev/`
+  holds seven modules: `attempts` (partition guard and its single forbidden-token
   list, row/seed selection, digests, clean-tree and committed-source checks,
   strict configuration validation, attempt-log rules; PyTorch-free),
   `representation` (the five `american_forward_carry_v1` coordinates, the
   European anchor, conditioning features, heads, physical reconstruction),
   `models` (a dense and a residual network plus dispatch), `workbench` (one
-  attempt end to end) and `geometry` (the exploratory validation-set geometry of
+  attempt end to end), `geometry` (the exploratory validation-set geometry of
   the binding constraints, including the CRR-versus-analytic European comparator
   discrepancy; it reads one partition, trains nothing and writes no attempt
-  evidence). Three heads are implemented and dispatched: `direct`,
+  evidence), `domain` (the label-free European CRR-versus-Black-Scholes
+  characterization over the declared domain and its predeclared additive-margin
+  rule; it opens no partition and modifies no configuration or source) and
+  `latency` (the ungated matched latency diagnostic for one recorded checkpoint,
+  measured by Task 9G's own `run_latency` under Task 9G's own contract; it opens
+  no partition). Three heads are implemented and dispatched: `direct`,
   `premium_over_european` and `smooth_lower_floor`, the last a smooth one-sided
   projection onto `max(analytic European, intrinsic)` at a predeclared
   normalized temperature of `1e-4` that preserves the direct price target
@@ -233,11 +238,13 @@ does not reinterpret or rerun it.**
   reuses Task 9G's row-level `verify_partition_policy` on both partitions
   (DEC-042). The scripts are the human-only
   `scripts/run_american_dev_attempt.py` (`run`, `status`), the human-only
-  `scripts/analyze_american_dev_geometry.py` (`analyze`, `show`) and the
+  `scripts/analyze_american_dev_geometry.py` (`analyze`, `show`),
+  `scripts/analyze_american_dev_domain.py` (`analyze`, `show`) and
+  `scripts/benchmark_american_dev_latency.py` (`benchmark`, `show`), and the
   offline `scripts/american_dev_attempts.py` (`record`, `check`; the `check`
   mode is wired into `scripts/check.sh` and CI). Configurations are the eight
   immutable `configs/american_dev_attempt_scratch_*.toml`. The append-only
-  attempt log is `docs/attempts/task-9h-attempt-log.jsonl`. Seven attempts have
+  attempt log is `docs/attempts/task-9h-attempt-log.jsonl`. Eight attempts have
   been run and none met the criterion: `scratch_direct_control_v1`
   (normalized RMSE 5.73e-3, 10,121 bound / 1,460 shape violations),
   `scratch_capacity_v1` (3.50e-3, 9,083 / 854), `scratch_american_premium_v1`
@@ -257,12 +264,22 @@ does not reinterpret or rerun it.**
   derivative is of order `1e-44` where a scratch model starts, so the model never
   left the floor and **E2 is not evidence that an enforced floor is incompatible
   with price accuracy** (DEC-045). **E2b,
-  `scratch_residual_smooth_floor_raw_loss_v1`, is predeclared and not yet run**
-  (DEC-045): the same deployed floor, with the loss computed on the
-  pre-projection direct value. A predeclared configuration is a plan, not a
-  measurement. No dataset partition was opened and the final partition remains
-  untouched. No Greek, latency, implied-volatility or transfer machinery exists
-  in task 9H.
+  `scratch_residual_smooth_floor_raw_loss_v1`, then ran and is the loop's price
+  leader** (DEC-046): the same deployed floor with the loss computed on the
+  pre-projection direct value, recorded at `9698f27` with normalized RMSE
+  1.32e-3, p99 5.48e-3, maximum 1.90e-2 — all three price gates passed — 0
+  intrinsic violations, 4,135 stored-CRR comparator violations and 532 shape
+  violations, at best epoch 89 of 120. It still did not meet the criterion; it is
+  a development measurement selected against `validation`, not a project result.
+  **Two label-free analyses are now prepared and not yet run** (DEC-046): the
+  European CRR-versus-Black-Scholes domain characterization, which derives a
+  candidate additive floor margin under a rule predeclared in code, and the
+  ungated matched E2b latency diagnostic. Neither opens a partition, trains
+  anything, records an attempt or modifies a configuration or source file, and a
+  prepared analysis is a plan until the human runs it. No dataset partition was
+  opened and the final partition remains untouched. **Task 9H still makes no
+  Greek, latency, implied-volatility or transfer claim**: the latency diagnostic
+  is ungated and is not offered as evidence for or against any hypothesis.
 
 ## Exact next task
 
@@ -292,14 +309,19 @@ breaking the digest-pinned Task 9G protocol check.
 learning are separate follow-up stages that begin only after a candidate works;
 none of their machinery is built in advance.
 
-Its current state is **infrastructure implemented and hardened, one attempt
-recorded**: five immutable attempt configurations, a human-only runner, an
-offline attempt-log recorder/checker, and an append-only attempt log holding the
-failed `scratch_direct_control_v1` control. The human invokes every training
+Its current state is **infrastructure implemented and hardened, eight attempts
+recorded**: eight immutable attempt configurations, a human-only runner, three
+human-only analyses, an offline attempt-log recorder/checker, and an append-only
+attempt log holding all eight failed attempts. The human invokes every training
 run; agents implement code and analyze compact summaries and launch nothing.
 
-The next attempt is `scratch_capacity_v1`, whose configuration already exists and
-is unchanged. Nothing has been run for it, and the control is **not** rerun.
+The recorded price leader is `scratch_residual_smooth_floor_raw_loss_v1` (E2b),
+which passes the three price gates and fails the two structural ones (DEC-046).
+**No next attempt is implemented.** What exists and has not been run is the pair
+of label-free analyses DEC-046 predeclares — the European
+CRR-versus-Black-Scholes domain characterization, which derives a candidate
+additive floor margin, and the ungated matched E2b latency diagnostic. No earlier
+attempt is rerun.
 
 **Task 9G is closed and terminal.** Fresh top-level review of the result-only
 change at `a4fd9f2` (merged as PR #27, `main` at `5c0ef6a`) returned **APPROVE

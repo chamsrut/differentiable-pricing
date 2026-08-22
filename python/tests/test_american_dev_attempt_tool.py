@@ -213,23 +213,46 @@ def test_the_tracked_attempt_log_is_a_header_then_append_only_attempts() -> None
     assert "scratch_direct_control_v1" in identifiers
 
 
-def test_the_task_9h_package_is_exactly_the_six_retained_modules(tool: Any) -> None:
-    """Nothing is kept "for later": Greeks, latency, IV and transfer are absent."""
+def test_the_task_9h_package_is_exactly_the_eight_retained_modules(tool: Any) -> None:
+    """Nothing is kept "for later": Greek, IV and transfer machinery is absent.
+
+    ``latency.py`` is the one apparent exception and is not one. It is an
+    **ungated diagnostic** over a checkpoint an attempt already produced,
+    measured by Task 9G's own implementation under Task 9G's own contract; it
+    adds no attempt capability, applies no gate and is not speculative
+    machinery for a stage that has not begun. ``domain.py`` is likewise a
+    label-free measurement over the declared domain, not a model or a target.
+    """
     assert {path.name for path in PACKAGE.glob("*.py")} == {
         "__init__.py",
         "attempts.py",
+        "domain.py",
         "geometry.py",
+        "latency.py",
         "models.py",
         "representation.py",
         "workbench.py",
     }
     assert {path.name for path in tool._task_9h_sources()} >= {
         "attempts.py",
+        "domain.py",
         "geometry.py",
+        "latency.py",
         "workbench.py",
         "run_american_dev_attempt.py",
         "analyze_american_dev_geometry.py",
+        "analyze_american_dev_domain.py",
+        "benchmark_american_dev_latency.py",
     }
+
+
+def test_no_greek_implied_volatility_or_transfer_machinery_exists(tool: Any) -> None:
+    """The stages that have not begun have no code in this package."""
+    text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(PACKAGE.glob("*.py"))
+    )
+    for absent in ("implied_volatility", "def delta", "def vega", "transfer_arm"):
+        assert absent not in text
 
 
 # ---------------------------------------------------------------------------
