@@ -115,6 +115,18 @@ def _columns(count: int = 12) -> dict[str, np.ndarray]:
     }
 
 
+def _file_state(path: Path) -> str | None:
+    """The digest of ``path``, or ``None`` when it is absent.
+
+    Files under the gitignored ``artifacts/`` tree exist in a working clone that
+    has run an exploratory analysis and are absent in a clean checkout, so an
+    immutability check has to pin both cases: an existing file keeps its bytes,
+    and an absent one stays absent. Hashing unconditionally would instead make
+    the invariant untestable exactly where nothing has run yet.
+    """
+    return sha256_file(path) if path.is_file() else None
+
+
 # ---------------------------------------------------------------------------
 # One partition, fixed in the source
 # ---------------------------------------------------------------------------
@@ -421,9 +433,12 @@ def test_the_discrepancy_block_reports_every_slice_and_the_binding_population() 
 def test_the_discrepancy_measurement_opens_no_partition_and_writes_nothing(
     tmp_path: Path,
 ) -> None:
-    before = {path: sha256_file(path) for path in [REAL_LOG, GEOMETRY_V1_REPORT]}
+    monitored = [REAL_LOG, GEOMETRY_V1_REPORT]
+    before = {path: _file_state(path) for path in monitored}
     comparator_discrepancy(_columns(), BINS, quantile_method="linear", material_tolerance=1e-6)
-    assert {path: sha256_file(path) for path in [REAL_LOG, GEOMETRY_V1_REPORT]} == before
+    # Unchanged where the file was already there, and still not created where it
+    # was not: the measurement is a pure read either way.
+    assert {path: _file_state(path) for path in monitored} == before
     assert not list(tmp_path.iterdir())
 
 
