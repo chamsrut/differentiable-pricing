@@ -12,29 +12,41 @@ git-safety guardrails in condensed form for local clarity. `AGENTS.md`
 remains the canonical source for those shared rules.
 
 Also read, before starting work:
-[docs/project-state.md](docs/project-state.md) (current state and the exact
-next task) and, if it applies to the work at hand, the active task spec
-[docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
-(task 9G — **implementation merged at `e930454`; the single human-invoked
-locked `run-to-validation` completed and its validation gates failed;
-`status=validation_gates_failed`, `outcome=failure_to_learn`;
-`final_evaluation_attempts=0`, `final_partition_consumed=false`, and
-`final-evaluate` is forbidden under that protocol**). The frozen result is
-[docs/results/american_neural_pilot_results_v1.json](docs/results/american_neural_pilot_results_v1.json)
-(DEC-038); its acceptance still needs a fresh top-level review of the
-result-only change. One seed and one budget do not establish H2. Do not rerun
-task 9G, retune against it, or open `interpolation_test`; task 9E's conditional
-admission alone authorizes no training. Three other
-specs stay in `docs/tasks/active/` and are **not** work to pick up: task 9C-C2b2 is `Deferred`
-([docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md](docs/tasks/active/task-9c-c2b2-parallel-resumable-generation.md)),
-to be resumed only when the XSP/SPY phase needs dataset-scale PDE generation;
-task 9C-C3 and task 9D are **completed**
-([docs/tasks/active/task-9c-c3-label-policy-v2.md](docs/tasks/active/task-9c-c3-label-policy-v2.md),
-[docs/tasks/active/task-9d-data-holdings-audit.md](docs/tasks/active/task-9d-data-holdings-audit.md)),
-terminal, marked-`Completed` history; and task 9F is `On hold`
-([docs/tasks/active/task-9f-remote-data-access-plan.md](docs/tasks/active/task-9f-remote-data-access-plan.md)),
-a plan only. Task 9D's catalogue of the local data holdings is
-[docs/data-holdings-catalogue.md](docs/data-holdings-catalogue.md).
+
+- [docs/project-state.md](docs/project-state.md) — current state, current
+  evidence, limitations, and the **exact next task**. It is the authority on
+  what the project is doing right now; this file deliberately does not
+  duplicate it, so it cannot go stale here.
+- [docs/american-neural-architecture-freeze-v2.3.md](docs/american-neural-architecture-freeze-v2.3.md)
+  — the normative parent of the American neural-pricer roadmap, whenever the
+  work touches the American surrogate.
+- The active task spec, and [docs/tasks/README.md](docs/tasks/README.md) for
+  the lifecycle grouping. **Task specs are marked in place and never
+  relocated**, so `docs/tasks/active/` also holds completed, deferred, and
+  on-hold specs. Presence in that directory is not evidence that a task is the
+  work to pick up — read its `## Status` block and the index.
+
+Two standing prohibitions that survive every roadmap change, and that you must
+not relax on your own judgement:
+
+- **You must never open, hash, stat, import, count, or inspect
+  `interpolation_test` or any other final partition, and neither may any
+  development or diagnostic code path.** This binds agents and development code
+  absolutely: there is no task, review, or debugging reason that justifies
+  reading a final partition, and "just checking the row count" is a violation.
+  Task 9G's `final-evaluate` is **forbidden** under its own protocol, so no
+  final evaluation may be invoked under it now or later (DEC-038).
+
+  The one narrow exception is not yours to take: a **future predeclared
+  one-shot final-evaluation protocol** may authorize its own designated,
+  human-invoked evaluation path to open a **fresh** final partition **exactly
+  once**. That access belongs to that protocol's named entry point, run by a
+  human, under gates fixed before the partition exists — never to an agent, an
+  interactive session, or any development code path, and never to a partition a
+  protocol has already consumed.
+- **Never rerun, retune against, regenerate, reformat, or hand-edit frozen
+  evidence** under `docs/results/`, and never treat an admission or a label
+  policy as training authorization.
 
 ## Hooks
 
@@ -111,21 +123,11 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
   the relevant `docs/*-contract.md` for the exact invocation and
   load-bearing rules, rather than trusting a command copied from an older
   conversation or an out-of-date narrative document.
-- **Active task:**
-  [docs/tasks/active/task-9g-american-neural-pricer-pilot.md](docs/tasks/active/task-9g-american-neural-pricer-pilot.md)
-  (task 9G — continuous-yield American neural-pricer feasibility pilot), status
-  `validation_gates_failed; outcome=failure_to_learn; implementation merged at
-  e930454; locked run complete; final partition unconsumed`. The outstanding
-  step is fresh top-level review and merge of the result-only closure on branch
-  `results/task-9g-american-neural-pilot-v1`. `final-evaluate` is **forbidden**
-  under the 9G protocol: its final-entry rule failed, so no final evaluation
-  may be invoked now or later, and any future one needs a new protocol and a
-  fresh final partition. The next intended task is task 9H, an explicitly
-  exploratory `train`/`validation`-only development loop — recorded as intent
-  only, not implemented, and not to be started without its own spec and review.
-  Task 9C-C2b2 is deferred,
-  tasks 9C-C3 and 9D are completed and terminal, and task 9F is on hold; do not
-  treat any of those still-present specs as the active one.
+- **Active task:** read [docs/project-state.md](docs/project-state.md),
+  "Exact next task", and [docs/tasks/README.md](docs/tasks/README.md) for the
+  lifecycle grouping. Do not infer the active task from directory membership:
+  `docs/tasks/active/` holds completed, deferred, and on-hold specs too,
+  because specs are marked in place and never relocated.
 - **Frozen-result checks:** `./scripts/check.sh` and CI both run
   `python scripts/freeze_pde_label_policy_v2_results.py --check` and
   `python scripts/freeze_american_neural_pilot_results.py --check`. Both are
@@ -136,7 +138,9 @@ triage subagent: [docs/agent-system.md](docs/agent-system.md).
 
 ## Required workflow
 
-1. Read `AGENTS.md`, the relevant contract(s), and the active task spec.
+1. Read `AGENTS.md`, the relevant contract(s) — including
+   [docs/american-neural-architecture-freeze-v2.3.md](docs/american-neural-architecture-freeze-v2.3.md)
+   for American neural work — and the active task spec.
 2. State the numerical or software assumption being changed.
 3. Make the smallest coherent change.
 4. Add or update tests before claiming completion.

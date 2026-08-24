@@ -1,5 +1,7 @@
 # Task 9E: CRR dataset admission — semantic suitability, loader support, integrity and leakage gates
 
+> **Lifecycle: closed, conditional and partial.** Terminal for this dataset version: the admission is mapping-only, the cross-check and semantic-coverage gates were not discharged, and the near-duplicate gate cannot be satisfied retroactively. Not the active task, and it authorizes no training. Task specs are marked in place and never relocated; the lifecycle grouping is [../README.md](../README.md). The one active task is [task-9i-architecture-v2-3-phase-0.md](task-9i-architecture-v2-3-phase-0.md).
+
 ## Status
 
 `Blocked for training — conditional mapping-only admission freshly approved;

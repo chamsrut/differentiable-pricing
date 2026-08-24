@@ -30,11 +30,16 @@ machine state.
 ## Documentation hierarchy
 
 When two documents disagree, the higher tier is correct: code/config/frozen
-evidence, then normative contracts — [docs/architecture.md](docs/architecture.md)
-and the applicable `docs/*-contract.md` files — then
+evidence, then normative contracts — for the American neural-pricer roadmap
+[docs/american-neural-architecture-freeze-v2.3.md](docs/american-neural-architecture-freeze-v2.3.md)
+first, then [docs/architecture.md](docs/architecture.md) and the applicable
+`docs/*-contract.md` files — then
 [docs/decision-log.md](docs/decision-log.md), then
 [docs/project-state.md](docs/project-state.md) and the active task under
-`docs/tasks/active/`, then README and other narrative documentation. Full
+`docs/tasks/active/` — identified by
+[docs/tasks/README.md](docs/tasks/README.md), not by directory membership,
+since specs are marked in place and never relocated — then README and other
+narrative documentation. Full
 rules and each document's edit policy:
 [docs/documentation-map.md](docs/documentation-map.md). Update
 `docs/project-state.md` and add a `docs/decision-log.md` entry in the same

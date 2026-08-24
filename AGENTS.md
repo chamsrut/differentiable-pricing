@@ -27,6 +27,11 @@ Before any change:
    [docs/architecture.md](docs/architecture.md) — also a normative contract,
    not narrative — whenever the work touches language-boundary architecture,
    artifact identity/provenance, model structure, or stage-1 compatibility.
+5. [docs/american-neural-architecture-freeze-v2.3.md](docs/american-neural-architecture-freeze-v2.3.md)
+   — the normative parent of the American neural-pricer roadmap — whenever the
+   work touches the American surrogate: its teacher, datasets, partitions,
+   references, Greeks, artifacts, native inference, or acceptance sequencing.
+   It is versioned, not amended in place.
 
 ## Source-of-truth hierarchy
 
@@ -36,8 +41,10 @@ edit policy for each document class are in
 
 1. code, versioned configuration, and frozen evidence (`docs/results/`,
    `docs/figures/`);
-2. normative contracts — [docs/architecture.md](docs/architecture.md) and
-   the applicable `docs/*-contract.md` files;
+2. normative contracts — for the American neural-pricer roadmap,
+   [docs/american-neural-architecture-freeze-v2.3.md](docs/american-neural-architecture-freeze-v2.3.md)
+   first; then [docs/architecture.md](docs/architecture.md) and the
+   applicable `docs/*-contract.md` files;
 3. [docs/decision-log.md](docs/decision-log.md);
 4. [docs/project-state.md](docs/project-state.md) and the active task spec;
 5. README.md and other narrative documentation.
@@ -63,6 +70,17 @@ Trust the higher tier when they disagree.
   frozen task 9C-B pilot).
 - Keep commits scoped: pricing core, bindings, experiments, and
   documentation should be separable when practical.
+
+## Task specifications are marked in place
+
+Every task spec lives at a stable path under `docs/tasks/active/` for its whole
+life, whatever its status. `active/` is a location, not a status claim: the
+authoritative status of a task is its own `## Status` block, and the lifecycle
+grouping — active, completed, deferred, and the archived exploratory line — is
+[docs/tasks/README.md](docs/tasks/README.md). Specs are never relocated, because
+the append-only decision log links them by path and two source files name one
+spec path directly. Do not treat a spec's presence in `active/` as evidence that
+it is the work to pick up.
 
 ## Bounded implementation workflow
 

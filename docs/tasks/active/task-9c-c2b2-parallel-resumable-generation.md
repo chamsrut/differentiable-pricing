@@ -1,5 +1,7 @@
 # Task 9C-C2b2: deterministic parallel/resumable generation infrastructure
 
+> **Lifecycle: deferred.** Not the active task and not work to pick up. Task specs are marked in place and never relocated; the lifecycle grouping is [../README.md](../README.md). The one active task is [task-9i-architecture-v2-3-phase-0.md](task-9i-architecture-v2-3-phase-0.md).
+
 ## Status
 
 `Deferred` — **not started, and not rejected.** No infrastructure, no pilot,

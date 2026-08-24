@@ -1,5 +1,7 @@
 # Task 9G: continuous-yield American neural-pricer feasibility pilot
 
+> **Lifecycle: completed, terminal — negative result.** Not the active task; its frozen outcome is a historical fact and is never reinterpreted as a partial success. Task specs are marked in place and never relocated; the lifecycle grouping is [../README.md](../README.md). The one active task is [task-9i-architecture-v2-3-phase-0.md](task-9i-architecture-v2-3-phase-0.md).
+
 ## Status
 
 `status=validation_gates_failed; outcome=failure_to_learn. Implementation

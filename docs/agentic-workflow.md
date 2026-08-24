@@ -69,10 +69,3 @@ and acceptance metrics. Do not modify files.
   from experiments.
 - Agent-generated code receives the same tests and review as human-generated
   code.
-
-## What to show in an interview
-
-Demonstrate a small issue from specification to test, implementation, clean
-review, and CI. The useful story is not "agents wrote the repository"; it is
-that you designed a workflow where separate implementation, review, and
-deterministic validation roles leave auditable evidence.
