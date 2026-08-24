@@ -197,6 +197,7 @@ def write(
             "recomputing it after seeing a score is exactly what the ordering forbids"
         )
     report = assess(project_root, name, columns)
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(path, report, overwrite=overwrite)
     return report, path
 

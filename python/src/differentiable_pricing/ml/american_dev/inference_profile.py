@@ -645,6 +645,7 @@ def profile(
         "component_profiles": profiles,
         "provenance": diagnostic_provenance(project_root),
     }
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(path, report, overwrite=overwrite)
 
     if run_variants:
@@ -670,6 +671,7 @@ def profile(
             "measurements": variants,
             "provenance": diagnostic_provenance(project_root),
         }
+        variant_path.parent.mkdir(parents=True, exist_ok=True)
         write_json_atomic(variant_path, variant_report, overwrite=overwrite)
         report["variants"] = variant_report
     return report

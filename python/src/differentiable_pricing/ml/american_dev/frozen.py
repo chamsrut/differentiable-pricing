@@ -665,7 +665,8 @@ def freeze_checkpoints(
         "checkpoints": checkpoints,
         "provenance": diagnostic_provenance(project_root),
     }
-    write_json_atomic(output_path, report)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(output_path, report, overwrite=overwrite)
     return report
 
 

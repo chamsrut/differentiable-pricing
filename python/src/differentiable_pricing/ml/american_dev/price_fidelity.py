@@ -747,6 +747,7 @@ def write_report(
         **dict(report),
         "provenance": diagnostic_provenance(project_root),
     }
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(path, payload, overwrite=overwrite)
     return path
 

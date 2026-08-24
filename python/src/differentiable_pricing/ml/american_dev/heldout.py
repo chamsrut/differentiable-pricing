@@ -312,6 +312,7 @@ def declare_carve(
         **declare(list(columns["sample_id"])),
         "provenance": diagnostic_provenance(project_root),
     }
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(path, report, overwrite=overwrite)
     return report
 
