@@ -1339,3 +1339,116 @@ snapshot, which remains authoritative for the numbers.
   [project-state.md](project-state.md),
   [tasks/active/task-9g-american-neural-pricer-pilot.md](tasks/active/task-9g-american-neural-pricer-pilot.md),
   DEC-034, DEC-035, DEC-036, DEC-037
+
+### DEC-049 — Adopt Architecture Freeze v2.3 as the normative parent of the American neural-pricer roadmap
+
+- **Status:** Active. **Supersedes** the Task 9H development roadmap — the
+  adaptive `train`/`validation` attempt loop recorded on the archived
+  exploratory line — as the plan for reaching an American neural result. It
+  supersedes **no** frozen evidence, reinterprets **no** recorded outcome, and
+  reruns **nothing**.
+- **Provenance note on numbering.** Decision IDs `DEC-039`–`DEC-048` are
+  reserved by the archived Task 9H exploratory line — branch
+  `experiment/task-9h-american-pricer-development`, tag
+  `task-9h-v1-exploratory-pre-v2.3` (commit `3950ed0`) — and are therefore
+  intentionally absent from this branch's linear history. That branch is not
+  intended to be merged wholesale; reserving the range keeps decision IDs
+  globally unique across preserved project history. This entry does not
+  restate, alter, or replace those decisions.
+- **Context.** Task 9G's locked run produced a frozen negative result
+  (`failure_to_learn`, DEC-038). The Task 9H exploratory line that followed
+  reached a recorded price leader, recorded the E2c candidate, and paused its
+  attempt loop for a zero-training diagnostic phase whose grids were
+  predeclared and implemented but not scored. External review of Architecture
+  Freeze v2 then produced v2.3, which reorganizes the remaining work rather
+  than continuing the 9H loop.
+- **Decision.** Adopt
+  [american-neural-architecture-freeze-v2.3.md](american-neural-architecture-freeze-v2.3.md)
+  as the **normative parent** of the American neural-pricer roadmap. It is a
+  contract, not narrative: it sits in tier 2 of the source-of-truth hierarchy
+  and, for the American neural design, ahead of
+  [architecture.md](architecture.md) and the other `*-contract.md` files. It is
+  versioned, not amended in place — a change means a new freeze document
+  adopted by its own decision entry.
+- **All prior Task 9H evidence is preserved as exploratory historical
+  evidence.** Its specification, append-only attempt ledger, interim research
+  brief, predeclared diagnostic protocol, E2c checkpoint, and decision entries
+  `DEC-041`–`DEC-048` remain intact at the archive tag above. Nothing there is
+  deleted, rewritten, or reinterpreted. Equally, nothing there is a project
+  result: selection happened repeatedly against `validation`, so every 9H
+  outcome carries selection bias and is exploratory input to the v2 design
+  only. Adopting v2.3 does not retroactively make v2.3 the plan those
+  experiments were run under.
+- **E2c cannot be the v2 confirmation model.** Its teacher dataset is not
+  reproducible from committed source — the American generator is on the
+  unmerged branch `feat/american-dataset-v1` and was never carried onto `main`
+  (DEC-031, DEC-033) — so no confirmation claim can rest on it. E2c survives
+  only as a concrete 199k-parameter specimen for the native C++ feasibility
+  prototype, and the remaining Greek diagnostics inform the **head and
+  representation design**, not whether historical E2c weights can be retained.
+- **The v2 confirmation campaign requires all of the following**, each a
+  structural requirement rather than a preference:
+  1. a **reproducible generator** — the American dataset must be regenerable
+     from committed source plus a committed configuration;
+  2. **atomic dataset generation** — every v2 partition (train, validation,
+     development holdouts, the neutrally sampled final interpolation set, and
+     the predeclared economic stress set) emitted by one invocation of one
+     committed generator configuration and bound by one manifest, so that
+     "untouched final" is a property of a precommitted sampling design and not
+     of a second sampling event;
+  3. **retraining** — a new model trained under that dataset, under a declared
+     attempt budget with development-holdout and final-access controls intact;
+  4. **independent numerical-reference convergence** — price-reference and
+     per-Greek reference depths selected on a partition-free convergence set
+     against a predeclared application/reference tolerance, never against the
+     model's achieved error, with additive PDE evidence from outside the CRR
+     lattice family;
+  5. **deterministic artifact export** — a non-pickle, C++-loadable artifact
+     with a manifest binding feature order, architecture, scaling, head
+     parameters, weight hash, dataset identity, and provenance;
+  6. **native C++ inference** — the timed production path, with no timed call
+     falling back into Python;
+  7. **one-shot final evaluation** — the untouched final partition opened
+     exactly once, with no post-final tuning under the same confirmation claim.
+- **No final or interpolation partition has been consumed by this roadmap
+  change.** This is a documentation-only adoption. Task 9G's
+  `interpolation_test` remains unconsumed (`final_evaluation_attempts = 0`,
+  `final_partition_consumed = false`) and its `final-evaluate` remains
+  **forbidden** under the 9G protocol; the archived 9H line never opened a final
+  partition; and v2.3 introduces no new pass/fail threshold and authorizes no
+  training, no generation, and no evaluation.
+- **Consequences.**
+  - The next task is **task 9I**, the v2.3 Phase 0 transition: finish only the
+    carried-forward Greek/head diagnostics, and independently build the native
+    C++ E2c feasibility prototype. Both are exploratory inputs to the v2 design,
+    not confirmation work
+    ([tasks/active/task-9i-architecture-v2-3-phase-0.md](tasks/active/task-9i-architecture-v2-3-phase-0.md)).
+  - The freeze's Phase 1 — committing the v2 architecture, application
+    tolerances, reference-error budget, Greek-reference rules, attempt budget,
+    sampling design, final-access policy, and native benchmark contract —
+    follows Phase 0 and needs its own spec and review.
+  - Task specifications keep their existing paths and are marked in place; the
+    lifecycle grouping is [tasks/README.md](tasks/README.md). No spec was
+    relocated, so every task link recorded in earlier entries of this
+    append-only log still resolves, and no earlier entry was edited.
+  - The locked stage-2 roadmap (DEC-028) is unchanged: v2.3 governs *how* the
+    phase-1 American neural experiment is built and confirmed, not the phase
+    order.
+  - Five normative contracts — [architecture.md](architecture.md),
+    [research-contract.md](research-contract.md),
+    [american-crr-contract.md](american-crr-contract.md),
+    [american-crr-dataset-admission.md](american-crr-dataset-admission.md), and
+    [pde-numerical-contract.md](pde-numerical-contract.md) — are
+    content-digest-pinned by task 9G's frozen protocol and could not be revised
+    by this adoption without failing that gate. They are left byte-identical and
+    are now read as the record of what task 9G built; where they disagree with
+    the freeze about the American neural design, the freeze wins by the
+    precedence order. Recorded in
+    [documentation-map.md](documentation-map.md), "Digest-pinned documents".
+- **Authoritative links:**
+  [american-neural-architecture-freeze-v2.3.md](american-neural-architecture-freeze-v2.3.md),
+  [tasks/active/task-9i-architecture-v2-3-phase-0.md](tasks/active/task-9i-architecture-v2-3-phase-0.md),
+  [tasks/README.md](tasks/README.md),
+  [project-state.md](project-state.md),
+  [documentation-map.md](documentation-map.md),
+  DEC-001, DEC-028, DEC-031, DEC-033, DEC-034, DEC-036, DEC-038

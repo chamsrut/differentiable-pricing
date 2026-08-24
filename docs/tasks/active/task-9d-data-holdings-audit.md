@@ -1,5 +1,7 @@
 # Task 9D: local data-holdings catalogue and integrity audit
 
+> **Lifecycle: completed, terminal.** Not the active task; its outcome is a historical fact and is never revised. Task specs are marked in place and never relocated; the lifecycle grouping is [../README.md](../README.md). The one active task is [task-9i-architecture-v2-3-phase-0.md](task-9i-architecture-v2-3-phase-0.md).
+
 ## Status
 
 `Completed` — **the catalogue exists and every exit gate is discharged.** This

@@ -47,7 +47,7 @@ Human readers begin with `README.md`, not with either agent entry point.
 |---|---|---|
 | `docs/project-state.md` | Current truth: what is done, what is next | Implemented |
 | `docs/architecture.md`, `docs/*-contract.md` (tier 2, normative) | Load-bearing numerical/interface/architecture rules for the language boundary, one engine, or one study | Implemented |
-| `docs/tasks/active/*.md` | Scope, gates, and stop conditions for one in-flight task | Implemented (one active task; completed specs stay in place marked `Completed`) |
+| `docs/tasks/active/*.md` | Scope, gates, and stop conditions for one task each | Implemented. Specs are marked in place and never relocated, so this directory also holds completed, deferred, and on-hold specs; the lifecycle grouping is [tasks/README.md](tasks/README.md) |
 | `.claude/skills/` | Packaged, invokable multi-step procedures | Not implemented — planned only, see "Future PR2/PR3 plan" |
 | `.claude/hooks/check-edited-file.py` | Deterministic post-edit syntax/lint/format check | Implemented |
 | `.githooks/pre-commit` | Deterministic local gate before commit | Implemented, but not activated by default (see "Clang-format baseline problem" and `CONTRIBUTING.md`) |
