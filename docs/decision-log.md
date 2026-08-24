@@ -1897,3 +1897,87 @@ snapshot, which remains authoritative for the numbers.
   [attempts/README.md](attempts/README.md),
   [project-state.md](project-state.md),
   DEC-041, DEC-042, DEC-043, DEC-044, DEC-045, DEC-046
+
+### DEC-048 — Task 9H E2c recorded; loop paused for a zero-training diagnostic phase
+
+- **Status:** Active. Applies to task 9H (DEC-041 through DEC-047) and to nothing
+  already frozen.
+- **Decision:** Record E2c's result, then **pause the attempt loop** and run a
+  diagnostic phase that consumes **zero** neural attempts, before spending either
+  of the two that remain.
+- **E2c's recorded result** (`scratch_residual_smooth_floor_margin_v1`,
+  `criterion_not_met`): normalized RMSE `0.0012444`, p99 `0.0052547`, maximum
+  `0.0168734` — all three price gates pass; **material bound violations 0**, down
+  from E2b's 4,135, so the predeclared margin hypothesis held; **551 material
+  shape violations**, up from E2b's 532, so the criterion still fails.
+- **The concurrent 5.68% RMSE improvement is not attributable to the margin.**
+  The new attempt ID also changed the derived initialization seed, and for a
+  raw-loss head the margin never enters the gradient. Measured: both attempts
+  selected epoch 89 and share the shuffle seed, so for **this pair** the
+  fixed-margin weight difference isolates the initialization-seed change under
+  otherwise matched training conditions. That is an **isolated
+  initialization-seed effect for this pair**, not seed variance, not a seed
+  distribution and not an expected seed effect; `n = 2` remains the limitation.
+- **Why a diagnostic phase.** Nothing in this project has ever been evaluated on
+  rows no model could have seen; quantitative Greek fidelity has never been
+  established; and latency may be dominated by execution overhead rather than
+  network arithmetic. Spending an attempt before knowing which component is
+  wrong would be guessing. **Outcomes that preserve both attempts are successes,
+  not null results.**
+- **What the phase declares in advance**, all committed before any
+  decision-bearing run:
+  - **A practical pricing tolerance in volatility units**, `|V̂ − V| / vega_BS ≤
+    0.01`, at a `≥ 99%` eligible-row pass rate, with a per-row resolvability rule
+    `0.01·vega_BS > 3·|E_CRR − E_BS|` and a flat `5.5e-4` normalized secondary
+    screen. **Additional to the development criterion, which is unchanged.**
+  - **An assessability rule.** The eligibility rule anchors on the *label's*
+    discretization error, not the model's, so it admits rows whose vega is small
+    enough that the statistic is decided by the denominator. If more than 1% of
+    eligible rows are vega-degenerate — a one-volatility-point move smaller than
+    the declared secondary screen, i.e. normalized vega below `5.5e-4/0.01 =
+    0.055` — the primary pass rate is reported **NOT ASSESSABLE**, and the
+    conditional rate on the non-degenerate subset is reported separately and
+    never as a substitute.
+  - **An H1/H2 carve** of 50,000 reserved `train` rows into two disjoint
+    25,000-row halves. H1 is evaluated once; **H2 is unreachable by
+    construction** and is not touched in this task.
+  - **A closed section-D variant list** and a **four-quantity capacity decision**
+    that is made from the *optimized* implementation and its counterfactuals, not
+    from the pre-optimization profile. The `<25%`/`>60%` backbone-share
+    thresholds are descriptive reporting only.
+- **Ordering is structural, not advisory.** Assessability is a separate module,
+  a separate human-invoked command and a separate artifact; price fidelity
+  refuses to score a row set whose eligibility artifact does not match its rows,
+  its declaration digests and its protocol commit. Every diagnostic artifact
+  requires a **clean tracked worktree**, so none can be produced before this
+  commit.
+- **Declared limitations.** Tree-internal CRR Greeks cannot be added without
+  breaking the digest-pinned Task 9G protocol, so every reference Greek is a
+  central difference and Grid 1 conclusions hold only where disagreement exceeds
+  the reference's own uncertainty. Greek scope is Delta, Gamma and Vega; theta
+  and rho are declared non-claims. H1 is reserved `train` rows, not an
+  independently generated partition. The 10x latency figure is Task 9G's
+  historical reference, never a Task 9H gate.
+- **E2 is unrecordable.** `scratch_residual_smooth_floor_v1` completed but its
+  attempt report was truncated to zero bytes afterwards, so it can never be
+  recorded from its own evidence and the append-only log cannot place an entry
+  ahead of the child naming it. It is declared in
+  `attempts.UNRECORDABLE_ATTEMPTS`, the parent rule now resolves against that
+  declaration, and the offline checker reconciles every declaration against
+  tracked state. Its surviving compact summary is not an attempt report.
+- **The official matched-latency baseline is E2c, named explicitly.** The
+  latency CLI's `--attempt` is required and has no default; each registered
+  attempt derives its own checkpoint directory and its own artifact, so
+  selecting one cannot leave a path aimed at another. E2b's historical
+  measurement keeps `matched-latency-v1.json` unchanged and unreinterpreted;
+  E2c writes `matched-latency-e2c-v1.json`. Writing any other attempt to E2b's
+  artifact, or E2b anywhere else, is refused, and the loader independently
+  refuses a directory whose attempt report names a different attempt.
+- **Non-claims:** nothing here is a project result; no measurement has been taken
+  under this protocol yet; no selection gate is created from H1 or from the
+  margin/variation decomposition. The ~18% degeneracy figure seen while
+  exercising the statistic came from **synthetic smoke machinery on synthetic
+  states**; it revealed a possible property of the statistic, **not an E2c
+  result**, and it did not and may not relax the declared 1% assessability rule.
+- **Supersedes:** nothing. **Related:** DEC-038, DEC-039, DEC-041, DEC-042,
+  DEC-043, DEC-044, DEC-045, DEC-046, DEC-047

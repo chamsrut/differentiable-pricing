@@ -45,7 +45,6 @@ excludes it: the model is constructed and its weights are loaded before
 from __future__ import annotations
 
 import copy
-import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
@@ -58,22 +57,20 @@ from ..artifact import write_json_atomic
 from ..model import Scaling
 from .attempts import (
     ACCEPTANCE_CONFIG_PATH,
-    ATTEMPT_LOG_PATH,
     PROTOCOL_CONFIG_PATH,
     assert_contained_relative_path,
     assert_path_allowed,
-    attempt_log_entries,
     load_toml,
     repository_identity,
     sha256_file,
     source_digests,
     validate_acceptance_config,
-    validate_attempt_config,
     verify_committed_source,
 )
 from .domain import locked_tracked_input_digest
+from .frozen import FROZEN_ATTEMPTS, FrozenCheckpointError, load_frozen_model
+from .frozen import recorded_scaling as frozen_recorded_scaling
 from .representation import AmericanDevPriceModel
-from .workbench import build_model
 
 LATENCY_SCHEMA: Final = "american-dev-matched-latency/1"
 
@@ -88,8 +85,14 @@ LATENCY_CONFIG_PATH: Final = "configs/american_neural_pilot_latency_cases_v1.tom
 #: file names for interpretation.
 MATCHED_CRR_DEPTH: Final = 1024
 
-#: The attempt whose surviving checkpoint is benchmarked, and the ignored
-#: directory a completed run wrote it to.
+#: The **historical** benchmarked attempt. E2b was the first checkpoint timed on
+#: this contract, and its result is the number the project has quoted since. It
+#: stays the default of :func:`load_benchmarked_model` so nothing that already
+#: reads E2b's measurement changes meaning.
+#:
+#: It is deliberately **not** the default of the command line. The diagnostic
+#: phase measures E2c, and a benchmark whose subject depends on which argument
+#: was omitted is exactly the failure this registry exists to prevent.
 BENCHMARKED_ATTEMPT: Final = "scratch_residual_smooth_floor_raw_loss_v1"
 DEFAULT_ATTEMPT_DIRECTORY: Final = (
     "artifacts/task-9h/scratch_residual_smooth_floor_raw_loss_v1"
@@ -97,9 +100,38 @@ DEFAULT_ATTEMPT_DIRECTORY: Final = (
 ATTEMPT_REPORT_NAME: Final = "attempt-report.json"
 CHECKPOINT_NAME: Final = "checkpoint.pt"
 
-#: Where the report is written: beneath the ignored ``artifacts/`` tree. A
-#: development diagnostic, never frozen evidence, never committed.
+#: E2b's historical artifact. **Never reused for another attempt**: overwriting
+#: or reinterpreting it would destroy the only record of the measurement the
+#: project has been quoting.
 DEFAULT_OUTPUT: Final = "artifacts/task-9h/latency/matched-latency-v1.json"
+
+#: Every attempt this diagnostic may benchmark, and where each one's result
+#: lives. Each entry's directory and output are **derived from the attempt**, so
+#: selecting an attempt cannot leave a path pointing at a different one.
+#:
+#: The keys are required to be a subset of the frozen registry, checked at
+#: import: a checkpoint that is not frozen has no immutable identity to record
+#: alongside a timing, and timing an unidentified model produces a number
+#: nothing can be said about.
+BENCHMARK_TARGETS: Final = {
+    "scratch_residual_smooth_floor_raw_loss_v1": {
+        "label": "E2b",
+        "directory": "artifacts/task-9h/scratch_residual_smooth_floor_raw_loss_v1",
+        "output": DEFAULT_OUTPUT,
+        "historical": True,
+    },
+    "scratch_residual_smooth_floor_margin_v1": {
+        "label": "E2c",
+        "directory": "artifacts/task-9h/scratch_residual_smooth_floor_margin_v1",
+        "output": "artifacts/task-9h/latency/matched-latency-e2c-v1.json",
+        "historical": False,
+    },
+}
+
+#: The attempt the diagnostic phase's official matched baseline measures. The
+#: existing measurement is E2b's; section C exists because E2c has never been
+#: timed.
+DIAGNOSTIC_BENCHMARK_ATTEMPT: Final = "scratch_residual_smooth_floor_margin_v1"
 
 #: Reported latency quantiles. With the contract's seven repetitions the p95 is
 #: an order statistic of a very small sample and is reported as such.
@@ -118,6 +150,65 @@ class LatencyDiagnosticError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Output and input guards
 # ---------------------------------------------------------------------------
+
+
+def assert_benchmark_target(attempt_id: str) -> dict[str, Any]:
+    """Resolve one attempt against the closed benchmark registry.
+
+    Refuses anything unregistered, and anything registered here but absent from
+    the frozen registry -- a timing without an immutable identity beside it is a
+    number nothing can be said about.
+    """
+    name = str(attempt_id)
+    target = BENCHMARK_TARGETS.get(name)
+    if target is None:
+        raise LatencyDiagnosticError(
+            f"attempt {attempt_id!r} is not a benchmarkable Task 9H checkpoint; the registry "
+            f"is {sorted(BENCHMARK_TARGETS)}"
+        )
+    if name not in FROZEN_ATTEMPTS:
+        raise LatencyDiagnosticError(
+            f"attempt {attempt_id!r} is registered for benchmarking but is not a frozen "
+            "checkpoint; a timing is only meaningful beside an immutable identity"
+        )
+    return dict(target)
+
+
+def resolve_benchmark_paths(
+    attempt_id: str, output: str | None = None, attempt_directory: str | None = None
+) -> dict[str, Any]:
+    """Derive this attempt's directory and output, and refuse a mismatched pair.
+
+    Both default **from the attempt**, so choosing an attempt cannot leave a
+    path aimed at another one. Two overrides are refused outright rather than
+    honoured:
+
+    * writing any attempt but E2b to E2b's historical artifact, which would
+      overwrite the only record of the measurement the project quotes;
+    * writing E2b anywhere but its historical artifact, which would silently
+      fork that record into two.
+    """
+    target = assert_benchmark_target(attempt_id)
+    resolved_output = output or str(target["output"])
+    resolved_directory = attempt_directory or str(target["directory"])
+    historical = str(BENCHMARK_TARGETS[BENCHMARKED_ATTEMPT]["output"])
+    if resolved_output == historical and attempt_id != BENCHMARKED_ATTEMPT:
+        raise LatencyDiagnosticError(
+            f"'{historical}' is {BENCHMARKED_ATTEMPT!r}'s historical latency artifact and is "
+            f"never reused; {attempt_id!r} writes to '{target['output']}'"
+        )
+    if attempt_id == BENCHMARKED_ATTEMPT and resolved_output != historical:
+        raise LatencyDiagnosticError(
+            f"{BENCHMARKED_ATTEMPT!r}'s measurement lives at '{historical}'; writing it "
+            "elsewhere would fork the record the project quotes"
+        )
+    return {
+        "attempt_id": attempt_id,
+        "label": target["label"],
+        "output": resolved_output,
+        "attempt_directory": resolved_directory,
+        "historical": bool(target["historical"]),
+    }
 
 
 def _guarded_output(project_root: Path, relative: str) -> Path:
@@ -149,120 +240,38 @@ def _guarded_attempt_directory(project_root: Path, relative: str) -> Path:
 
 
 def recorded_scaling(report: Mapping[str, Any]) -> Scaling:
-    """The train-fitted scaling the attempt recorded, rebuilt exactly.
+    """Delegate to :func:`.frozen.recorded_scaling`, preserving this module's error type.
 
-    The checkpoint stores the network's weights only, so the affine input and
-    target transforms come from the attempt report. They are read, never
-    refitted: refitting would require opening a partition, and a scaling that
-    differs from the one training used is a different model.
+    One definition, in :mod:`.frozen`, so the model this diagnostic times and
+    the model the price and Greek diagnostics evaluate cannot be rebuilt two
+    slightly different ways.
     """
-    section = report.get("scaling")
-    if not isinstance(section, Mapping):
-        raise LatencyDiagnosticError("the attempt report records no scaling")
     try:
-        scaling = Scaling(
-            feature_mean=np.asarray(section["feature_mean"], dtype=np.float64),
-            feature_scale=np.asarray(section["feature_scale"], dtype=np.float64),
-            price_mean=float(section["target_mean"]),
-            price_scale=float(section["target_scale"]),
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise LatencyDiagnosticError(f"the recorded scaling is unusable: {error}") from error
-    if (
-        not bool(np.isfinite(scaling.feature_mean).all())
-        or not bool(np.isfinite(scaling.feature_scale).all())
-        or bool((scaling.feature_scale <= 0.0).any())
-        or not np.isfinite(scaling.price_scale)
-        or scaling.price_scale <= 0.0
-    ):
-        raise LatencyDiagnosticError("the recorded scaling is not finite with positive scales")
-    return scaling
+        return frozen_recorded_scaling(report)
+    except FrozenCheckpointError as error:
+        raise LatencyDiagnosticError(str(error)) from error
 
 
 def load_benchmarked_model(
-    project_root: Path, directory: str = DEFAULT_ATTEMPT_DIRECTORY
+    project_root: Path,
+    directory: str = DEFAULT_ATTEMPT_DIRECTORY,
+    attempt_id: str = BENCHMARKED_ATTEMPT,
 ) -> tuple[AmericanDevPriceModel, dict[str, Any]]:
-    """Rebuild the deployed model of one recorded attempt, with its provenance.
+    """Rebuild the benchmarked attempt's deployed model, with its provenance.
 
-    The architecture, head and conditioning features come from the **tracked,
-    immutable attempt configuration**, not from the report, and the report's
-    recorded configuration digest is required to match the tracked file's — the
-    same immutability property ``scripts/american_dev_attempts.py check``
-    enforces for the log. The attempt is also required to be recorded in the
-    append-only attempt log under that same digest, so a checkpoint from an
-    unrecorded run cannot be benchmarked as if it were part of the search.
+    Delegates to :func:`.frozen.load_frozen_model`, which owns the single
+    definition of "rebuild a completed Task 9H attempt": tracked immutable
+    configuration for the architecture, the recorded scaling for the affine
+    transforms, a configuration digest that must still match, and a run that
+    must appear exactly once in the append-only attempt log. This module adds
+    only the one fact that belongs to a timing measurement -- that artifact
+    loading happens here, outside the timed region.
     """
-    project_root = Path(project_root)
-    attempt_directory = _guarded_attempt_directory(project_root, directory)
-    report_path = attempt_directory / ATTEMPT_REPORT_NAME
-    checkpoint_path = attempt_directory / CHECKPOINT_NAME
-    for path in (report_path, checkpoint_path):
-        if not path.is_file():
-            raise LatencyDiagnosticError(
-                f"'{path}' does not exist; the benchmarked checkpoint comes from a completed "
-                "attempt and this diagnostic never trains one"
-            )
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    attempt_id = str(report.get("attempt_id"))
-    if attempt_id != BENCHMARKED_ATTEMPT:
-        raise LatencyDiagnosticError(
-            f"'{directory}' records attempt {attempt_id!r}; this diagnostic benchmarks "
-            f"{BENCHMARKED_ATTEMPT!r}"
-        )
-    relative_config = str(report.get("config_path"))
-    assert_path_allowed(relative_config, where="benchmarked attempt configuration")
-    assert_contained_relative_path(relative_config, where="benchmarked attempt configuration")
-    config_path = project_root / relative_config
-    if not config_path.is_file():
-        raise LatencyDiagnosticError(f"'{relative_config}' does not exist")
-    config_digest = sha256_file(config_path)
-    if config_digest != str(report.get("config_sha256")):
-        raise LatencyDiagnosticError(
-            f"'{relative_config}' hashes to {config_digest[:12]}… but the attempt recorded "
-            f"{str(report.get('config_sha256'))[:12]}…; a used configuration is immutable"
-        )
-    logged = [
-        entry
-        for entry in attempt_log_entries(project_root / ATTEMPT_LOG_PATH)
-        if str(entry.get("attempt_id")) == attempt_id
-    ]
-    if len(logged) != 1 or str(logged[0].get("config_sha256")) != config_digest:
-        raise LatencyDiagnosticError(
-            f"attempt {attempt_id!r} is not recorded exactly once in '{ATTEMPT_LOG_PATH}' under "
-            "the configuration digest it ran; an unrecorded checkpoint is not benchmarked"
-        )
-
-    config = load_toml(config_path)
-    validate_attempt_config(config)
-    model = build_model(config, recorded_scaling(report))
-    state = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-    model.network.load_state_dict(state, strict=True)
-    model.eval()
-    parameters = int(sum(int(tensor.numel()) for tensor in model.network.parameters()))
-    recorded_parameters = report.get("architecture", {}).get("parameters")
-    if recorded_parameters is not None and int(recorded_parameters) != parameters:
-        raise LatencyDiagnosticError(
-            f"the rebuilt network has {parameters} parameters but the attempt recorded "
-            f"{int(recorded_parameters)}; the checkpoint does not match its configuration"
-        )
-    provenance = {
-        "attempt_id": attempt_id,
-        "attempt_directory": directory,
-        "config_path": relative_config,
-        "config_sha256": config_digest,
-        "checkpoint_sha256": sha256_file(checkpoint_path),
-        "attempt_report_sha256": sha256_file(report_path),
-        "recorded_in": ATTEMPT_LOG_PATH,
-        "head": str(config["head"]),
-        "head_temperature": model.temperature,
-        "head_european_margin": model.european_margin,
-        "conditioning_features": list(config.get("conditioning_features", ())),
-        "architecture": dict(config["architecture"]),
-        "parameters": parameters,
-        "best_epoch": report.get("training", {}).get("best_epoch"),
-        "scaling_source": f"{directory}/{ATTEMPT_REPORT_NAME} :: scaling",
-        "artifact_loading_excluded_from_timing": True,
-    }
+    try:
+        model, provenance = load_frozen_model(project_root, attempt_id, directory)
+    except FrozenCheckpointError as error:
+        raise LatencyDiagnosticError(str(error)) from error
+    provenance["artifact_loading_excluded_from_timing"] = True
     return model, provenance
 
 
@@ -381,12 +390,17 @@ def measurement_statistics(
 
 def benchmark_matched_latency(
     project_root: Path,
+    attempt_id: str,
     *,
-    output: str = DEFAULT_OUTPUT,
-    attempt_directory: str = DEFAULT_ATTEMPT_DIRECTORY,
+    output: str | None = None,
+    attempt_directory: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Measure the matched latency of one recorded checkpoint once, and publish it.
+    """Measure the matched latency of one registered checkpoint once, and publish it.
+
+    ``attempt_id`` is **positional and required**. The paths are derived from it
+    rather than defaulted independently, so there is no argument whose omission
+    silently changes which model was timed.
 
     **Manual, human-invoked diagnostic.** It is a timing measurement, so its
     numbers depend on the machine being otherwise quiet; no test, hook, CI job or
@@ -395,6 +409,9 @@ def benchmark_matched_latency(
     and mutates no existing attempt evidence.
     """
     project_root = Path(project_root)
+    resolved = resolve_benchmark_paths(attempt_id, output, attempt_directory)
+    output = str(resolved["output"])
+    attempt_directory = str(resolved["attempt_directory"])
     output_path = _guarded_output(project_root, output)
 
     digests = source_digests(project_root)
@@ -436,7 +453,7 @@ def benchmark_matched_latency(
 
     # Artifact loading happens here, before the timed region is entered, exactly
     # as Task 9G excludes it.
-    model, provenance = load_benchmarked_model(project_root, attempt_directory)
+    model, provenance = load_benchmarked_model(project_root, attempt_directory, attempt_id)
     model_name = str(provenance["attempt_id"])
 
     evidence = run_latency({model_name: model}, specification)
@@ -467,10 +484,23 @@ def benchmark_matched_latency(
             "writes_attempt_evidence": False,
         },
         "partitions_opened": [],
+        "protocol_commit": repository["commit"],
         "repository": repository,
         "source_digests": digests,
         "committed_source": committed,
+        "benchmarked_attempt": {
+            "attempt_id": resolved["attempt_id"],
+            "label": resolved["label"],
+            "artifact": output,
+            "is_the_historical_e2b_measurement": resolved["historical"],
+            "selection": (
+                "chosen explicitly; the command line has no default attempt, and the "
+                "directory and artifact are derived from the attempt rather than defaulted "
+                "independently"
+            ),
+        },
         "benchmarked_model": provenance,
+        "matched_crr_depth": MATCHED_CRR_DEPTH,
         "contract": {
             "source": LATENCY_CONFIG_PATH,
             "sha256": latency_digest,
@@ -535,10 +565,17 @@ def compact_latency(report: Mapping[str, Any]) -> dict[str, Any]:
     """The small view of one latency report: per-shape medians, p95 and speedup."""
     return {
         "schema_version": report["schema_version"],
+        "protocol_commit": report["repository"]["commit"],
         "commit": report["repository"]["commit"],
         "attempt_id": report["benchmarked_model"]["attempt_id"],
+        "label": report.get("benchmarked_attempt", {}).get("label"),
+        "checkpoint_sha256": report["benchmarked_model"]["checkpoint_sha256"][:16],
         "parameters": report["benchmarked_model"]["parameters"],
+        "matched_crr_depth": report.get("matched_crr_depth"),
         "crr_depths_measured": report["contract"]["crr_depths_measured"],
+        "batch_sizes": report["contract"]["batch_sizes"],
+        "thread_budgets": report["contract"]["thread_budgets"],
+        "torch_interop_threads": report["contract"]["torch_interop_threads"],
         "gate_applied": report["status"]["gate_applied"],
         "task_9g_reference_bar": report["acceptance_reference"][
             "task_9g_minimum_median_end_to_end_speedup"
@@ -564,9 +601,11 @@ def compact_latency(report: Mapping[str, Any]) -> dict[str, Any]:
 __all__ = [
     "ATTEMPT_REPORT_NAME",
     "BENCHMARKED_ATTEMPT",
+    "BENCHMARK_TARGETS",
     "CHECKPOINT_NAME",
     "DEFAULT_ATTEMPT_DIRECTORY",
     "DEFAULT_OUTPUT",
+    "DIAGNOSTIC_BENCHMARK_ATTEMPT",
     "LATENCY_CONFIG_PATH",
     "LATENCY_QUANTILES",
     "LATENCY_SCHEMA",
@@ -574,10 +613,12 @@ __all__ = [
     "UNGATED_LABEL",
     "LatencyDiagnosticError",
     "acceptance_latency_reference",
+    "assert_benchmark_target",
     "benchmark_matched_latency",
     "compact_latency",
     "load_benchmarked_model",
     "matched_specification",
     "measurement_statistics",
     "recorded_scaling",
+    "resolve_benchmark_paths",
 ]

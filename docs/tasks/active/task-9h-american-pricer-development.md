@@ -792,8 +792,23 @@ is exactly what the fourth branch of the decision rule exists to catch.
 | `scripts/run_american_dev_attempt.py` | **manual**: `run`, `status` — and no third command |
 | `scripts/analyze_american_dev_geometry.py` | **manual**: `analyze`, `show` — and no third command |
 | `scripts/analyze_american_dev_domain.py` | **manual**: `analyze`, `show` — and no third command |
-| `scripts/benchmark_american_dev_latency.py` | **manual**: `benchmark`, `show` — and no third command |
-| `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log, the configurations and the geometry analysis's validation-only restriction |
+| `scripts/benchmark_american_dev_latency.py` | **manual**: `benchmark`, `show` — and no third command. `--attempt` is required and has no default; E2b and E2c write to separate artifacts |
+| `python/src/differentiable_pricing/ml/american_dev/frozen.py` | the closed frozen-checkpoint registry (E2b, E2c), the generalized loader, the deployed function written out, and the head decomposed into `s`, the floor leg weight, the raw price and the margin override |
+| `python/src/differentiable_pricing/ml/american_dev/heldout.py` | the H1/H2 carve rule over reserved `train` rows, its declaration and its disjointness proof; H2 is unreachable by construction |
+| `python/src/differentiable_pricing/ml/american_dev/tolerance.py` | the **predeclared** practical pricing tolerance: the vol-equivalent primary, the per-row resolvability rule, the assessability rule, the flat secondary screen and the calibration objective |
+| `python/src/differentiable_pricing/ml/american_dev/eligibility.py` | assessability computed and persisted **before** any model output is scored, and the four checks that make that ordering externally verifiable |
+| `python/src/differentiable_pricing/ml/american_dev/price_fidelity.py` | the fixed-weight margin/attempt-variation 2x2 and the B.3 characterization, driving Task 9G's own metrics over frozen views |
+| `python/src/differentiable_pricing/ml/american_dev/inference_profile.py` | the component profile, the closed predeclared variant list, and the four-quantity capacity decision |
+| `python/src/differentiable_pricing/ml/american_dev/greek_reference.py` | the CRR Greek reference contract: the adjacent-averaged operator, separate Delta and Gamma bumps by plateau, and the depth-convergence check for prices and Greeks |
+| `python/src/differentiable_pricing/ml/american_dev/greek_fidelity.py` | raw-versus-deployed autograd Greeks on three grids, both curvature sites, Vega degeneracy, and the section G sign comparison |
+| `scripts/analyze_american_dev_frozen.py` | **manual**: `freeze`, `show` |
+| `scripts/analyze_american_dev_heldout.py` | **manual**: `declare`, `show` |
+| `scripts/analyze_american_dev_eligibility.py` | **manual**: `analyze`, `show` |
+| `scripts/analyze_american_dev_price_fidelity.py` | **manual**: `analyze`, `show` |
+| `scripts/profile_american_dev_inference.py` | **manual**: `profile`, `show` |
+| `scripts/analyze_american_dev_greek_reference.py` | **manual**: `analyze`, `show` |
+| `scripts/analyze_american_dev_greeks.py` | **manual**: `analyze`, `show` |
+| `scripts/american_dev_attempts.py` | offline: `record` one attempt, `check` the log, the configurations, the geometry analysis's validation-only restriction, the unrecordable-attempt declarations, the diagnostic scripts' subcommands and the reserved half's unreachability |
 | `docs/attempts/task-9h-attempt-log.jsonl` | the append-only recorded search |
 
 Checkpoints, reports, compact summaries and the run ledger live beneath the
@@ -839,8 +854,44 @@ configuration or a source file.
 python3 scripts/analyze_american_dev_domain.py analyze
 python3 scripts/analyze_american_dev_domain.py show
 
-python3 scripts/benchmark_american_dev_latency.py benchmark
-python3 scripts/benchmark_american_dev_latency.py show
+python3 scripts/benchmark_american_dev_latency.py benchmark \
+    --attempt scratch_residual_smooth_floor_raw_loss_v1
+python3 scripts/benchmark_american_dev_latency.py show \
+    --attempt scratch_residual_smooth_floor_raw_loss_v1
+```
+
+**`--attempt` is required and has no default.** E2b's historical measurement
+keeps its own artifact, `artifacts/task-9h/latency/matched-latency-v1.json`, and
+is never overwritten or reinterpreted; E2c writes to
+`artifacts/task-9h/latency/matched-latency-e2c-v1.json`. The directory and the
+artifact are derived from the attempt, so selecting one cannot leave a path
+aimed at the other, and the loader independently refuses a directory whose
+attempt report names a different attempt.
+
+The diagnostic phase's commands are manual, terminal-invoked human commands too.
+They open dataset partitions, price lattices or measure timings, so no test,
+hook, CI job or repository check calls any of them. **Each writes an artifact
+only from a clean tracked worktree**, which is what stops a decision-bearing
+measurement from being produced before the protocol is committed.
+
+They are ordered, and the order is enforced rather than advised: price fidelity
+refuses to score a row set whose eligibility artifact does not exist and match.
+
+```
+python3 scripts/analyze_american_dev_frozen.py freeze
+python3 scripts/analyze_american_dev_heldout.py declare
+python3 scripts/analyze_american_dev_eligibility.py analyze --row-set validation
+python3 scripts/analyze_american_dev_eligibility.py analyze --row-set H1
+python3 scripts/analyze_american_dev_price_fidelity.py analyze --row-set validation
+python3 scripts/analyze_american_dev_price_fidelity.py analyze --row-set H1
+python3 scripts/benchmark_american_dev_latency.py benchmark \
+    --attempt scratch_residual_smooth_floor_margin_v1
+python3 scripts/profile_american_dev_inference.py profile
+python3 scripts/analyze_american_dev_greek_reference.py analyze
+python3 scripts/analyze_american_dev_greeks.py analyze --grid 1 --row-set validation
+python3 scripts/analyze_american_dev_greeks.py analyze --grid 1 --row-set H1
+python3 scripts/analyze_american_dev_greeks.py analyze --grid 2
+python3 scripts/analyze_american_dev_greeks.py analyze --grid 2b
 ```
 
 Agent-safe and offline, run by `scripts/check.sh` and CI:
@@ -900,6 +951,28 @@ last try.
 - Task 9H establishes no H2 result, no converged American-price truth, no OOD
   behavior, no discrete-dividend applicability and no market performance.
 - Task 9E's conditional, mapping-only dataset admission is unchanged.
+- **The diagnostic phase consumes no neural attempt and produces no project
+  result.** It measures two frozen checkpoints; it trains nothing, changes no
+  weight, no configuration, no `tau` and no `delta`.
+- **H1 is reserved `train` rows, not an independently generated partition.**
+  Same generator, same sampling design, same declared domain. It bounds
+  accumulated selection bias; it establishes no out-of-distribution behaviour
+  and creates no selection gate. **H2 is not touched in this task.**
+- The predeclared pricing tolerance is **additional** to the development
+  criterion, which is unchanged and unrevised.
+- The Greek scope is **Delta, Gamma and Vega**. Theta and rho fidelity are
+  **not established** and are recorded as declared non-claims.
+- Grid 1's absolute Greek fidelity is limited by CRR finite-difference
+  uncertainty, because tree-internal Greeks cannot be added without breaking the
+  digest-pinned Task 9G protocol. Conclusions there hold only where the
+  disagreement exceeds that uncertainty.
+- The latency reference remains Task 9G's historical 10x figure, applied as
+  **context, never as a Task 9H gate**.
+- `scratch_residual_smooth_floor_v1` (E2) completed but its attempt report was
+  truncated to zero bytes afterwards, so it can never be recorded from its own
+  evidence. It is declared in `attempts.UNRECORDABLE_ATTEMPTS`; its surviving
+  compact summary is **not** an attempt report and is not citable as that
+  attempt's recorded result.
 
 ## Recorded limitation
 

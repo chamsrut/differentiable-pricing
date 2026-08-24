@@ -218,6 +218,64 @@ OUTCOMES: Final = (
 )
 NEXT_ACTIONS: Final = ("continue", "stop", "change-direction")
 
+#: Attempts that completed but whose ``attempt-report.json`` no longer exists in
+#: a recordable form, declared here so the append-only log stays checkable
+#: without being rewritten.
+#:
+#: **Why this exists.** ``record`` is the only writer of the attempt log and it
+#: requires a valid attempt report. ``scratch_residual_smooth_floor_v1`` (E2)
+#: ran to completion -- its ledger says ``status="complete"`` and its compact
+#: summary survives -- but the report file it wrote was afterwards truncated to
+#: zero bytes, so it hashes to neither the digest the ledger recorded nor
+#: anything ``record`` will accept. It therefore can never be recorded from its
+#: own evidence, and rerunning it is forbidden: the attempt ID is spent.
+#:
+#: Its child ``scratch_residual_smooth_floor_raw_loss_v1`` (E2b) was recorded
+#: naming it as parent, so :func:`validate_attempt_log` failed on a parent that
+#: is not an earlier entry -- which made the offline check, ``scripts/check.sh``
+#: and CI all fail at that commit. Appending E2 now cannot fix it, because an
+#: append lands *after* E2b.
+#:
+#: **What this declaration does and does not do.** It makes the parent reference
+#: resolvable and records exactly what was lost. It does **not** reconstruct the
+#: attempt, and nothing here may be cited as that attempt's result: the compact
+#: summary is the only surviving evidence and it is not an attempt report. The
+#: log itself is untouched -- no entry is rewritten, reordered or removed.
+#:
+#: A declaration is verified only against **tracked** state: the configuration
+#: must still exist and hash to the recorded digest, and the ID must genuinely
+#: be absent from the log. The artifact digests below sit under the ignored
+#: ``artifacts/`` and ``runs/`` trees, so they are recorded as declaration facts
+#: and are not re-verified -- a fresh clone does not have those files at all.
+UNRECORDABLE_ATTEMPTS: Final = {
+    "scratch_residual_smooth_floor_v1": {
+        "parent_attempt": "scratch_residual_architecture_v1",
+        "config_path": "configs/american_dev_attempt_scratch_residual_smooth_floor_v1.toml",
+        "config_sha256": (
+            "f22e62aff228180590ff3417a49a8b91502f8e293c1303d5aa0618e087055820"
+        ),
+        "ledger_commit": "88e8300951762bb161a5a889d7d92faabdeb3833",
+        "ledger_status": "complete",
+        "reason": (
+            "the attempt report was truncated to zero bytes after the run completed, so it "
+            "hashes to neither the digest the run ledger recorded nor anything `record` "
+            "accepts; the attempt ID is spent and rerunning it is forbidden"
+        ),
+        "expected_report_sha256": (
+            "0980b38e06338a4cee221984bc32f58b316d593464004a42bd09f8f1d13ec447"
+        ),
+        "observed_report_bytes": 0,
+        "surviving_evidence": "artifacts/task-9h/scratch_residual_smooth_floor_v1/summary.json",
+        "surviving_evidence_sha256": (
+            "19210af4e02784fa833199ddd03e79b32f05aac09b9e264cca2e765cd2afdfae"
+        ),
+        "not_a_result": (
+            "the compact summary is not an attempt report; nothing here may be cited as this "
+            "attempt's recorded result"
+        ),
+    },
+}
+
 REQUIRED_LOG_FIELDS: Final = (
     "attempt_id",
     "parent_attempt",
@@ -893,9 +951,16 @@ def validate_attempt_log(path: Path) -> dict[str, Any]:
                 f"attempt {attempt_id!r} appears twice; an existing entry is never rewritten"
             )
         parent = str(record.get("parent_attempt") or "")
-        if parent and parent not in seen:
+        # A parent resolves either to an earlier entry or to an attempt declared
+        # in UNRECORDABLE_ATTEMPTS. The second case exists because `record`
+        # needs a valid attempt report and one completed attempt's report was
+        # destroyed after its run; see that mapping for what was lost. The log
+        # is append-only, so an attempt whose record can never be written cannot
+        # be slotted in ahead of the child that names it.
+        if parent and parent not in seen and parent not in UNRECORDABLE_ATTEMPTS:
             raise AttemptError(
-                f"attempt {attempt_id!r} names parent {parent!r}, which is not an earlier entry"
+                f"attempt {attempt_id!r} names parent {parent!r}, which is neither an earlier "
+                f"entry nor a declared unrecordable attempt"
             )
         seen.add(attempt_id)
     return {"header": header, "attempts": len(seen), "attempt_ids": sorted(seen)}
@@ -1002,6 +1067,73 @@ def check_configuration_immutability(project_root: Path, log_path: Path) -> list
                 f"attempt {record['attempt_id']!r} ran configuration '{relative}' at "
                 f"{expected[:12]}…, which now hashes to {actual[:12]}…; an attempt "
                 "configuration is immutable after use"
+            )
+    return failures
+
+
+DECLARATION_FIELDS: Final = (
+    "parent_attempt",
+    "config_path",
+    "config_sha256",
+    "ledger_commit",
+    "ledger_status",
+    "reason",
+    "surviving_evidence",
+    "not_a_result",
+)
+
+
+def check_unrecordable_declarations(project_root: Path, log_path: Path) -> list[str]:
+    """Reconcile every :data:`UNRECORDABLE_ATTEMPTS` entry against tracked state.
+
+    A declaration is an admission that evidence was lost, so it has to stay
+    honest in both directions. It is checked against **tracked** state only --
+    the configuration file -- because the artifacts it names live under ignored
+    trees that a fresh clone does not have.
+
+    Three ways a declaration goes wrong:
+
+    * the attempt is in the log after all, so the declaration is stale and the
+      relaxed parent rule is being kept alive for nothing;
+    * the configuration it names is gone or has changed, so the attempt can no
+      longer be identified with what ran;
+    * its own parent resolves to nothing, which would let a declaration hide a
+      second gap behind the first.
+    """
+    failures: list[str] = []
+    recorded = {str(record.get("attempt_id")) for record in attempt_log_entries(log_path)}
+    for attempt_id, declaration in UNRECORDABLE_ATTEMPTS.items():
+        missing = sorted(set(DECLARATION_FIELDS) - set(declaration))
+        if missing:
+            failures.append(
+                f"unrecordable attempt {attempt_id!r} declaration is missing field(s): {missing}"
+            )
+            continue
+        if attempt_id in recorded:
+            failures.append(
+                f"attempt {attempt_id!r} is declared unrecordable but is recorded in "
+                f"'{ATTEMPT_LOG_PATH}'; remove the stale declaration"
+            )
+        relative = str(declaration["config_path"])
+        config_path = project_root / relative
+        if not config_path.is_file():
+            failures.append(
+                f"unrecordable attempt {attempt_id!r} names configuration '{relative}', which "
+                "does not exist; a used configuration is never removed"
+            )
+        else:
+            actual = sha256_file(config_path)
+            if actual != str(declaration["config_sha256"]):
+                failures.append(
+                    f"unrecordable attempt {attempt_id!r} declares configuration '{relative}' at "
+                    f"{str(declaration['config_sha256'])[:12]}…, which now hashes to "
+                    f"{actual[:12]}…; a used configuration is immutable after use"
+                )
+        parent = str(declaration["parent_attempt"] or "")
+        if parent and parent not in recorded and parent not in UNRECORDABLE_ATTEMPTS:
+            failures.append(
+                f"unrecordable attempt {attempt_id!r} names parent {parent!r}, which is neither "
+                "recorded nor itself declared"
             )
     return failures
 

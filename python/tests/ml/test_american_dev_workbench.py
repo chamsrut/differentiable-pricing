@@ -26,6 +26,7 @@ from differentiable_pricing.ml.american_dev.attempts import (
     ATTEMPT_LOG_SCHEMA,
     ATTEMPT_SCHEMA,
     OUTCOMES,
+    UNRECORDABLE_ATTEMPTS,
     AttemptError,
     FinalPartitionAccessError,
     append_attempt,
@@ -712,12 +713,30 @@ def test_an_unknown_outcome_is_refused(tmp_path: Path) -> None:
         append_attempt(log, _record("first", outcome="looked_promising"))
 
 
-def test_a_child_attempt_must_name_an_earlier_parent(tmp_path: Path) -> None:
+def test_a_child_attempt_must_name_a_resolvable_parent(tmp_path: Path) -> None:
     log = tmp_path / "attempts.jsonl"
     append_attempt(log, _record("first"))
     append_attempt(log, _record("second", parent="first"))
-    with pytest.raises(AttemptError, match="not an earlier entry"):
+    with pytest.raises(AttemptError, match="neither an earlier entry"):
         append_attempt(log, _record("third", parent="never_ran"))
+
+
+def test_a_parent_declared_unrecordable_resolves(tmp_path: Path) -> None:
+    """The one narrow escape hatch, and it is a closed list.
+
+    ``scratch_residual_smooth_floor_v1`` completed but its attempt report was
+    truncated to zero bytes afterwards, so ``record`` can never write its entry
+    and the log is append-only -- an entry appended now would land after the
+    child that names it. Declaring it keeps the parent reference checkable
+    without rewriting a committed record. Any *other* unrecorded parent is still
+    refused, which is what makes this a declaration rather than a hole.
+    """
+    (declared,) = tuple(UNRECORDABLE_ATTEMPTS)
+    log = tmp_path / "attempts.jsonl"
+    append_attempt(log, _record("child", parent=declared))
+    assert validate_attempt_log(log)["attempts"] == 1
+    with pytest.raises(AttemptError, match="neither an earlier entry"):
+        append_attempt(log, _record("other", parent="scratch_never_declared_v1"))
 
 
 def test_an_incomplete_record_is_refused(tmp_path: Path) -> None:

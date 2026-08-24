@@ -29,7 +29,12 @@ attempt that judged itself against some other criterion is refused.
    configuration is valid — which includes pointing at the canonical acceptance
    configuration;
 5. every logged attempt's configuration still hashes to its recorded digest;
-6. every logged attempt cites the canonical criterion file, section and digest.
+6. every logged attempt cites the canonical criterion file, section and digest;
+7. every attempt declared unrecordable is genuinely absent from the log, still
+   names an existing configuration at its recorded digest, and resolves its own
+   parent -- so a declaration cannot go stale or hide a second gap;
+8. every diagnostic-phase script declares exactly its two subcommands;
+9. no Task 9H source but ``heldout.py`` names the reserved held-out half.
 
 Every recorded attempt is a development measurement selected against
 `validation`. None of them is a project result.
@@ -61,7 +66,33 @@ TASK_9H_SCRIPTS: Final = (
     "scripts/analyze_american_dev_geometry.py",
     "scripts/analyze_american_dev_domain.py",
     "scripts/benchmark_american_dev_latency.py",
+    "scripts/analyze_american_dev_frozen.py",
+    "scripts/analyze_american_dev_heldout.py",
+    "scripts/analyze_american_dev_eligibility.py",
+    "scripts/analyze_american_dev_price_fidelity.py",
+    "scripts/profile_american_dev_inference.py",
+    "scripts/analyze_american_dev_greek_reference.py",
+    "scripts/analyze_american_dev_greeks.py",
 )
+
+#: Every diagnostic-phase script, and the two subcommands each declares. The
+#: repository convention is exactly two: a command that produces the artifact
+#: and a command that shows it. A third would be where a final-evaluation entry
+#: point could appear without anyone deciding to add one.
+DIAGNOSTIC_SCRIPTS: Final = {
+    "scripts/analyze_american_dev_frozen.py": {"freeze", "show"},
+    "scripts/analyze_american_dev_heldout.py": {"declare", "show"},
+    "scripts/analyze_american_dev_eligibility.py": {"analyze", "show"},
+    "scripts/analyze_american_dev_price_fidelity.py": {"analyze", "show"},
+    "scripts/profile_american_dev_inference.py": {"profile", "show"},
+    "scripts/analyze_american_dev_greek_reference.py": {"analyze", "show"},
+    "scripts/analyze_american_dev_greeks.py": {"analyze", "show"},
+}
+
+#: The reserved held-out half. No diagnostic-phase source may name it as an
+#: evaluable row set; :mod:`heldout` refuses it at runtime, and this is the
+#: static counterpart of that refusal.
+RESERVED_HALF: Final = "H2"
 ATTEMPT_CONFIG_GLOB: Final = "configs/american_dev_attempt_*.toml"
 
 EXPECTED_SUBCOMMANDS: Final = {"run", "status"}
@@ -242,6 +273,68 @@ def names_a_partition(value: str) -> bool:
         if component.split(".")[0].strip() in FORBIDDEN_PARTITIONS:
             return True
     return False
+
+
+def check_diagnostic_scripts() -> list[str]:
+    """Each diagnostic script declares exactly its two subcommands, and no more."""
+    failures: list[str] = []
+    for relative, expected in DIAGNOSTIC_SCRIPTS.items():
+        path = PROJECT_ROOT / relative
+        if not path.is_file():
+            failures.append(f"{relative} is missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        declared = _declared_subcommands(ast.parse(text, filename=str(path)))
+        if declared != expected:
+            failures.append(
+                f"{relative} declares subcommands {sorted(declared)}, expected {sorted(expected)}"
+            )
+        for forbidden in ("final-evaluate", "final_evaluate"):
+            if f'"{forbidden}"' in text or f"'{forbidden}'" in text:
+                failures.append(f"{relative} names a final-evaluation command")
+    return failures
+
+
+def check_reserved_half_is_unreachable(rules: Any) -> list[str]:
+    """The reserved half is declared, never evaluable, and named by no analysis.
+
+    ``heldout.py`` legitimately spells ``H2``: it declares the half and hashes
+    it. Every *other* Task 9H source must not, because naming it as a row set is
+    the only way a diagnostic could score it.
+    """
+    del rules
+    failures: list[str] = []
+    heldout = PACKAGE / "heldout.py"
+    if not heldout.is_file():
+        return [f"{_relative(heldout)} is missing"]
+    # Two files legitimately spell it: heldout.py declares and hashes the half,
+    # and this checker has to name the token it searches for. The same exemption
+    # the forbidden-partition scan makes for prose, for the same reason.
+    exempt = {"heldout.py", "american_dev_attempts.py"}
+    for path in _task_9h_sources():
+        if path.name in exempt:
+            continue
+        for literal in _string_literals(path):
+            if literal.strip() == RESERVED_HALF:
+                failures.append(
+                    f"{_relative(path)} names the reserved half {RESERVED_HALF!r} as a value; "
+                    "only heldout.py may, and only to declare and hash it"
+                )
+                break
+    return failures
+
+
+def _string_literals(path: Path) -> Iterator[str]:
+    """Every non-docstring string constant in one module."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    marked = _docstring_nodes(tree)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in marked
+        ):
+            yield node.value
 
 
 def check_no_final_partition_references() -> list[str]:
@@ -452,6 +545,8 @@ def check(rules: Any) -> int:
     failures.extend(check_no_final_partition_references())
     failures.extend(check_runner_has_no_final_evaluation())
     failures.extend(check_geometry_is_validation_only(rules))
+    failures.extend(check_diagnostic_scripts())
+    failures.extend(check_reserved_half_is_unreachable(rules))
     attempts = 0
     if not ATTEMPT_LOG.is_file():
         failures.append(f"{_relative(ATTEMPT_LOG)} is missing")
@@ -463,6 +558,7 @@ def check(rules: Any) -> int:
         else:
             failures.extend(rules.check_configuration_immutability(PROJECT_ROOT, ATTEMPT_LOG))
             failures.extend(rules.check_recorded_criterion(PROJECT_ROOT, ATTEMPT_LOG))
+    failures.extend(rules.check_unrecordable_declarations(PROJECT_ROOT, ATTEMPT_LOG))
     failures.extend(check_attempt_configurations(rules))
     if failures:
         print("error: Task 9H attempt-log checks failed", file=sys.stderr)
@@ -473,7 +569,8 @@ def check(rules: Any) -> int:
     print(
         f"task 9H attempts ok: {configurations} attempt configuration(s) valid, "
         f"{attempts} logged attempt(s) with immutable configurations and the canonical "
-        "criterion, no final-partition reference, no final-evaluation command, "
+        f"criterion, {len(rules.UNRECORDABLE_ATTEMPTS)} declared unrecordable attempt(s) "
+        "reconciled, no final-partition reference, no final-evaluation command, "
         f"geometry analysis restricted to {GEOMETRY_PARTITION!r}"
     )
     return 0

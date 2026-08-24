@@ -238,8 +238,8 @@ def test_the_tracked_attempt_log_is_a_header_then_append_only_attempts() -> None
     assert "scratch_direct_control_v1" in identifiers
 
 
-def test_the_task_9h_package_is_exactly_the_eight_retained_modules(tool: Any) -> None:
-    """Nothing is kept "for later": Greek, IV and transfer machinery is absent.
+def test_the_task_9h_package_is_exactly_the_retained_modules(tool: Any) -> None:
+    """Nothing is kept "for later": every module is a measurement that has run.
 
     ``latency.py`` is the one apparent exception and is not one. It is an
     **ungated diagnostic** over a checkpoint an attempt already produced,
@@ -247,15 +247,34 @@ def test_the_task_9h_package_is_exactly_the_eight_retained_modules(tool: Any) ->
     adds no attempt capability, applies no gate and is not speculative
     machinery for a stage that has not begun. ``domain.py`` is likewise a
     label-free measurement over the declared domain, not a model or a target.
+
+    The diagnostic-phase modules are held to the same standard. ``frozen.py``
+    rebuilds two completed attempts and addresses the pieces of the deployed
+    head separately; ``heldout.py`` is a pure carve rule over sample
+    identifiers; ``tolerance.py`` is a predeclared constant set;
+    ``eligibility.py`` settles assessability before anything is scored;
+    ``price_fidelity.py`` drives Task 9G's own metrics over frozen views;
+    ``inference_profile.py``, ``greek_reference.py`` and ``greek_fidelity.py``
+    measure the frozen function's execution and derivatives. None of them
+    trains, none adds an attempt capability, and none is machinery for a stage
+    that has not begun.
     """
     assert {path.name for path in PACKAGE.glob("*.py")} == {
         "__init__.py",
         "attempts.py",
         "domain.py",
+        "frozen.py",
         "geometry.py",
+        "heldout.py",
         "latency.py",
+        "eligibility.py",
+        "greek_fidelity.py",
+        "greek_reference.py",
+        "inference_profile.py",
         "models.py",
+        "price_fidelity.py",
         "representation.py",
+        "tolerance.py",
         "workbench.py",
     }
     assert {path.name for path in tool._task_9h_sources()} >= {
@@ -271,13 +290,160 @@ def test_the_task_9h_package_is_exactly_the_eight_retained_modules(tool: Any) ->
     }
 
 
-def test_no_greek_implied_volatility_or_transfer_machinery_exists(tool: Any) -> None:
-    """The stages that have not begun have no code in this package."""
+def test_no_implied_volatility_inversion_or_transfer_machinery_exists(tool: Any) -> None:
+    """The stages that have not begun still have no code in this package.
+
+    This guard **narrowed** when the diagnostic phase opened: Greek derivatives
+    are now measured, so forbidding ``def delta`` and ``def vega`` would forbid
+    the measurement the phase exists to make. What stays forbidden is what is
+    still out of scope -- an implied-volatility **inversion** and a transfer arm.
+
+    Vega appears as an analytic scale in the price tolerance and as a measured
+    sensitivity; neither is an inversion. The distinction is enforced by naming
+    the solver machinery an inversion would need.
+    """
     text = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(PACKAGE.glob("*.py"))
     )
-    for absent in ("implied_volatility", "def delta", "def vega", "transfer_arm"):
+    for absent in (
+        "implied_volatility",
+        "def invert_",
+        "def newton",
+        "def bisect",
+        "transfer_arm",
+    ):
         assert absent not in text
+
+
+def test_theta_and_rho_remain_declared_non_claims(tool: Any) -> None:
+    """The Greek scope is Delta, Gamma and Vega, and says so."""
+    from_reference = (PACKAGE / "greek_reference.py").read_text(encoding="utf-8")
+    assert '"theta"' in from_reference
+    assert '"rho"' in from_reference
+    assert "not established" in from_reference
+    text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(PACKAGE.glob("*.py"))
+    )
+    for absent in ("def reference_theta", "def reference_rho"):
+        assert absent not in text
+
+
+def test_the_reserved_half_is_named_by_no_analysis(tool: Any) -> None:
+    assert tool.check_reserved_half_is_unreachable(tool._load_attempt_rules()) == []
+
+
+def test_every_diagnostic_script_declares_exactly_two_subcommands(tool: Any) -> None:
+    assert tool.check_diagnostic_scripts() == []
+
+
+def test_the_check_would_catch_a_diagnostic_script_that_grew_a_subcommand(
+    tool: Any, monkeypatch: Any, tmp_path: Path
+) -> None:
+    """The guard has to fail when the property fails, or it guards nothing."""
+    monkeypatch.setitem(
+        tool.DIAGNOSTIC_SCRIPTS,
+        "scripts/analyze_american_dev_frozen.py",
+        {"freeze", "show", "final-evaluate"},
+    )
+    assert tool.check_diagnostic_scripts() != []
+
+
+# ---------------------------------------------------------------------------
+# Attempts declared unrecordable
+# ---------------------------------------------------------------------------
+
+
+def _declaration(config_path: str, digest: str, parent: str = "") -> dict[str, Any]:
+    return {
+        "parent_attempt": parent,
+        "config_path": config_path,
+        "config_sha256": digest,
+        "ledger_commit": "0" * 40,
+        "ledger_status": "complete",
+        "reason": "the attempt report was truncated to zero bytes after the run completed",
+        "surviving_evidence": "artifacts/task-9h/x/summary.json",
+        "not_a_result": "the compact summary is not an attempt report",
+    }
+
+
+def test_the_repository_declaration_reconciles_against_tracked_state(tool: Any) -> None:
+    """The one real declaration: E2, whose attempt report did not survive."""
+    rules = tool._load_attempt_rules()
+    assert set(rules.UNRECORDABLE_ATTEMPTS) == {"scratch_residual_smooth_floor_v1"}
+    assert rules.check_unrecordable_declarations(PROJECT_ROOT, ATTEMPT_LOG) == []
+
+
+def test_a_declaration_goes_stale_once_the_attempt_is_recorded(
+    tool: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A declaration is an admission of loss, so it may not outlive the loss."""
+    rules = tool._load_attempt_rules()
+    config = tmp_path / "configs/attempt.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("attempt_id = 'x'\n", encoding="utf-8")
+    digest = rules.sha256_file(config)
+    log = tmp_path / rules.ATTEMPT_LOG_PATH
+    log.parent.mkdir(parents=True)
+    log.write_text(
+        json.dumps({"record": "attempt", "attempt_id": "x", "config_sha256": digest}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        rules, "UNRECORDABLE_ATTEMPTS", {"x": _declaration("configs/attempt.toml", digest)}
+    )
+    failures = rules.check_unrecordable_declarations(tmp_path, log)
+    assert any("stale declaration" in failure for failure in failures)
+
+
+def test_a_declared_attempts_configuration_stays_immutable(
+    tool: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    rules = tool._load_attempt_rules()
+    config = tmp_path / "configs/attempt.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("attempt_id = 'x'\n", encoding="utf-8")
+    log = tmp_path / rules.ATTEMPT_LOG_PATH
+    log.parent.mkdir(parents=True)
+    log.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        rules,
+        "UNRECORDABLE_ATTEMPTS",
+        {"x": _declaration("configs/attempt.toml", "0" * 64)},
+    )
+    failures = rules.check_unrecordable_declarations(tmp_path, log)
+    assert any("immutable after use" in failure for failure in failures)
+
+
+def test_a_declaration_cannot_hide_a_second_gap_behind_the_first(
+    tool: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    rules = tool._load_attempt_rules()
+    config = tmp_path / "configs/attempt.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("attempt_id = 'x'\n", encoding="utf-8")
+    digest = rules.sha256_file(config)
+    log = tmp_path / rules.ATTEMPT_LOG_PATH
+    log.parent.mkdir(parents=True)
+    log.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        rules,
+        "UNRECORDABLE_ATTEMPTS",
+        {"x": _declaration("configs/attempt.toml", digest, parent="also_never_recorded")},
+    )
+    failures = rules.check_unrecordable_declarations(tmp_path, log)
+    assert any("neither recorded nor itself declared" in failure for failure in failures)
+
+
+def test_an_incomplete_declaration_is_refused(
+    tool: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    rules = tool._load_attempt_rules()
+    log = tmp_path / rules.ATTEMPT_LOG_PATH
+    log.parent.mkdir(parents=True)
+    log.write_text("", encoding="utf-8")
+    monkeypatch.setattr(rules, "UNRECORDABLE_ATTEMPTS", {"x": {"reason": "lost"}})
+    failures = rules.check_unrecordable_declarations(tmp_path, log)
+    assert any("missing field(s)" in failure for failure in failures)
 
 
 # ---------------------------------------------------------------------------

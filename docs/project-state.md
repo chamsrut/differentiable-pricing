@@ -321,17 +321,35 @@ learning are separate follow-up stages that begin only after a candidate works;
 none of their machinery is built in advance.
 
 Its current state is **infrastructure implemented and hardened, eight attempts
-recorded**: nine immutable attempt configurations, a human-only runner, three
+recorded, diagnostic protocol committed and not yet run**: nine immutable attempt configurations, a human-only runner, three
 human-only analyses, an offline attempt-log recorder/checker, and an append-only
-attempt log holding all eight failed attempts. The human invokes every training
+attempt log holding all eight failed attempts, plus the diagnostic phase's seven
+human-only commands. The human invokes every training run and every diagnostic
 run; agents implement code and analyze compact summaries and launch nothing.
 
-The recorded price leader is `scratch_residual_smooth_floor_raw_loss_v1` (E2b),
-which passes the three price gates and fails the two structural ones (DEC-046).
-The next attempt is `scratch_residual_smooth_floor_margin_v1` (E2c), whose
-immutable configuration exists and has not been run: E2b with the derived
-`delta = 1e-4` added to the analytic European leg of its floor, targeting the
-stored-CRR comparator gate only. No earlier attempt is rerun, and E3 is not
+One completed attempt is **unrecordable**: `scratch_residual_smooth_floor_v1`
+(E2) ran to completion but its attempt report was truncated to zero bytes
+afterwards, so `record` can never write its entry and the append-only log cannot
+place one ahead of the child that names it. It is declared in
+`attempts.UNRECORDABLE_ATTEMPTS` and reconciled by the offline checker against
+tracked state. Its surviving compact summary is **not** an attempt report and is
+not citable as that attempt's recorded result.
+
+The recorded price leader is `scratch_residual_smooth_floor_margin_v1` (E2c):
+its predeclared `delta = 1e-4` European-leg margin drove material bound
+violations from E2b's 4,135 to **zero** while all three price gates continued to
+pass, and the criterion still fails on **551 material shape violations**
+(DEC-048).
+
+**The loop is now paused for a zero-training diagnostic phase** (DEC-048). Two
+neural attempts remain, and this phase exists to establish which component is
+actually wrong before either is spent — outcomes in which **no attempt is
+needed** are the good ones, not null ones. It freezes E2b and E2c, separates the
+margin effect from attempt-to-attempt variation at fixed weights, evaluates once
+on reserved `train` rows no model has read, characterizes price and Greek
+fidelity against a declared CRR reference, and profiles the frozen inference
+path. It **consumes no attempt, trains nothing, and changes no weight,
+configuration, `tau` or `delta`.** No earlier attempt is rerun and E3 is not
 authorized.
 
 **Task 9G is closed and terminal.** Fresh top-level review of the result-only
