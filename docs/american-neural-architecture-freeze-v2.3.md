@@ -1,8 +1,8 @@
 # Task 9H American Neural Pricer — Architecture Freeze v2.3
 
-**Status:** Normative. This is the architecture the American neural-pricer roadmap is built and confirmed against, adopted by [decision-log.md](decision-log.md) DEC-049. Once this rebaseline merges into canonical history the document becomes immutable: it is versioned, not amended in place, and any substantive architectural change thereafter requires a superseding freeze (v2.4) plus its own decision entry.  
-**Purpose:** Define the architecture the v2 implementation rewrite is built and confirmed against. It resolves the external review of Architecture Freeze v2 and supersedes the previous Task 9H development roadmap.  
-**Scope:** Reproducible CRR teacher generation, dataset partitions, adaptive-development controls, deep numerical references, Greek validation, deterministic model artifacts, native C++ inference, and matched native latency benchmarking.  
+**Status:** Normative. This is the architecture the American neural-pricer roadmap is built and confirmed against, adopted by [decision-log.md](decision-log.md) DEC-049. Once this rebaseline merges into canonical history the document becomes immutable: it is versioned, not amended in place, and any substantive architectural change thereafter requires a superseding freeze (v2.4) plus its own decision entry.
+**Purpose:** Define the architecture the v2 implementation rewrite is built and confirmed against. It resolves the external review of Architecture Freeze v2 and supersedes the previous Task 9H development roadmap.
+**Scope:** Reproducible CRR teacher generation, dataset partitions, adaptive-development controls, deep numerical references, Greek validation, deterministic model artifacts, native C++ inference, and matched native latency benchmarking.
 **Non-status:** This document does not claim that the current E2c model passes final price, Greek, arbitrage, or latency criteria. It introduces no new final pass/fail thresholds.
 
 

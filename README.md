@@ -12,10 +12,11 @@ Re-pricing a book is rarely one price: it is the Greeks, the scenario grid, and
 the exercise-aware models behind them. A smooth network is attractive because
 one reverse-mode pass returns the value and every **first-order** input
 sensitivity together — delta, vega, rho, theta. Second-order quantities such as
-gamma are not free: they need a further differentiation pass, which is part of
-why gamma is the hardest metric in every result below. Whether any of those
-sensitivities are *trustworthy* is falsifiable, so this project starts where
-truth is known and moves outward one controlled stage at a time.
+gamma are not free: they need a further differentiation pass, which is one
+reason curvature is numerically more demanding than the first-order
+sensitivities. Whether any of those sensitivities are *trustworthy* is
+falsifiable, so this project starts where truth is known and moves outward one
+controlled stage at a time.
 
 > A network derivative is exact **for the learned network**, not automatically
 > an exact market Greek. It becomes a credible Greek only after feature and
@@ -24,7 +25,8 @@ truth is known and moves outward one controlled stage at a time.
 
 Four planned stages add one difficulty at a time — European option, American
 option, European swaption, Bermudan swaption — each with its own trusted
-reference pricer and a transfer experiment against random initialization. Every
+reference pricer. Where transfer is part of the hypothesis, transferred
+initialization is compared with a matched randomly initialized model. Every
 stage must beat acceptance criteria fixed *before* results are observed, on a
 partition that has informed no model choice
 ([docs/research-contract.md](docs/research-contract.md)).
