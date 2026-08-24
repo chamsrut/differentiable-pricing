@@ -128,8 +128,11 @@ SPY dataset or surrogate. C++ deployment today is `SmoothMlp` inference only.
 
 ## Current limitations and non-claims
 
-- **Every learned result is synthetic.** No market data, quoted price, or
-  calibration target enters any dataset, training run, or reported metric.
+- **Every neural-pricer result is synthetic.** No market data, quoted price, or
+  calibration target enters any dataset, training run, or reported metric on
+  the surrogate side. The separate read-only market track (tasks 9A/9B) does
+  read real quotes, but produces no price, Greek, label, or calibrated value and
+  feeds no dataset or training run; the two are never mixed.
 - **No American neural surrogate has been trained and accepted.** Task 9G
   trained two arms and accepted neither. Its `failure_to_learn` is a valid,
   complete negative result and is never reinterpreted as a partial success —
@@ -166,8 +169,11 @@ SPY dataset or surrogate. C++ deployment today is `SmoothMlp` inference only.
   finite-depth CRR Greek does not establish a continuous-American Greek unless
   the numerical Greek reference is itself adequately converged. Where it is not,
   the reference limitation is reported and no continuous-American claim is made
-  (freeze §15, §16.5). Gamma degeneracy is not a decision-bearing metric until a
-  unit-consistent definition is predeclared (freeze §17.2, §17.5).
+  (freeze §15, §16.5). **There is no Gamma-degeneracy statistic**, and none is
+  expected: the Vega metric exists because the declared downstream IV Newton
+  workflow divides by Vega, and Gamma gets one only if a future declared
+  workflow makes Gamma-near-zero operationally relevant. Gamma is assessed on
+  accuracy, sign/convexity behaviour, and crossover curvature (freeze §17.5).
 - **No latency claim.** No native inference path exists, so no measured speedup
   exists. Memory-bandwidth and FLOP arithmetic are plausibility checks, never
   latency results (freeze §13.3).

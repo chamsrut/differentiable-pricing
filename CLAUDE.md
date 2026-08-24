@@ -29,10 +29,21 @@ Also read, before starting work:
 Two standing prohibitions that survive every roadmap change, and that you must
 not relax on your own judgement:
 
-- **Never open, hash, stat, import, count, or inspect `interpolation_test` or
-  any other final partition.** Task 9G's `final-evaluate` is **forbidden** under
-  its own protocol; a future final evaluation needs a new predeclared protocol
-  and a fresh final partition (DEC-038).
+- **You must never open, hash, stat, import, count, or inspect
+  `interpolation_test` or any other final partition, and neither may any
+  development or diagnostic code path.** This binds agents and development code
+  absolutely: there is no task, review, or debugging reason that justifies
+  reading a final partition, and "just checking the row count" is a violation.
+  Task 9G's `final-evaluate` is **forbidden** under its own protocol, so no
+  final evaluation may be invoked under it now or later (DEC-038).
+
+  The one narrow exception is not yours to take: a **future predeclared
+  one-shot final-evaluation protocol** may authorize its own designated,
+  human-invoked evaluation path to open a **fresh** final partition **exactly
+  once**. That access belongs to that protocol's named entry point, run by a
+  human, under gates fixed before the partition exists — never to an agent, an
+  interactive session, or any development code path, and never to a partition a
+  protocol has already consumed.
 - **Never rerun, retune against, regenerate, reformat, or hand-edit frozen
   evidence** under `docs/results/`, and never treat an admission or a label
   policy as training authorization.

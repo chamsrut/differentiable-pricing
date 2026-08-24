@@ -84,8 +84,11 @@ names in §23 Phase 0A, and complete them:
    commit in Grid-1 artifacts;
 3. the normalized-Vega degeneracy units repair (freeze §17.1) and the
    three-bucket Vega-excess report (§17.3);
-4. removal of Gamma degeneracy from decision-bearing interpretation until a
-   separately motivated dimensionless definition is predeclared (§17.2, §17.5);
+4. removal of Gamma degeneracy as a reported statistic. Gamma has no
+   degeneracy metric: the Vega metric exists only because the declared
+   downstream IV Newton workflow divides by Vega, and no declared workflow
+   divides by Gamma (§17.2, §17.5). Gamma is assessed on accuracy,
+   sign/convexity behaviour, and crossover curvature instead;
 5. the dimensional-invariance regression test for B.2 eligibility (§6);
 6. then the runs: Grid 1 validation, Grid 1 H1, Grid 2 spot crossover, Grid 2b
    volatility crossover.
@@ -143,15 +146,18 @@ Carried forward unchanged from the freeze and the archived 9H declaration:
   `|Vega_physical| / A ≤ 1e-8` with `A = S exp(-qT)` — to the surrogate and the
   reference identically (freeze §17.1);
 - the three mutually exclusive Vega-excess buckets (freeze §17.3);
+- **no Gamma-degeneracy statistic is defined, required, or expected.** Freeze
+  §17.5 settles this: a degeneracy statistic exists for Vega because the
+  declared downstream IV Newton workflow divides by Vega, and none is defined
+  for Gamma unless a future declared workflow has a denominator or failure
+  mechanism that makes Gamma-near-zero operationally relevant. This task does
+  not invent one for symmetry, and its absence is not an open item;
 - H1 is evaluated once; **H2 is unreachable by construction** and is not
   touched in this task.
 
 Still `OPEN` and **not** invented here — each must be resolved by a recorded
 decision before the run it gates:
 
-- `OPEN` — the dimensionless Gamma-degeneracy definition and threshold. Until
-  one is predeclared, Gamma degeneracy is descriptive only and never
-  decision-bearing (freeze §17.2, §17.5).
 - `OPEN` — the exact native benchmark machine, thread budget, affinity, and
   timing clock for workstream B. The §14 protocol constrains the shape; the
   concrete values must be recorded before the first reported timing.

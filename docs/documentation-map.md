@@ -69,7 +69,7 @@ updated whenever a task's status changes.
 
 ## Digest-pinned documents
 
-Four normative contracts are **content-digest-pinned** by task 9G's frozen
+Five normative contracts are **content-digest-pinned** by task 9G's frozen
 protocol, `configs/american_neural_pilot_protocol_v1.toml`, and enforced by
 `scripts/check_american_neural_pilot_protocol.py`, which runs in
 `scripts/check.sh` and in CI:

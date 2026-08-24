@@ -1,7 +1,7 @@
 # Task 9H American Neural Pricer — Architecture Freeze v2.3
 
-**Status:** Architecture freeze approved for commit before the v2 implementation rewrite.  
-**Purpose:** Resolve the external review of Architecture Freeze v2 and define the architecture that should be frozen after the remaining current Task 9H Greek diagnostics are completed.  
+**Status:** Normative. This is the architecture the American neural-pricer roadmap is built and confirmed against, adopted by [decision-log.md](decision-log.md) DEC-049. Once this rebaseline merges into canonical history the document becomes immutable: it is versioned, not amended in place, and any substantive architectural change thereafter requires a superseding freeze (v2.4) plus its own decision entry.  
+**Purpose:** Define the architecture the v2 implementation rewrite is built and confirmed against. It resolves the external review of Architecture Freeze v2 and supersedes the previous Task 9H development roadmap.  
 **Scope:** Reproducible CRR teacher generation, dataset partitions, adaptive-development controls, deep numerical references, Greek validation, deterministic model artifacts, native C++ inference, and matched native latency benchmarking.  
 **Non-status:** This document does not claim that the current E2c model passes final price, Greek, arbitrage, or latency criteria. It introduces no new final pass/fail thresholds.
 
@@ -706,13 +706,13 @@ This repair changes the degeneracy counts, so unlike the depth-convergence propa
 
 The same `1e-8` normalized-Vega threshold must not be reused for physical Gamma. Gamma has different units and the normalized representation does not reduce to `Gamma/A`.
 
-Until a separately motivated, dimensionless Gamma-degeneracy definition and threshold are predeclared, Gamma degeneracy is:
+No Gamma-degeneracy statistic is defined, and none is expected. Any Gamma-near-zero observation is:
 
 - descriptive only if reported with explicit units;
 - not an IV/Newton failure metric;
 - not decision-bearing.
 
-The IV solver concern is specifically Vega degeneracy.
+The IV solver concern is specifically Vega degeneracy. See §17.5 for the condition under which a Gamma statistic could ever be introduced.
 
 ## 17.3 Operational Vega-excess buckets
 
@@ -878,7 +878,7 @@ Before any Grid-1 model result is observed:
 1. implement the depth-convergence qualification propagation;
 2. record reference-contract digest **and** reference protocol commit in Grid-1 artifacts;
 3. repair normalized-Vega degeneracy units;
-4. remove Gamma degeneracy from decision-bearing interpretation unless a separate unit-consistent definition is predeclared;
+4. remove Gamma degeneracy as a reported statistic; Gamma is assessed on accuracy, sign/convexity behavior, and crossover curvature, and has no degeneracy metric (§17.2, §17.5);
 5. commit/test the semantic repair;
 6. make the commit message/decision record state explicitly that **no Grid-1 model result had been observed under either the old or repaired degeneracy definition when the repair was made**;
 7. if any artifact exists under a superseded semantic definition, preserve it byte-for-byte and publish the repaired result under a new schema/path with an explicit `supersedes` link; never overwrite historical decision-bearing evidence.
@@ -989,6 +989,7 @@ The following are now considered resolved in principle:
 - E2c is not eligible as the v2 confirmation model;
 - all v2 partitions are generated atomically;
 - the reference study can run in parallel with training after the protocol freeze.
+- **no Gamma-degeneracy statistic exists or is required.** §17.5 settles this: the Vega metric exists only because the declared downstream IV Newton workflow divides by Vega, and no Gamma statistic is defined unless a future declared workflow has a denominator or failure mechanism that makes Gamma-near-zero operationally relevant. Nothing is to be invented for symmetry.
 
 Still open:
 
@@ -1003,7 +1004,6 @@ Still open:
 9. What exact v2 attempt budget and development-holdout access policy should be frozen?
 10. What economically justified Greek tolerances are required for the intended downstream use?
 11. What fixed subset and refinement criteria should the independent PDE cross-check use?
-12. If a Gamma-degeneracy statistic is desired, what dimensionless definition and independently justified threshold should it use?
 
 # 25. Architecture decision statement
 
@@ -1023,9 +1023,9 @@ The following principles are considered accepted unless a later versioned review
 - Price-reference and Greek-reference depths may differ.
 - Once the application/reference protocol is frozen, numerical-reference selection is model-independent and may run in parallel with training.
 - Continuous-American Greek claims require adequate reference convergence.
-- Vega degeneracy is evaluated in declared normalized units; Gamma degeneracy requires its own unit-consistent contract.
+- Vega degeneracy is evaluated in declared normalized units. Gamma has **no degeneracy statistic**, and none is expected: it is assessed on accuracy, sign/convexity behavior, and crossover curvature, and gains a degeneracy metric only if a future declared workflow makes Gamma-near-zero operationally relevant (§17.5).
 - Projection-crossover derivative artifacts are tested by raw-vs-deployed surrogate self-comparison.
 - Independent PDE evidence is additive.
 - Final evaluation is one-shot and cannot feed another development iteration under the same claim.
 
-Once the current exploratory Greek phase is complete and the remaining open questions are resolved, this review candidate should be converted into the committed Architecture Freeze v2.3 before the v2 dataset is generated or the v2 training campaign begins.
+These principles are committed. The remaining open questions above are resolved during the exploratory Phase 0 and the Phase 1 protocol freeze; none of them reopens a principle in this section, and none may be resolved by observing how a model performs.
